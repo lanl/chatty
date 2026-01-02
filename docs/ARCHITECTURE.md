@@ -163,6 +163,30 @@ timeout_s = 60
 - TOML format chosen for consistency with Python ecosystem (`pyproject.toml`)
 - `api_key` and `api_key_file` contents never appear in `__repr__` or logs
 
+**Environment Variable Mapping:**
+
+| TOML Key | Env Var | Notes |
+|----------|---------|-------|
+| `base_url` | `OPENAI_BASE_URL` | OpenAI convention |
+| `api_key` | `OPENAI_API_KEY` | ⚠️ Laptop only, not for HPC |
+| `api_key_file` | `CHATTY_API_KEY_FILE` | **HPC preferred** |
+| `model` | `CHATTY_MODEL` | |
+| `ca_bundle` | `CHATTY_CA_BUNDLE` | |
+| `verify_tls` | `CHATTY_VERIFY_TLS` | |
+| `http_proxy` | `HTTPS_PROXY` | Standard proxy var |
+| `no_proxy` | `NO_PROXY` | Standard proxy var |
+| `temperature` | `CHATTY_TEMPERATURE` | |
+| `stream` | `CHATTY_STREAM` | |
+| `system_prompt` | `CHATTY_SYSTEM_PROMPT` | |
+| `timeout_s` | `CHATTY_TIMEOUT` | |
+
+**Naming convention:**
+- OpenAI-standard names: `OPENAI_BASE_URL`, `OPENAI_API_KEY`
+- chatty-specific settings: `CHATTY_*`
+- System standards: `HTTPS_PROXY`, `NO_PROXY`
+
+Both TOML keys and env vars work for all settings—pydantic-settings handles the mapping.
+
 **Secure API Key Handling:**
 ```python
 def get_api_key(config) -> str:
@@ -616,6 +640,29 @@ def doctor(verbose: bool = False):
 5. **Verify endpoint supports `/chat/completions`** (single-turn test request)
 
 If step 5 returns 404 or unexpected schema, doctor fails with exit code 4.
+
+**`doctor` Output (source attribution):**
+
+Doctor shows **which source provided each config value** without exposing secrets:
+
+```
+$ chatty doctor
+Configuration:
+  ✓ base_url: https://llm.internal/v1 (from: config.toml)
+  ✓ api_key: ******** (from: api_key_file → /secure/path/key)
+  ✓ model: gpt-4.1 (from: env CHATTY_MODEL)
+  ✓ ca_bundle: /etc/pki/ca.pem (from: config.toml)
+  ✓ stream: true (from: default)
+
+Connectivity:
+  ✓ TLS handshake successful
+  ✓ Authentication valid
+  ✓ Endpoint supports /chat/completions
+
+All checks passed.
+```
+
+Source attribution helps debug "works on laptop, fails in container" issues by revealing whether a value came from env var, config file, or default.
 
 **`doctor` Exit Codes:**
 | Code | Meaning |
