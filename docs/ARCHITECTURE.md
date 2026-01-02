@@ -104,9 +104,15 @@ uv pip download -r requirements.lock -d wheelhouse/
 
 **On air-gapped machine:**
 ```bash
+# Create project venv if it doesn't exist
+uv venv
+
 # Install from local wheelhouse (no network)
+# NOTE: uv pip install operates on the project's .venv, not system Python
 uv pip install --no-index --find-links=wheelhouse/ -r requirements.lock
 ```
+
+**Important:** `uv pip install` operates on the project's virtual environment (`.venv/`), not system Python. If no venv exists, run `uv venv` first.
 
 **Scripts provided:**
 - `scripts/build-wheelhouse.sh` — Automates wheelhouse creation
@@ -178,6 +184,8 @@ def get_api_key(config) -> str:
 ### `chatty/client/openai_client.py`
 
 Async HTTP client for OpenAI-compatible APIs.
+
+**API Dialect:** chatty targets the **OpenAI `/v1/chat/completions` endpoint** with SSE streaming. This is the standard chat completions API. Responses API, Azure OpenAI variants, and other dialects are **not supported**.
 
 **Responsibilities:**
 - POST to `/chat/completions` with proper headers
@@ -255,18 +263,38 @@ In-memory conversation state management.
 - System prompt is prepended but not stored in editable history
 - Immutable message objects (new list on mutation)
 
-**Token Counting (prefer server-reported):**
+**Token Counting (graceful degradation):**
+
+tiktoken is an **optional dependency**. It may fail to install on constrained HPC systems (binary wheels, platform support). Token counting degrades gracefully:
+
 ```python
-def update_token_count(self, response: dict):
-    """Update token count from API response (authoritative) or estimate."""
-    if "usage" in response:
-        # Server-reported is authoritative (model-specific tokenization)
-        self.total_tokens = response["usage"]["total_tokens"]
-        self.prompt_tokens = response["usage"]["prompt_tokens"]
+# chatty/core/conversation.py
+try:
+    import tiktoken
+    TIKTOKEN_AVAILABLE = True
+except ImportError:
+    TIKTOKEN_AVAILABLE = False
+
+def get_token_display(self) -> str:
+    """Get token count for status bar display."""
+    if self.server_reported_tokens is not None:
+        # Server-reported is authoritative
+        return f"{self.server_reported_tokens // 1000}K tokens"
+    elif TIKTOKEN_AVAILABLE:
+        # Estimate with tiktoken
+        estimate = tiktoken_estimate(self.messages)
+        return f"~{estimate // 1000}K tokens (est)"
     else:
-        # Fallback to tiktoken estimate (may differ from actual)
-        self.total_tokens = tiktoken_estimate(self.messages)
+        # No token counting available
+        return "usage unknown"
 ```
+
+**Behavior by scenario:**
+| Server returns `usage` | tiktoken available | Status bar shows |
+|------------------------|-------------------|------------------|
+| Yes | - | "12K tokens" |
+| No | Yes | "~12K tokens (est)" |
+| No | No | "usage unknown" |
 
 **Context Management:**
 - `Ctrl+K` triggers context compression (LLM summarizes conversation history)
@@ -483,8 +511,10 @@ Textual application and widgets.
 - **Response time** — "Generated in 3.2s" shown after each response
 - **Timestamps** — Optional, configurable per message
 
-**Clipboard Handling (headless-aware):**
+**Clipboard Handling (headless-aware, secure):**
 ```python
+import uuid
+
 def copy_to_clipboard(text: str) -> str:
     """Copy text to clipboard, with fallback for headless HPC nodes."""
     try:
@@ -492,13 +522,18 @@ def copy_to_clipboard(text: str) -> str:
         pyperclip.copy(text)
         return "Copied to clipboard"
     except Exception:
-        # Headless fallback: write to temp file
-        path = Path(f"/tmp/chatty-clip-{int(time.time())}.txt")
+        # Headless fallback: write to temp file with secure perms
+        # Use random filename (no content hints, no timestamps)
+        path = Path(f"/tmp/chatty-export-{uuid.uuid4().hex[:8]}.txt")
         path.write_text(text)
+        path.chmod(0o600)  # Owner read/write only
         return f"Clipboard unavailable. Saved to {path}"
 ```
 
-On HPC login nodes without X11/Wayland, clipboard fails. The fallback writes to a timestamped file in `/tmp` and notifies the user.
+On HPC login nodes without X11/Wayland, clipboard fails. The fallback:
+- Uses random UUID in filename (no content hints or predictable timestamps)
+- Sets file permissions to 600 (owner read/write only)
+- Notifies user of file location
 
 **Keyboard Bindings (v0.1):**
 | Key | Action |
@@ -573,6 +608,15 @@ def doctor(verbose: bool = False):
 | `chatty doctor` | Run connectivity diagnostics | Calls `diagnostics.run_doctor()` |
 | `chatty print-config` | Show resolved config (redacted) | Calls `config.display()` |
 
+**`doctor` Checks:**
+1. Validate required config (base_url, api_key/api_key_file)
+2. Check CA bundle exists (if specified)
+3. Test TLS handshake with endpoint
+4. Authenticate with API key
+5. **Verify endpoint supports `/chat/completions`** (single-turn test request)
+
+If step 5 returns 404 or unexpected schema, doctor fails with exit code 4.
+
 **`doctor` Exit Codes:**
 | Code | Meaning |
 |------|---------|
@@ -580,7 +624,7 @@ def doctor(verbose: bool = False):
 | 1 | Missing required config (base_url, api_key) |
 | 2 | Authentication failure |
 | 3 | Network/TLS failure |
-| 4 | API incompatibility |
+| 4 | API incompatibility (endpoint does not support `/chat/completions`) |
 
 ## Data Flow
 
@@ -866,20 +910,30 @@ ch-convert -i docker chatty-litkit:latest chatty-litkit.sqfs
 
 **Running on HPC:**
 ```bash
-# Interactive
+# Interactive (single-user laptop—env var OK)
 ch-run chatty-litkit.sqfs -- chatty chat
 
-# With custom config via environment
-ch-run -b /path/to/workspace:/opt/litkit/workspace \
+# On shared HPC: bind-mount api_key_file (NOT env var)
+ch-run -b /secure/path/chatty-api-key:/secrets/api-key:ro \
+       -b /path/to/workspace:/opt/litkit/workspace \
+       --set-env=CHATTY_API_KEY_FILE=/secrets/api-key \
        --set-env=OPENAI_BASE_URL=https://internal-llm/v1 \
        chatty-litkit.sqfs -- chatty chat
 ```
 
-**Environment variables for HPC:**
+**Configuration for containers:**
+| Method | When to use | Example |
+|--------|-------------|---------|
+| `api_key_file` bind-mount | **Shared HPC (required)** | `-b /secure/key:/secrets/api-key:ro` + `CHATTY_API_KEY_FILE=/secrets/api-key` |
+| `OPENAI_API_KEY` env var | Single-user laptop only | `--set-env=OPENAI_API_KEY=...` |
+
+**⚠️ Do NOT use `OPENAI_API_KEY` environment variable on shared HPC systems.** It appears in `/proc`, job logs, and `ps` output. Use `api_key_file` bind-mount instead.
+
+**Other environment variables:**
 | Variable | Purpose |
 |----------|---------|
 | `OPENAI_BASE_URL` | LLM endpoint URL |
-| `OPENAI_API_KEY` | Authentication token |
+| `CHATTY_API_KEY_FILE` | Path to API key file inside container |
 | `LITKIT_WORKSPACE` | Path to indices/DB inside container |
 | `HF_HOME` | Hugging Face cache (for embedding models) |
 
@@ -898,10 +952,10 @@ ch-run -b /path/to/workspace:/opt/litkit/workspace \
 - `pydantic-settings>=2.0` — Environment variable binding
 - `typer>=0.9` — CLI framework
 - `rich>=13.0` — Terminal formatting (Textual dependency)
-- `tiktoken>=0.5` — Token counting for context window tracking
 
-### Optional (v0.3+)
-- `litkit` — RAG retrieval (imports conditionally)
+### Optional
+- `tiktoken>=0.5` — Token counting (graceful degradation if unavailable)
+- `litkit` — RAG retrieval (v0.3+, imports conditionally)
 
 ### Development
 - `pytest>=7.0`
