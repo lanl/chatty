@@ -38,6 +38,8 @@ export OPENAI_API_KEY="your-api-key"
 export CHATTY_MODEL="gpt-4.1"  # optional
 ```
 
+> **Note:** Environment variables are fine for personal laptops. On shared systems (HPC, servers), use `api_key_file` instead—see HPC section below.
+
 Or create `~/.config/chatty/config.toml`:
 
 ```toml
@@ -97,7 +99,6 @@ chatty print-config
 | `Ctrl+T` | Toggle streaming |
 | `Ctrl+R` | Regenerate last response |
 | `Ctrl+O` | Load query from file |
-| `Ctrl+K` | Compress context |
 | `Ctrl+N` | New session |
 | `Ctrl+Y` | Copy message to clipboard |
 | `Esc` | Cancel generation |
@@ -106,7 +107,6 @@ chatty print-config
 
 - **Markdown rendering** with syntax-highlighted code blocks
 - **Context tracking** — status bar shows token usage (e.g., "12K / 128K")
-- **Context compression** — LLM summarizes history when context fills up
 - **File loading** — load long queries from files (`Ctrl+O` or `--query-file`)
 - **Streaming** — real-time token display with cancellation support
 - **Offline-friendly** — works without RAG (v0.1), graceful errors with RAG (v0.3+)

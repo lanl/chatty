@@ -297,8 +297,8 @@ def get_token_display(self) -> str:
 | No | No | "usage unknown" |
 
 **Context Management:**
-- `Ctrl+K` triggers context compression (LLM summarizes conversation history)
-- Manual "New Session" option to start fresh
+- `Ctrl+N` triggers new session (clear history)
+- Context compression deferred to v0.2 (with guardrails: preview, undo, never auto-compress)
 - API response `usage` field is preferred over tiktoken estimates (models tokenize differently)
 
 ### `chatty/core/query_rewriter.py` (v0.3+)
@@ -542,7 +542,6 @@ On HPC login nodes without X11/Wayland, clipboard fails. The fallback:
 | `Ctrl+T` | Toggle streaming mode |
 | `Ctrl+R` | Regenerate last response |
 | `Ctrl+O` | Load query from file |
-| `Ctrl+K` | Compress context (summarize history) |
 | `Ctrl+N` | New session (clear history) |
 | `Ctrl+Y` | Copy last message to clipboard (or file fallback) |
 | `Esc` | Cancel current generation |
@@ -554,6 +553,7 @@ On HPC login nodes without X11/Wayland, clipboard fails. The fallback:
 | `Ctrl+F` | Search conversation |
 | `Ctrl+B` | Toggle bookmark on message |
 | `Ctrl+Z` | Undo last exchange |
+| `Ctrl+K` | Compress context (with preview) |
 
 **Keyboard Bindings (v0.3):**
 | Key | Action |
