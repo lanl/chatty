@@ -30,6 +30,7 @@ base_url = "https://your-endpoint/v1"
 model = "gpt-4.1"
 temperature = 0.2
 stream = true
+system_prompt = "You are a helpful assistant."
 ```
 
 ## Usage
@@ -37,6 +38,9 @@ stream = true
 ```bash
 # Start the chat UI
 chatty chat
+
+# Start with a query file (for long committee queries)
+chatty chat --query-file committee-query.txt
 
 # Test connectivity and configuration
 chatty doctor
@@ -52,7 +56,20 @@ chatty print-config
 | `Ctrl+C` | Quit |
 | `Ctrl+T` | Toggle streaming |
 | `Ctrl+R` | Regenerate last response |
+| `Ctrl+O` | Load query from file |
+| `Ctrl+K` | Compress context |
+| `Ctrl+N` | New session |
+| `Ctrl+Y` | Copy message to clipboard |
 | `Esc` | Cancel generation |
+
+## Features
+
+- **Markdown rendering** with syntax-highlighted code blocks
+- **Context tracking** — status bar shows token usage (e.g., "12K / 128K")
+- **Context compression** — LLM summarizes history when context fills up
+- **File loading** — load long queries from files (`Ctrl+O` or `--query-file`)
+- **Streaming** — real-time token display with cancellation support
+- **Offline-friendly** — works without RAG (v0.1), graceful errors with RAG (v0.3+)
 
 ## Development
 

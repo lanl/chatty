@@ -1,5 +1,23 @@
 # Architecture
 
+## Scope
+
+**chatty is the query interface** for interacting with a pre-built corpus. It enables operators to:
+- Chat with an LLM (with or without RAG)
+- Load and submit queries
+- Inspect retrieved context
+- Manage conversation sessions
+
+**Explicitly out of scope:**
+- Corpus building/indexing (handled by `litkit` CLI)
+- PDF conversion to JATS XML (handled by `text-fetch` + GROBID)
+- SLURM job orchestration for HPC builds
+- Any modification to the vector store
+
+chatty expects a pre-built index to exist. If the index is missing, chatty displays an actionable error with instructions for building it via litkit—but does not attempt to build it.
+
+A separate build UI may be developed in a future project.
+
 ## Overview
 
 ```
@@ -21,30 +39,53 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Core Layer                                   │
 │  ┌───────────────────┐  ┌───────────────────┐                   │
-│  │ Conversation      │  │ RAGProvider       │                   │
-│  │ (message history) │  │ (NullProvider v0.1│                   │
-│  │                   │  │  LitkitProvider   │                   │
-│  │                   │  │  later)           │                   │
+│  │ Conversation      │  │ QueryRewriter     │                   │
+│  │ (message history) │  │ (v0.3+)           │                   │
 │  └───────────────────┘  └───────────────────┘                   │
-└─────────────────────────────────────────────────────────────────┘
-                                 │
-                                 ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Client Layer                                 │
 │  ┌───────────────────────────────────────────────────────────┐  │
-│  │ OpenAIClient (httpx + httpx-sse)                          │  │
-│  │ - chat(messages, stream) → response | async iterator      │  │
-│  │ - models() → list                                         │  │
+│  │ RAGProvider (NullProvider v0.1 | LitkitProvider v0.3)     │  │
 │  └───────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
                                  │
-                                 ▼
-                    ┌─────────────────────┐
-                    │ OpenAI-compatible   │
-                    │ Endpoint            │
-                    │ (institutional API) │
-                    └─────────────────────┘
+                    ┌────────────┴────────────┐
+                    ▼                         ▼
+┌─────────────────────────────┐  ┌─────────────────────────────┐
+│      Client Layer           │  │    litkit (optional, v0.3)  │
+│  ┌───────────────────────┐  │  │  ┌───────────────────────┐  │
+│  │ OpenAIClient          │  │  │  │ shortlist_papers()    │  │
+│  │ (httpx + httpx-sse)   │  │  │  │ search_chunks_constr..│  │
+│  │ - chat(messages)      │  │  │  │ get_chunks()          │  │
+│  │ - models()            │  │  │  └───────────────────────┘  │
+│  └───────────────────────┘  │  └─────────────────────────────┘
+└─────────────────────────────┘
+                    │
+                    ▼
+       ┌─────────────────────┐
+       │ OpenAI-compatible   │
+       │ Endpoint            │
+       │ (institutional API) │
+       └─────────────────────┘
 ```
+
+## Package Management
+
+**uv is the only supported package manager.** No pip, poetry, or pip-tools.
+
+```bash
+# Install dependencies
+uv sync
+
+# Add a dependency
+uv add httpx
+
+# Add a dev dependency
+uv add --dev pytest
+
+# Run a command in the venv
+uv run chatty chat
+```
+
+This simplifies the toolchain and ensures reproducible builds across laptop and HPC.
 
 ## Module Breakdown
 
@@ -101,14 +142,89 @@ In-memory conversation state management.
 
 **Responsibilities:**
 - Store messages in OpenAI schema format (`role`, `content`)
-- Truncate history when approaching context limits
 - Provide iteration/serialization for API calls and logging
+- Track token usage and context window utilization
 
 **Key Design Decisions:**
-- v0.1: Simple message count limit (configurable, e.g., last 50 messages)
-- v0.2+: Token-aware truncation with `tiktoken`
+- Token counting via `tiktoken` for accurate context window tracking
+- Status bar displays context usage (e.g., "12K / 128K tokens")
+- Warning when approaching 80% of context window
 - System prompt is prepended but not stored in editable history
 - Immutable message objects (new list on mutation)
+
+**Context Management:**
+- `Ctrl+K` triggers context compression (LLM summarizes conversation history)
+- Manual "New Session" option to start fresh
+- API response `usage` field provides actual token counts post-request
+
+### `chatty/core/query_rewriter.py` (v0.3+)
+
+LLM-based query rewriting for RAG.
+
+**Problem:** litkit's retrieval is single-query—it has no conversation memory. Multi-turn chat like:
+```
+User: Tell me about HIV treatments
+Assistant: [response about HIV treatments]
+User: What about the side effects?
+```
+...fails because "What about the side effects?" doesn't mention HIV.
+
+**Solution:** Before calling litkit, rewrite the user's message as a standalone query:
+```
+"What about the side effects?" → "What are the side effects of HIV treatments?"
+```
+
+**Interface:**
+```python
+class QueryRewriter:
+    def __init__(self, client: OpenAIClient):
+        self.client = client
+
+    async def rewrite(
+        self,
+        conversation: Conversation,
+        user_text: str
+    ) -> str:
+        """
+        Given conversation history and new user input,
+        return a standalone query suitable for RAG retrieval.
+        """
+        ...
+```
+
+**Implementation:**
+```python
+REWRITE_PROMPT = """Given the conversation history below, rewrite the user's latest message as a standalone question that captures all necessary context.
+
+Conversation:
+{history}
+
+Latest message: {user_text}
+
+Rewritten standalone question:"""
+```
+
+**Conditional Rewriting:**
+
+Long queries (committee-written, 1-2 pages) are already self-contained. Short follow-ups need context.
+
+```python
+LONG_QUERY_THRESHOLD = 800  # ~200 tokens ≈ 800 chars
+
+async def augment(self, conversation, user_text):
+    if len(user_text) > LONG_QUERY_THRESHOLD:
+        query = user_text  # Already standalone, skip rewriting
+    else:
+        query = await self.rewriter.rewrite(conversation, user_text)
+    ...
+```
+
+**Key Design Decisions:**
+- Uses the same LLM endpoint as chat (no separate config)
+- Short prompt, short response (~50-100 tokens total)
+- Non-streaming for simplicity (latency acceptable)
+- Falls back to original query on error
+- Long queries (> 800 chars) skip rewriting—assumed self-contained
 
 ### `chatty/core/rendering.py`
 
@@ -116,7 +232,7 @@ Output formatting and display utilities.
 
 **Responsibilities:**
 - Format assistant messages for display
-- v0.2+: Render citations and source metadata
+- v0.3+: Render citations and source metadata from RAG
 
 **Key Design Decisions:**
 - Separating rendering from conversation keeps concerns clean
@@ -152,6 +268,75 @@ class NullProvider:
         return messages, RAGMetadata(sources=[])
 ```
 
+### `chatty/rag/litkit_provider.py` (v0.3+)
+
+litkit integration for corpus-grounded responses.
+
+**Responsibilities:**
+- Rewrite multi-turn queries to standalone form
+- Call litkit retrieval functions
+- Inject retrieved context into messages
+- Return source metadata for citation rendering
+- Surface explicit errors (no silent fallbacks)
+
+**Error Handling (Explicit, Actionable):**
+```python
+# Index not found
+LitkitError: "FAISS index not found at /path/to/indices. Run `litkit --build-only`."
+
+# Database not found  
+LitkitError: "SQLite database not found at /path/to/db. Index may be corrupted."
+
+# litkit not installed (when rag_provider="litkit")
+ConfigError: "litkit package not installed. Run `uv add litkit` or set `rag_provider = none`."
+```
+
+All errors appear inline as styled message cards—never silent fallback to non-RAG mode.
+
+**Inspect Mode (v0.3):**
+Operators can preview retrieved context before LLM generation:
+- `Ctrl+I` toggles inspect mode — queries run retrieval only, no LLM call
+- Retrieved context display shows document title, relevance score, snippet
+- From inspect view: `Enter` proceeds to LLM, `Esc` cancels to refine query
+- `Ctrl+G` after normal response shows what context was injected
+
+**Interface:**
+```python
+class LitkitProvider:
+    def __init__(self, client: OpenAIClient, rewriter: QueryRewriter):
+        self.client = client
+        self.rewriter = rewriter
+
+    async def augment(self, conversation, user_text):
+        # 1. Rewrite query for RAG
+        standalone_query = await self.rewriter.rewrite(conversation, user_text)
+        
+        # 2. Call litkit (sync functions, run in thread pool)
+        docs = await asyncio.to_thread(self._retrieve, standalone_query)
+        
+        # 3. Build augmented messages with context
+        augmented = self._inject_context(conversation, user_text, docs)
+        
+        return augmented, RAGMetadata(sources=docs)
+    
+    def _retrieve(self, query: str) -> list[Document]:
+        """Sync wrapper around litkit retrieval."""
+        from litkit.cli import shortlist_papers, search_chunks_constrained, get_chunks
+        from litkit.db import connect_db
+        
+        papers = shortlist_papers(query, k=500)
+        chunk_ids, _ = search_chunks_constrained(query, papers, k=30)
+        conn = connect_db(DB_PATH)
+        return get_chunks(conn, chunk_ids)
+```
+
+**Key Design Decisions:**
+- litkit is an **optional dependency**—chatty works without it
+- litkit functions are sync; we run them in `asyncio.to_thread()` to avoid blocking the UI
+- Query rewriting happens in chatty (async, streaming-capable) not litkit
+- LLM calls stay in chatty's client (streaming, better UX)
+- litkit only provides retrieval: `shortlist_papers()`, `search_chunks_constrained()`, `get_chunks()`
+
 ### `chatty/ui/app.py`
 
 Textual application and widgets.
@@ -169,13 +354,45 @@ Textual application and widgets.
 - Status bar shows: model name, streaming on/off, connection status
 - Error messages appear as styled message cards in chat log
 
-**Keyboard Bindings:**
+**Input Methods:**
+- **Type** — Direct text input for short queries and follow-ups
+- **Paste** — Multi-line paste for medium-length queries
+- **Load from file** — `Ctrl+O` opens file path prompt for long committee queries
+- **CLI argument** — `--query-file` for scripted/reproducible sessions
+
+**Visual Features:**
+- **Markdown rendering** — Headers, lists, code blocks with syntax highlighting (via Rich)
+- **Color-coded messages** — User (blue), Assistant (green), System (gray)
+- **"Thinking..." spinner** — Animated with elapsed time while awaiting response
+- **Response time** — "Generated in 3.2s" shown after each response
+- **Timestamps** — Optional, configurable per message
+
+**Keyboard Bindings (v0.1):**
 | Key | Action |
 |-----|--------|
 | `Ctrl+C` | Quit (clean shutdown) |
 | `Ctrl+T` | Toggle streaming mode |
 | `Ctrl+R` | Regenerate last response |
+| `Ctrl+O` | Load query from file |
+| `Ctrl+K` | Compress context (summarize history) |
+| `Ctrl+N` | New session (clear history) |
+| `Ctrl+Y` | Copy last message to clipboard |
 | `Esc` | Cancel current generation |
+
+**Keyboard Bindings (v0.2):**
+| Key | Action |
+|-----|--------|
+| `Ctrl+S` | Save session |
+| `Ctrl+F` | Search conversation |
+| `Ctrl+B` | Toggle bookmark on message |
+| `Ctrl+Z` | Undo last exchange |
+
+**Keyboard Bindings (v0.3):**
+| Key | Action |
+|-----|--------|
+| `Ctrl+I` | Toggle inspect mode (retrieval only) |
+| `Ctrl+G` | View retrieved context for last response |
+| `Shift+Enter` | Submit in inspect mode (one-time) |
 
 ### `chatty/cli.py`
 
@@ -200,17 +417,34 @@ Typer-based CLI entrypoint.
 
 ## Data Flow
 
-### Standard Chat Flow
+### Standard Chat Flow (v0.1)
 
 ```
 1. User types message in Input widget
 2. UI calls RAGProvider.augment(conversation, user_text)
-   - v0.1: NullProvider returns messages unchanged
+   - NullProvider returns messages unchanged
 3. UI calls OpenAIClient.chat(messages, stream=True)
 4. Client yields tokens via SSE
 5. UI appends tokens to ChatLog
 6. On completion, Conversation stores full assistant message
 7. Optional: Write to transcript JSONL
+```
+
+### RAG-Augmented Flow (v0.3)
+
+```
+1. User types message in Input widget
+2. UI calls LitkitProvider.augment(conversation, user_text)
+   a. QueryRewriter rewrites to standalone query
+   b. litkit retrieves relevant documents
+   c. Context injected into messages
+3. UI calls OpenAIClient.chat(augmented_messages, stream=True)
+4. Client yields tokens via SSE
+5. UI appends tokens to ChatLog (with citation markers)
+6. On completion:
+   - Conversation stores full assistant message
+   - Rendering displays citations from RAGMetadata
+7. Optional: Write to transcript JSONL (includes sources)
 ```
 
 ### Streaming Cancellation
@@ -226,9 +460,9 @@ Typer-based CLI entrypoint.
 
 ### Adding a New RAG Provider
 
-1. Create `chatty/rag/litkit_provider.py`
+1. Create `chatty/rag/my_provider.py`
 2. Implement `RAGProvider` protocol
-3. Register in config: `rag_provider = "litkit"`
+3. Register in config: `rag_provider = "my_provider"`
 4. Provider factory in `chatty/rag/__init__.py` resolves at startup
 
 ### Adding New Commands
@@ -248,8 +482,67 @@ Typer-based CLI entrypoint.
 | Config | Unit tests with env var fixtures |
 | Client | `respx` to mock httpx, `pytest-asyncio` for async |
 | Conversation | Pure unit tests, no I/O |
+| QueryRewriter | Mock LLM responses, test prompt construction |
+| LitkitProvider | Mock litkit functions, test integration flow |
 | UI | `pytest-textual-snapshot` for regression testing |
 | Integration | Real endpoint in CI (optional, requires secrets) |
+
+## Deployment
+
+### Charliecloud Container (HPC)
+
+chatty + litkit are bundled in a single Charliecloud container for HPC deployment.
+
+**Why containers?**
+- **Reproducibility** — Same binary, same dependencies, same behavior
+- **Security** — Containers run with limited privileges; admins can audit contents
+- **Isolation** — No conflicts with system Python or other users
+- **Distribution** — Single .sqfs file transfers via sneakernet to air-gapped systems
+
+**Container structure:**
+```
+chatty-litkit.sqfs
+├── /opt/venv/           # uv-managed virtualenv
+│   ├── bin/chatty       # CLI entrypoint
+│   └── lib/python3.11/  # Dependencies
+├── /opt/litkit/         # litkit package + indices
+│   ├── workspace/       # FAISS indices, SQLite DB
+│   └── hf_home/         # Cached embedding models
+└── /etc/chatty/         # Default config (overridable)
+```
+
+**Building the container:**
+```bash
+# Build from Dockerfile
+docker build -t chatty-litkit:latest .
+
+# Convert to Charliecloud squashfs
+ch-convert -i docker chatty-litkit:latest chatty-litkit.sqfs
+```
+
+**Running on HPC:**
+```bash
+# Interactive
+ch-run chatty-litkit.sqfs -- chatty chat
+
+# With custom config via environment
+ch-run -b /path/to/workspace:/opt/litkit/workspace \
+       --set-env=OPENAI_BASE_URL=https://internal-llm/v1 \
+       chatty-litkit.sqfs -- chatty chat
+```
+
+**Environment variables for HPC:**
+| Variable | Purpose |
+|----------|---------|
+| `OPENAI_BASE_URL` | LLM endpoint URL |
+| `OPENAI_API_KEY` | Authentication token |
+| `LITKIT_WORKSPACE` | Path to indices/DB inside container |
+| `HF_HOME` | Hugging Face cache (for embedding models) |
+
+**Same image, different environments:**
+- **Networked HPC:** `OPENAI_BASE_URL=https://institutional-llm.internal/v1`
+- **Air-gapped HPC:** `OPENAI_BASE_URL=https://enclave-llm.local/v1`
+- **Laptop:** `OPENAI_BASE_URL=http://localhost:1234/v1` (LM Studio)
 
 ## Dependencies
 
@@ -261,6 +554,10 @@ Typer-based CLI entrypoint.
 - `pydantic-settings>=2.0` — Environment variable binding
 - `typer>=0.9` — CLI framework
 - `rich>=13.0` — Terminal formatting (Textual dependency)
+- `tiktoken>=0.5` — Token counting for context window tracking
+
+### Optional (v0.3+)
+- `litkit` — RAG retrieval (imports conditionally)
 
 ### Development
 - `pytest>=7.0`
