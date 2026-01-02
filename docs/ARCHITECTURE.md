@@ -71,6 +71,8 @@ A separate build UI may be developed in a future project.
 
 **uv is the only supported package manager.** No pip, poetry, or pip-tools.
 
+### Standard Install (Connected)
+
 ```bash
 # Install dependencies
 uv sync
@@ -85,7 +87,32 @@ uv add --dev pytest
 uv run chatty chat
 ```
 
-This simplifies the toolchain and ensures reproducible builds across laptop and HPC.
+### Offline Install (Air-Gapped HPC)
+
+For air-gapped systems where `uv sync` cannot reach PyPI:
+
+**On connected machine (build wheelhouse):**
+```bash
+# Generate locked requirements
+uv pip compile pyproject.toml -o requirements.lock
+
+# Download all wheels to transferable directory
+uv pip download -r requirements.lock -d wheelhouse/
+
+# Transfer wheelhouse/ via sneakernet (USB, scp, etc.)
+```
+
+**On air-gapped machine:**
+```bash
+# Install from local wheelhouse (no network)
+uv pip install --no-index --find-links=wheelhouse/ -r requirements.lock
+```
+
+**Scripts provided:**
+- `scripts/build-wheelhouse.sh` — Automates wheelhouse creation
+- `scripts/install-offline.sh` — Installs from wheelhouse
+
+This is the pre-container offline story. For full air-gap deployment, use the Charliecloud container (v0.4+).
 
 ## Module Breakdown
 
@@ -99,11 +126,54 @@ Pydantic Settings class handling configuration from multiple sources.
 - Redact secrets for logging/display
 - Provide typed access to all settings
 
+**Key Config Options:**
+```toml
+# ~/.config/chatty/config.toml
+
+# === LLM Endpoint ===
+base_url = "https://institutional-llm.internal/v1"
+model = "gpt-4.1"
+
+# === Authentication (use api_key_file on HPC, not api_key) ===
+api_key_file = "/secure/path/chatty-api-key"  # chmod 600, preferred on HPC
+# api_key = ""                                 # NOT recommended on shared systems
+
+# === Network / TLS (critical for institutional endpoints) ===
+ca_bundle = "/etc/pki/tls/certs/institutional-ca.pem"  # or "system" (default)
+verify_tls = true                                       # default true; false only for dev
+http_proxy = ""                                         # or set HTTPS_PROXY env
+no_proxy = "localhost,127.0.0.1"                        # bypass proxy for these
+
+# === Behavior ===
+temperature = 0.2
+stream = true
+system_prompt = "You are a helpful assistant."
+timeout_s = 60
+```
+
 **Key Design Decisions:**
 - Precedence: CLI > env vars > config file > defaults
 - Uses `pydantic-settings` for environment variable binding
 - TOML format chosen for consistency with Python ecosystem (`pyproject.toml`)
-- `api_key` never appears in `__repr__` or logs
+- `api_key` and `api_key_file` contents never appear in `__repr__` or logs
+
+**Secure API Key Handling:**
+```python
+def get_api_key(config) -> str:
+    """Load API key from file (preferred) or direct config."""
+    if config.api_key_file:
+        path = Path(config.api_key_file)
+        # Fail if file is readable by group/others
+        if path.stat().st_mode & 0o077:
+            raise ConfigError(
+                f"{path} is readable by group/others. "
+                f"Run: chmod 600 {path}"
+            )
+        return path.read_text().strip()
+    return config.api_key
+```
+
+**HPC Best Practice:** Use `api_key_file` pointing to a `chmod 600` file. Avoid passing keys via environment variables on shared systems (they appear in shell history, job logs, `/proc`).
 
 ### `chatty/client/openai_client.py`
 
@@ -114,6 +184,7 @@ Async HTTP client for OpenAI-compatible APIs.
 - Handle streaming via SSE (Server-Sent Events)
 - Implement retry logic for transient failures
 - Surface errors with actionable context
+- Honor TLS/CA/proxy settings for institutional networks
 
 **Key Design Decisions:**
 - Uses `httpx.AsyncClient` for async HTTP
@@ -121,6 +192,26 @@ Async HTTP client for OpenAI-compatible APIs.
 - No Textual imports—pure async Python, testable in isolation
 - Exponential backoff on 429/5xx (max 2 retries)
 - Timeout configurable per-request
+
+**TLS/Proxy Configuration:**
+```python
+def _build_client(config: Config) -> httpx.AsyncClient:
+    """Build httpx client with institutional network settings."""
+    
+    # CA bundle: path to PEM file, or True for system default
+    verify = config.ca_bundle if config.ca_bundle else True
+    if config.verify_tls is False:
+        verify = False  # Only for controlled dev environments
+    
+    # Proxy: explicit config or fall back to HTTPS_PROXY env
+    proxies = config.http_proxy if config.http_proxy else None
+    
+    return httpx.AsyncClient(
+        verify=verify,
+        proxies=proxies,
+        timeout=httpx.Timeout(config.timeout_s),
+    )
+```
 
 **Interface:**
 ```python
@@ -136,6 +227,19 @@ class OpenAIClient:
         ...
 ```
 
+**Streaming Cancellation (robust cleanup):**
+```python
+async def chat_stream(self, messages):
+    """Stream tokens with proper cleanup on cancellation."""
+    async with self._client.stream("POST", url, json=payload) as response:
+        async for event in httpx_sse.aiter_sse(response):
+            yield event.data
+    # aclose() called automatically by context manager
+    # even if task is cancelled mid-stream
+```
+
+On `Esc`, the asyncio task is cancelled. The `async with` context manager ensures `response.aclose()` is called, preventing connection leaks.
+
 ### `chatty/core/conversation.py`
 
 In-memory conversation state management.
@@ -146,16 +250,28 @@ In-memory conversation state management.
 - Track token usage and context window utilization
 
 **Key Design Decisions:**
-- Token counting via `tiktoken` for accurate context window tracking
 - Status bar displays context usage (e.g., "12K / 128K tokens")
 - Warning when approaching 80% of context window
 - System prompt is prepended but not stored in editable history
 - Immutable message objects (new list on mutation)
 
+**Token Counting (prefer server-reported):**
+```python
+def update_token_count(self, response: dict):
+    """Update token count from API response (authoritative) or estimate."""
+    if "usage" in response:
+        # Server-reported is authoritative (model-specific tokenization)
+        self.total_tokens = response["usage"]["total_tokens"]
+        self.prompt_tokens = response["usage"]["prompt_tokens"]
+    else:
+        # Fallback to tiktoken estimate (may differ from actual)
+        self.total_tokens = tiktoken_estimate(self.messages)
+```
+
 **Context Management:**
 - `Ctrl+K` triggers context compression (LLM summarizes conversation history)
 - Manual "New Session" option to start fresh
-- API response `usage` field provides actual token counts post-request
+- API response `usage` field is preferred over tiktoken estimates (models tokenize differently)
 
 ### `chatty/core/query_rewriter.py` (v0.3+)
 
@@ -367,6 +483,23 @@ Textual application and widgets.
 - **Response time** — "Generated in 3.2s" shown after each response
 - **Timestamps** — Optional, configurable per message
 
+**Clipboard Handling (headless-aware):**
+```python
+def copy_to_clipboard(text: str) -> str:
+    """Copy text to clipboard, with fallback for headless HPC nodes."""
+    try:
+        import pyperclip
+        pyperclip.copy(text)
+        return "Copied to clipboard"
+    except Exception:
+        # Headless fallback: write to temp file
+        path = Path(f"/tmp/chatty-clip-{int(time.time())}.txt")
+        path.write_text(text)
+        return f"Clipboard unavailable. Saved to {path}"
+```
+
+On HPC login nodes without X11/Wayland, clipboard fails. The fallback writes to a timestamped file in `/tmp` and notifies the user.
+
 **Keyboard Bindings (v0.1):**
 | Key | Action |
 |-----|--------|
@@ -376,7 +509,7 @@ Textual application and widgets.
 | `Ctrl+O` | Load query from file |
 | `Ctrl+K` | Compress context (summarize history) |
 | `Ctrl+N` | New session (clear history) |
-| `Ctrl+Y` | Copy last message to clipboard |
+| `Ctrl+Y` | Copy last message to clipboard (or file fallback) |
 | `Esc` | Cancel current generation |
 
 **Keyboard Bindings (v0.2):**
