@@ -531,13 +531,47 @@ On HPC login nodes without X11/Wayland, clipboard fails. The fallback writes to 
 
 Typer-based CLI entrypoint.
 
+**Design Principle: Keep CLI Lean**
+
+`cli.py` is a **thin dispatcher**, not a logic container. It should:
+- Parse arguments and options
+- Load configuration
+- Call into other modules
+- Handle exit codes
+
+It should **NOT**:
+- Contain business logic
+- Have complex conditionals
+- Define data structures
+- Make HTTP calls directly
+
+**Target:** < 150 lines. If `cli.py` grows beyond this, logic should move to dedicated modules.
+
+**Pattern:**
+```python
+# cli.py — GOOD: thin dispatcher
+@app.command()
+def doctor(verbose: bool = False):
+    """Run connectivity diagnostics."""
+    config = load_config()
+    result = run_doctor(config, verbose=verbose)  # Logic lives in doctor.py
+    raise SystemExit(result.exit_code)
+
+# cli.py — BAD: bloated with logic
+@app.command()
+def doctor(verbose: bool = False):
+    config = load_config()
+    # 50 lines of HTTP calls, TLS checks, parsing...
+    # This belongs in a separate module
+```
+
 **Commands:**
 
-| Command | Description |
-|---------|-------------|
-| `chatty chat` | Launch the TUI (default) |
-| `chatty doctor` | Run connectivity diagnostics |
-| `chatty print-config` | Show resolved config (redacted) |
+| Command | Description | Implementation |
+|---------|-------------|----------------|
+| `chatty chat` | Launch the TUI (default) | Calls `ui.app.ChatApp().run()` |
+| `chatty doctor` | Run connectivity diagnostics | Calls `diagnostics.run_doctor()` |
+| `chatty print-config` | Show resolved config (redacted) | Calls `config.display()` |
 
 **`doctor` Exit Codes:**
 | Code | Meaning |
@@ -610,15 +644,192 @@ Typer-based CLI entrypoint.
 
 ## Testing Strategy
 
-| Layer | Test Approach |
-|-------|---------------|
-| Config | Unit tests with env var fixtures |
-| Client | `respx` to mock httpx, `pytest-asyncio` for async |
-| Conversation | Pure unit tests, no I/O |
-| QueryRewriter | Mock LLM responses, test prompt construction |
-| LitkitProvider | Mock litkit functions, test integration flow |
-| UI | `pytest-textual-snapshot` for regression testing |
-| Integration | Real endpoint in CI (optional, requires secrets) |
+### Philosophy
+
+- **Unit tests are mandatory** — every module has corresponding tests
+- **Mocking over real I/O** — tests must run without network, without LLM
+- **Fast feedback** — full test suite < 30 seconds
+- **CI-first** — tests run on every push; no "works on my machine"
+
+### Unit Tests
+
+| Module | Test File | What We Test | Mocking Strategy |
+|--------|-----------|--------------|------------------|
+| `config.py` | `test_config.py` | Env var loading, TOML parsing, precedence, defaults, secret redaction | `monkeypatch` for env vars, temp files for TOML |
+| `openai_client.py` | `test_client.py` | Request formatting, SSE parsing, retry logic, error handling, TLS config | `respx` to mock httpx responses |
+| `conversation.py` | `test_conversation.py` | Message storage, token counting, serialization, context limit warnings | Pure logic—no mocking needed |
+| `query_rewriter.py` | `test_rewriter.py` | Prompt construction, conditional rewriting (long vs short), fallback on error | Mock `OpenAIClient.chat()` |
+| `provider.py` | `test_provider.py` | `NullProvider` passthrough, `RAGProvider` protocol compliance | Pure logic |
+| `litkit_provider.py` | `test_litkit.py` | Query flow, context injection, error handling (missing index) | Mock `litkit` module imports |
+| `diagnostics.py` | `test_doctor.py` | Exit codes, TLS checks, auth failure detection | `respx` for HTTP, mock `ssl` for certs |
+
+**Example: Testing the Client**
+```python
+# tests/test_client.py
+import pytest
+import respx
+from httpx import Response
+
+@pytest.mark.asyncio
+async def test_chat_non_streaming():
+    """Non-streaming chat returns complete message."""
+    with respx.mock:
+        respx.post("https://api.test/v1/chat/completions").mock(
+            return_value=Response(200, json={
+                "choices": [{"message": {"content": "Hello!"}}],
+                "usage": {"total_tokens": 10}
+            })
+        )
+        client = OpenAIClient(config)
+        result = await client.chat(messages, stream=False)
+        assert result.content == "Hello!"
+
+@pytest.mark.asyncio
+async def test_retry_on_429():
+    """Client retries on rate limit with backoff."""
+    call_count = 0
+    def rate_limit_then_succeed(request):
+        nonlocal call_count
+        call_count += 1
+        if call_count < 2:
+            return Response(429, headers={"Retry-After": "1"})
+        return Response(200, json={"choices": [...]})
+    
+    with respx.mock:
+        respx.post(...).mock(side_effect=rate_limit_then_succeed)
+        result = await client.chat(messages)
+        assert call_count == 2
+```
+
+### UI Tests
+
+Textual provides snapshot testing via `pytest-textual-snapshot`:
+
+```python
+# tests/test_ui.py
+from textual.testing import AppTester
+
+async def test_initial_layout(snap_compare):
+    """UI renders correctly on startup."""
+    async with AppTester(ChatApp()) as tester:
+        await tester.wait_for_idle()
+        assert snap_compare(tester)
+
+async def test_message_display(snap_compare):
+    """Messages appear in chat log."""
+    async with AppTester(ChatApp()) as tester:
+        await tester.type("Hello")
+        await tester.press("enter")
+        await tester.wait_for_idle()
+        assert snap_compare(tester)
+```
+
+Snapshots are stored in `tests/snapshots/` and committed to git. Changes to UI require updating snapshots (`pytest --snapshot-update`).
+
+### Integration Tests
+
+Integration tests hit a real LLM endpoint. They are:
+- **Optional** — skipped unless `CHATTY_TEST_ENDPOINT` is set
+- **Slow** — run separately from unit tests (`pytest -m integration`)
+- **CI-gated** — require secrets; run in protected CI environment
+
+```python
+# tests/test_integration.py
+import pytest
+import os
+
+pytestmark = pytest.mark.integration
+
+@pytest.fixture
+def real_client():
+    if not os.environ.get("CHATTY_TEST_ENDPOINT"):
+        pytest.skip("No test endpoint configured")
+    return OpenAIClient(Config())
+
+@pytest.mark.asyncio
+async def test_real_chat(real_client):
+    """Smoke test against real endpoint."""
+    result = await real_client.chat([
+        {"role": "user", "content": "Say 'test' and nothing else."}
+    ], stream=False)
+    assert "test" in result.content.lower()
+
+@pytest.mark.asyncio
+async def test_real_streaming(real_client):
+    """Streaming works end-to-end."""
+    tokens = []
+    async for token in real_client.chat_stream([
+        {"role": "user", "content": "Count to 3."}
+    ]):
+        tokens.append(token)
+    assert len(tokens) > 1  # Multiple chunks received
+```
+
+### Test Organization
+
+```
+tests/
+├── conftest.py          # Shared fixtures (config, mock client)
+├── test_config.py       # Config loading, precedence, secrets
+├── test_client.py       # HTTP client, SSE, retry logic
+├── test_conversation.py # Message storage, token counting
+├── test_rewriter.py     # Query rewriting
+├── test_provider.py     # RAG provider protocol
+├── test_litkit.py       # litkit integration (mocked)
+├── test_doctor.py       # Diagnostics command
+├── test_ui.py           # Textual snapshot tests
+├── test_integration.py  # Real endpoint tests (optional)
+└── snapshots/           # UI snapshots (committed)
+```
+
+### Running Tests
+
+```bash
+# Run all unit tests (fast, no network)
+pytest
+
+# Run with coverage
+pytest --cov=chatty --cov-report=term-missing
+
+# Run only integration tests (requires endpoint)
+CHATTY_TEST_ENDPOINT=https://api.test/v1 pytest -m integration
+
+# Update UI snapshots after intentional changes
+pytest --snapshot-update
+
+# Run specific test file
+pytest tests/test_client.py -v
+```
+
+### CI Pipeline
+
+```yaml
+# .github/workflows/test.yml (or equivalent)
+jobs:
+  test:
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - run: uv sync --dev
+      - run: uv run pytest --cov=chatty
+      - run: uv run ruff check .
+      - run: uv run mypy src/chatty
+
+  integration:
+    if: github.ref == 'refs/heads/main'  # Only on main
+    secrets:
+      CHATTY_TEST_ENDPOINT: ${{ secrets.TEST_ENDPOINT }}
+      CHATTY_TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
+    steps:
+      - run: uv run pytest -m integration
+```
+
+### Coverage Target
+
+- **v0.1:** > 80% line coverage on core modules (config, client, conversation)
+- **v0.3:** > 70% overall (UI is harder to fully cover)
+
+Coverage reports are generated but not enforced as a gate—quality over metrics.
 
 ## Deployment
 
