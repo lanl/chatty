@@ -6,6 +6,7 @@ from typing import Annotated
 import typer
 
 from chatty.config import format_config_with_sources, load_config
+from chatty.diagnostics import format_doctor_result, run_doctor
 
 app = typer.Typer(
     name="chatty",
@@ -81,14 +82,16 @@ def doctor(
         bool,
         typer.Option("--verbose", "-v", help="Show detailed output"),
     ] = False,
+    skip_connectivity: Annotated[
+        bool,
+        typer.Option("--skip-connectivity", help="Skip network connectivity checks"),
+    ] = False,
 ) -> None:
     """Run connectivity diagnostics."""
     config_with_sources = load_config()
-    _ = config_with_sources  # Will be used when diagnostics are implemented
-    _ = verbose  # Will be used when diagnostics are implemented
-
-    # TODO: Implement diagnostics
-    typer.echo("Doctor not yet implemented")
+    result = run_doctor(config_with_sources, verbose=verbose, skip_connectivity=skip_connectivity)
+    typer.echo(format_doctor_result(result, verbose=verbose))
+    raise SystemExit(result.exit_code)
 
 
 @app.command(name="print-config")
