@@ -93,30 +93,30 @@ For air-gapped systems where `uv sync` cannot reach PyPI:
 
 **On connected machine (build wheelhouse):**
 ```bash
-# Generate locked requirements
-uv pip compile pyproject.toml -o requirements.lock
-
-# Download all wheels to transferable directory
-uv pip download -r requirements.lock -d wheelhouse/
-
-# Transfer wheelhouse/ via sneakernet (USB, scp, etc.)
+# Build wheelhouse (requires pip — uv doesn't have a download command yet)
+./scripts/build-wheelhouse.sh
 ```
+
+This generates `requirements.lock` and downloads all wheels to `wheelhouse/`.
+
+**Transfer to air-gapped machine:**
+- `wheelhouse/` directory
+- `requirements.lock`
+- `scripts/`, `src/`, `pyproject.toml`
 
 **On air-gapped machine:**
 ```bash
-# Create project venv if it doesn't exist
-uv venv
-
-# Install from local wheelhouse (no network)
-# NOTE: uv pip install operates on the project's .venv, not system Python
-uv pip install --no-index --find-links=wheelhouse/ -r requirements.lock
+# Install from local wheelhouse (no network required, uses only uv)
+./scripts/install-offline.sh
 ```
 
-**Important:** `uv pip install` operates on the project's virtual environment (`.venv/`), not system Python. If no venv exists, run `uv venv` first.
-
 **Scripts provided:**
-- `scripts/build-wheelhouse.sh` — Automates wheelhouse creation
-- `scripts/install-offline.sh` — Installs from wheelhouse
+- `scripts/build-wheelhouse.sh` — Downloads wheels (requires: uv, pip)
+- `scripts/install-offline.sh` — Installs from wheelhouse (requires: uv only)
+
+**Note:** The build script requires pip because uv does not yet have a `download` command. The install script uses only uv and does not require pip on the air-gapped machine.
+
+See `docs/DEVELOPER_GUIDE.md` for detailed instructions.
 
 This is the pre-container offline story. For full air-gap deployment, use the Charliecloud container (v0.4+).
 
