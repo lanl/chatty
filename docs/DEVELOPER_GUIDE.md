@@ -155,6 +155,34 @@ Run mypy for type checking:
 mypy src/chatty
 ```
 
+### Textual Async Patterns
+
+When working with Textual's async APIs, be aware of these patterns that mypy enforces:
+
+#### Workers: Pass Method References, Not Coroutines
+
+```python
+# ❌ WRONG — mypy error: unused-coroutine
+self.run_worker(self._send_message(), ...)
+
+# ✅ CORRECT — pass method reference, Textual invokes it
+self.run_worker(self._send_message, ...)
+```
+
+Textual's `run_worker()` accepts `Callable[[], Coroutine]` (a method reference) rather than a coroutine object. This lets Textual manage when to invoke and cancel the coroutine.
+
+#### Actions: Use post_message Instead of Calling Async Methods
+
+```python
+# ❌ WRONG — action_submit() returns unused coroutine
+input_widget.action_submit()
+
+# ✅ CORRECT — post the event through Textual's message queue
+self.post_message(Input.Submitted(input_widget, content))
+```
+
+Widget action methods like `action_submit()` are async. Calling them directly creates an unused coroutine. Instead, post the corresponding event through Textual's message queue.
+
 ## Development Workflow
 
 ### Making Changes
