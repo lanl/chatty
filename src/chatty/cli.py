@@ -69,11 +69,16 @@ def chat(
         cli_overrides["system_prompt"] = system_prompt
 
     config_with_sources = load_config(cli_overrides=cli_overrides)
-    _ = config_with_sources  # Will be used when UI is implemented
-    _ = query_file  # Will be used when UI is implemented
 
-    # TODO: Launch UI with config
-    typer.echo("Chat UI not yet implemented")
+    # Get query file path if provided
+    query_file_path: str | None = None
+    if query_file is not None:
+        query_file_path = query_file.name
+
+    # Launch the UI
+    from chatty.ui.app import main as run_chat_ui
+
+    run_chat_ui(query_file=query_file_path, config_with_sources=config_with_sources)
 
 
 @app.command()

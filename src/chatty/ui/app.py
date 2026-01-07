@@ -1,3 +1,4 @@
+# mypy: disable-error-code="unused-coroutine"
 """Textual application and widgets for chatty.
 
 This module implements the terminal UI using Textual. The app provides a
@@ -52,9 +53,26 @@ Key Design Decisions
     - Error display inline as styled message cards
 """
 
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, cast
+
 from textual.app import App, ComposeResult
-from textual.containers import Container, Vertical
+from textual.containers import Container, VerticalScroll
 from textual.widgets import Footer, Header, Input, Static
+from textual.worker import Worker
+
+from chatty.client.openai_client import (
+    ChattyClientError,
+    Message,
+    OpenAIClient,
+)
+from chatty.config import ConfigWithSources, load_config
+from chatty.core.conversation import Conversation
+
+if TYPE_CHECKING:
+    pass
 
 
 class ChatLog(Static):
@@ -89,10 +107,16 @@ class ChatLog(Static):
         Roles are mapped to human-readable names (user → "You", etc.).
 
         Args:
-            role: Message role ("user", "assistant", "system", or custom).
+            role: Message role ("user", "assistant", "system", "error", or custom).
             content: The message content (supports markdown).
         """
-        prefix = {"user": "You", "assistant": "Assistant", "system": "System"}.get(role, role)
+        prefix_map = {
+            "user": "You",
+            "assistant": "Assistant",
+            "system": "System",
+            "error": "⚠ Error",
+        }
+        prefix = prefix_map.get(role, role)
         self.messages.append(f"**{prefix}:** {content}")
         self.update("\n\n".join(self.messages))
 
@@ -113,6 +137,12 @@ class ChatLog(Static):
         self.messages = []
         self.update("")
 
+    def remove_last_message(self) -> None:
+        """Remove the last message (for regeneration)."""
+        if self.messages:
+            self.messages.pop()
+            self.update("\n\n".join(self.messages))
+
 
 class StatusBar(Static):
     """Widget to display status information in a single line.
@@ -128,15 +158,38 @@ class StatusBar(Static):
         - Thinking...: Waiting for LLM response
         - Streaming: Receiving tokens
         - Error: Last request failed
+        - Cancelled: User cancelled generation
     """
 
-    def __init__(self, id: str | None = None) -> None:  # noqa: A002
+    def __init__(
+        self,
+        id: str | None = None,  # noqa: A002
+        *,
+        model: str = "gpt-4.1",
+        streaming: bool = True,
+    ) -> None:
         """Initialize the status bar.
 
         Args:
             id: Optional DOM identifier for CSS styling and queries.
+            model: Initial model name to display.
+            streaming: Initial streaming mode.
         """
-        super().__init__("Ready | Model: gpt-4.1 | Stream: on", id=id)
+        super().__init__("", id=id)
+        self._status = "Ready"
+        self._model = model
+        self._streaming = streaming
+        self._tokens = ""
+        self._rebuild_display()
+
+    def _rebuild_display(self) -> None:
+        """Rebuild the status bar text from current state."""
+        parts = [self._status, f"Model: {self._model}"]
+        stream_str = "on" if self._streaming else "off"
+        parts.append(f"Stream: {stream_str}")
+        if self._tokens:
+            parts.append(self._tokens)
+        self.update(" | ".join(parts))
 
     def update_status(
         self,
@@ -156,8 +209,15 @@ class StatusBar(Static):
             streaming: Whether streaming is enabled
             tokens: Token usage string (e.g., "12K / 128K tokens")
         """
-        # TODO: Parse current state, update only changed values, rebuild string
-        pass
+        if status is not None:
+            self._status = status
+        if model is not None:
+            self._model = model
+        if streaming is not None:
+            self._streaming = streaming
+        if tokens is not None:
+            self._tokens = tokens
+        self._rebuild_display()
 
 
 class ChatApp(App[None]):
@@ -175,9 +235,11 @@ class ChatApp(App[None]):
     Attributes:
         query_file: Optional path to file containing initial query.
         streaming: Whether to stream responses (can be toggled).
-        config: Application configuration (set on mount).
-        client: OpenAI client instance (set on mount).
-        conversation: Current conversation state (set on mount).
+        config_with_sources: Full configuration with source tracking.
+        config: Application configuration.
+        client: OpenAI client instance.
+        conversation: Current conversation state.
+        current_worker: Currently running async worker (for cancellation).
 
     Class Attributes:
         TITLE: Application title shown in header.
@@ -196,16 +258,19 @@ class ChatApp(App[None]):
         grid-rows: 1fr auto auto;
     }
 
-    #chat-log {
+    #chat-container {
         height: 100%;
-        overflow-y: auto;
+    }
+
+    #chat-log {
+        height: auto;
         padding: 1;
-        border: solid green;
     }
 
     #input-container {
         height: auto;
         padding: 1;
+        border-top: solid $primary;
     }
 
     #status-bar {
@@ -231,40 +296,46 @@ class ChatApp(App[None]):
         ("escape", "cancel", "Cancel"),
     ]
 
-    def __init__(self, query_file: str | None = None) -> None:
+    def __init__(
+        self,
+        query_file: str | None = None,
+        config_with_sources: ConfigWithSources | None = None,
+    ) -> None:
         """Initialize the chat application.
 
         Args:
             query_file: Optional path to file containing initial query to load.
+            config_with_sources: Pre-loaded configuration (loads default if None).
         """
         super().__init__()
         self.query_file = query_file
-        self.streaming = True
-        # These will be initialized in on_mount() with actual config
-        # self.config = None
-        # self.client = None
-        # self.conversation = None
+        self.config_with_sources = config_with_sources or load_config()
+        self.config = self.config_with_sources.config
+        self.streaming = self.config.stream
+        self.client: OpenAIClient | None = None
+        self.conversation: Conversation | None = None
+        self.current_worker: Worker[None] | None = None
 
     def compose(self) -> ComposeResult:
         """Create the UI layout.
 
         Yields widgets in top-to-bottom order. The layout is:
         - Header: Shows app title
-        - Container with ChatLog: Main scrollable area for messages
-        - Vertical with Input: User text input area
+        - VerticalScroll with ChatLog: Main scrollable area for messages
+        - Container with Input: User text input area
         - StatusBar: Single-line status display
         - Footer: Shows available keyboard shortcuts
         """
         yield Header()
-        yield Container(
+        yield VerticalScroll(
             ChatLog(id="chat-log"),
             id="chat-container",
         )
-        yield Vertical(
+        yield Container(
             Input(placeholder="Type your message...", id="input"),
             id="input-container",
         )
-        yield StatusBar(id="status-bar")
+        yield StatusBar(id="status-bar", model=self.config.model, streaming=self.streaming)
         yield Footer()
 
     def on_mount(self) -> None:
@@ -272,17 +343,43 @@ class ChatApp(App[None]):
 
         Called when the app is fully loaded and ready. Sets up:
         - Initial focus on input widget
-        - Load config and create client
+        - Create OpenAI client
+        - Initialize conversation state
+        - Add system prompt if configured
         - Load query from file if provided
         """
         self.query_one("#input", Input).focus()
 
-        # TODO: Initialize config, client, and conversation
-        # self.config = load_config()
-        # self.client = OpenAIClient(self.config)
-        # self.conversation = Conversation()
+        # Initialize client and conversation
+        self.client = OpenAIClient(self.config)
+        self.conversation = Conversation()
 
-        # TODO: If query_file provided, load and submit it
+        # Add system prompt if configured
+        if self.config.system_prompt:
+            self.conversation.add_system_message(self.config.system_prompt)
+
+        # Update status bar with actual model
+        self.query_one("#status-bar", StatusBar).update_status(model=self.config.model)
+
+        # Load query from file if provided
+        if self.query_file:
+            self._load_and_submit_query_file()
+
+    def _load_and_submit_query_file(self) -> None:
+        """Load query from file and submit it."""
+        if not self.query_file:
+            return
+        try:
+            with open(self.query_file) as f:
+                content = f.read().strip()
+            if content:
+                # Simulate input submission
+                input_widget = self.query_one("#input", Input)
+                input_widget.value = content
+                input_widget.action_submit()
+        except Exception as e:
+            chat_log = self.query_one("#chat-log", ChatLog)
+            chat_log.add_message("error", f"Failed to load query file: {e}")
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle message submission from the input widget.
@@ -291,9 +388,8 @@ class ChatApp(App[None]):
         1. Validate input (non-empty)
         2. Add user message to chat log
         3. Clear input for next message
-        4. Call LLM (streaming or non-streaming)
-        5. Display response
-        6. Update conversation state
+        4. Start async worker for LLM call
+        5. Worker streams response to chat log
 
         Args:
             event: Input submission event containing the message text.
@@ -301,22 +397,100 @@ class ChatApp(App[None]):
         if not event.value.strip():
             return
 
+        user_message = event.value.strip()
         chat_log = self.query_one("#chat-log", ChatLog)
-        chat_log.add_message("user", event.value)
+
+        # Display user message
+        chat_log.add_message("user", user_message)
 
         # Clear input for next message
         event.input.value = ""
 
-        # TODO: Implement actual LLM integration
-        # 1. Update status to "Thinking..."
-        # 2. Add message to conversation
-        # 3. Call RAGProvider.augment()
-        # 4. Call client.chat() with streaming
-        # 5. Stream tokens to chat_log.append_to_last()
-        # 6. Update conversation with complete response
-        # 7. Update status bar with token count
+        # Add to conversation state
+        if self.conversation:
+            self.conversation.add_user_message(user_message)
 
-        chat_log.add_message("assistant", "Chat functionality not yet implemented.")
+        # Start async worker for LLM call (run_worker consumes the coroutine)
+        self.current_worker = self.run_worker(
+            self._send_message(),
+            exclusive=True,
+            name="send_message",
+        )
+
+    async def _send_message(self) -> None:  # noqa: C901
+        """Worker function for async LLM call.
+
+        Handles the complete workflow:
+        1. Update status to "Thinking..."
+        2. Call client.chat() with streaming or non-streaming
+        3. Stream tokens to chat log (if streaming)
+        4. Update conversation with complete response
+        5. Update status bar with token count
+        6. Handle errors gracefully
+        """
+        if not self.client or not self.conversation:
+            return
+
+        chat_log = self.query_one("#chat-log", ChatLog)
+        status_bar = self.query_one("#status-bar", StatusBar)
+
+        status_bar.update_status(status="Thinking...")
+
+        try:
+            # Get messages for API
+            messages = [Message(m.role, m.content) for m in self.conversation.messages]
+
+            if self.streaming:
+                # Streaming mode
+                status_bar.update_status(status="Streaming...")
+
+                # Add empty assistant message for streaming
+                chat_log.add_message("assistant", "")
+                response_content = ""
+
+                result = await self.client.chat(messages, stream=True)
+                stream = cast(AsyncIterator[str], result)
+
+                async for token in stream:
+                    chat_log.append_to_last(token)
+                    response_content += token
+                    # Scroll to bottom
+                    container = self.query_one("#chat-container", VerticalScroll)
+                    container.scroll_end(animate=False)
+
+                # Update conversation with complete response
+                self.conversation.add_assistant_message(response_content)
+
+            else:
+                # Non-streaming mode
+                from chatty.client.openai_client import AssistantMessage
+
+                result = await self.client.chat(messages, stream=False)
+                response = cast(AssistantMessage, result)
+
+                chat_log.add_message("assistant", response.content)
+                self.conversation.add_assistant_message(response.content, response.usage)
+
+                # Scroll to bottom
+                container = self.query_one("#chat-container", VerticalScroll)
+                container.scroll_end(animate=False)
+
+            # Update status with token count
+            status_bar.update_status(
+                status="Ready",
+                tokens=self.conversation.get_token_display(),
+            )
+
+        except ChattyClientError as e:
+            chat_log.add_message("error", str(e))
+            status_bar.update_status(status="Error")
+
+        except Exception as e:
+            chat_log.add_message("error", f"Unexpected error: {e}")
+            status_bar.update_status(status="Error")
+
+        finally:
+            self.current_worker = None
 
     def action_toggle_stream(self) -> None:
         """Toggle streaming mode on/off.
@@ -325,10 +499,7 @@ class ChatApp(App[None]):
         When off, the complete response is displayed at once.
         """
         self.streaming = not self.streaming
-        status = "on" if self.streaming else "off"
-        self.query_one("#status-bar", StatusBar).update(
-            f"Ready | Model: gpt-4.1 | Stream: {status}"
-        )
+        self.query_one("#status-bar", StatusBar).update_status(streaming=self.streaming)
 
     def action_regenerate(self) -> None:
         """Regenerate the last assistant response.
@@ -337,10 +508,7 @@ class ChatApp(App[None]):
         then re-sends the previous user message to get a new response.
         Useful when the response was unsatisfactory.
         """
-        # TODO: Implement regeneration
-        # 1. Remove last assistant message from conversation
-        # 2. Remove last message from chat log
-        # 3. Re-send previous user message
+        # TODO: Implement regeneration in Step 2
         pass
 
     def action_load_file(self) -> None:
@@ -349,10 +517,7 @@ class ChatApp(App[None]):
         Opens a file dialog (or prompts for path) to load a query file.
         Useful for long committee-written queries that are awkward to paste.
         """
-        # TODO: Implement file loading
-        # 1. Prompt for file path (or use file dialog)
-        # 2. Read file content
-        # 3. Submit as user message
+        # TODO: Implement file loading in Step 2
         pass
 
     def action_new_session(self) -> None:
@@ -364,9 +529,16 @@ class ChatApp(App[None]):
         chat_log = self.query_one("#chat-log", ChatLog)
         chat_log.clear_messages()
 
-        # TODO: Reset conversation state
-        # self.conversation.clear()
-        # Update status bar to show reset token count
+        if self.conversation:
+            self.conversation.clear()
+            # Re-add system prompt if configured
+            if self.config.system_prompt:
+                self.conversation.add_system_message(self.config.system_prompt)
+
+        self.query_one("#status-bar", StatusBar).update_status(
+            status="Ready",
+            tokens="",
+        )
 
     def action_copy_message(self) -> None:
         """Copy the last message to clipboard.
@@ -375,11 +547,7 @@ class ChatApp(App[None]):
         (headless HPC node), falls back to writing to a temp file
         and displays the file path to the user.
         """
-        # TODO: Implement clipboard copy with fallback
-        # 1. Get last message content
-        # 2. Try pyperclip.copy()
-        # 3. On failure, write to /tmp/chatty-export-{uuid}.txt
-        # 4. Notify user of result
+        # TODO: Implement clipboard copy in Step 2
         pass
 
     def action_cancel(self) -> None:
@@ -388,20 +556,28 @@ class ChatApp(App[None]):
         Cancels any in-flight LLM request by cancelling the async task.
         Partial responses may be kept or discarded based on config.
         """
-        # TODO: Implement cancellation
-        # 1. Cancel the streaming worker task
-        # 2. Update status to "Cancelled"
-        # 3. Optionally keep partial response
-        pass
+        if self.current_worker and self.current_worker.is_running:
+            self.current_worker.cancel()
+            self.query_one("#status-bar", StatusBar).update_status(status="Cancelled")
+            self.current_worker = None
+
+    async def on_unmount(self) -> None:
+        """Clean up when app is closing."""
+        if self.client:
+            await self.client.close()
 
 
-def main(query_file: str | None = None) -> None:
+def main(
+    query_file: str | None = None,
+    config_with_sources: ConfigWithSources | None = None,
+) -> None:
     """Run the chat application.
 
     Entry point for the chatty UI. Creates and runs the Textual app.
 
     Args:
         query_file: Optional path to file containing initial query.
+        config_with_sources: Pre-loaded configuration (loads default if None).
     """
-    app = ChatApp(query_file=query_file)
+    app = ChatApp(query_file=query_file, config_with_sources=config_with_sources)
     app.run()
