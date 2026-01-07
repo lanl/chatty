@@ -54,6 +54,9 @@ dmypy.json
 .env
 .env.local
 
+# Wheelhouse (offline install artifacts)
+wheelhouse/
+
 # OS
 .DS_Store
 Thumbs.db

@@ -264,6 +264,58 @@ chatty/
 └── README.md
 ```
 
+## Offline Install (Air-Gapped HPC)
+
+For air-gapped systems where `uv sync` cannot reach PyPI:
+
+### On Connected Machine (Build Wheelhouse)
+
+```bash
+# Build wheelhouse with all dependencies
+# (automatically generates requirements.lock if not present)
+./scripts/build-wheelhouse.sh
+```
+
+This creates `wheelhouse/` containing all wheel files.
+
+### Transfer to Air-Gapped Machine
+
+Transfer the following to the target machine:
+- `wheelhouse/` directory (all .whl files)
+- `requirements.lock` file
+- `scripts/` directory
+- `src/` directory
+- `pyproject.toml`
+
+You can use any transfer method: USB drive, `scp`, shared filesystem, etc.
+
+### On Air-Gapped Machine (Install)
+
+```bash
+# Install from local wheelhouse (no network required)
+./scripts/install-offline.sh
+```
+
+This will:
+1. Create a virtual environment if needed
+2. Install all packages from the local wheelhouse
+3. Install chatty itself
+
+### Verify Installation
+
+```bash
+source .venv/bin/activate
+chatty --help
+chatty doctor  # Check configuration
+```
+
+### Notes
+
+- The wheelhouse is platform-specific (macOS wheels won't work on Linux)
+- If targeting a different platform, build the wheelhouse on that platform type
+- `requirements.lock` is generated from `uv.lock` and includes exact hashes
+- Some packages may download as source tarballs if no wheel exists for your platform
+
 ## Troubleshooting
 
 ### uv sync fails
@@ -299,3 +351,4 @@ tiktoken is optional. If it fails to install (common on some HPC systems), chatt
 ```bash
 # Install without tiktoken
 uv sync --dev --no-install tiktoken
+```
