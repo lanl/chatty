@@ -1,4 +1,3 @@
-# mypy: disable-error-code="unused-coroutine"
 """Textual application and widgets for chatty.
 
 This module implements the terminal UI using Textual. The app provides a
@@ -373,10 +372,10 @@ class ChatApp(App[None]):
             with open(self.query_file) as f:
                 content = f.read().strip()
             if content:
-                # Simulate input submission
+                # Set input value and post the submit event
                 input_widget = self.query_one("#input", Input)
                 input_widget.value = content
-                input_widget.action_submit()
+                self.post_message(Input.Submitted(input_widget, content))
         except Exception as e:
             chat_log = self.query_one("#chat-log", ChatLog)
             chat_log.add_message("error", f"Failed to load query file: {e}")
@@ -410,9 +409,10 @@ class ChatApp(App[None]):
         if self.conversation:
             self.conversation.add_user_message(user_message)
 
-        # Start async worker for LLM call (run_worker consumes the coroutine)
+        # Start async worker for LLM call
+        # Pass method reference (not called) — Textual invokes it
         self.current_worker = self.run_worker(
-            self._send_message(),
+            self._send_message,
             exclusive=True,
             name="send_message",
         )
