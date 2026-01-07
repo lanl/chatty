@@ -1,4 +1,105 @@
-"""Async HTTP client for OpenAI-compatible APIs."""
+"""Async HTTP client for OpenAI-compatible APIs.
+
+This module provides an async client for chat completions using any
+OpenAI-compatible API endpoint (OpenAI, Azure OpenAI, vLLM, Ollama, etc.).
+
+Features
+--------
+- Async HTTP requests via httpx
+- SSE streaming with proper cancellation
+- Exponential backoff retry on transient failures
+- Actionable error messages for all failure modes
+
+Retry Strategy
+--------------
+Requests are retried with exponential backoff for transient failures:
+
+    Attempt 1: immediate
+    Attempt 2: wait 1s (or Retry-After header)
+    Attempt 3: wait 2s (or Retry-After header)
+
+Retryable conditions:
+    - HTTP 429 (Too Many Requests)
+    - HTTP 500, 502, 503, 504 (Server Errors)
+    - Connection errors (network unreachable, etc.)
+    - Timeout errors
+
+Non-retryable conditions (fail immediately):
+    - HTTP 401/403 (Authentication errors)
+    - HTTP 404 (Endpoint not found)
+    - HTTP 400 (Bad request / validation errors)
+
+Error Hierarchy
+---------------
+All errors inherit from ChattyClientError for easy catching:
+
+    ChattyClientError (base)
+    ├── AuthenticationError  # 401, 403
+    ├── RateLimitError       # 429 after retries exhausted
+    └── APIError             # All other API errors
+
+Each error includes an actionable message suggesting what to fix.
+
+Usage Examples
+--------------
+Basic non-streaming chat:
+
+    >>> from chatty.client.openai_client import OpenAIClient, Message
+    >>> from chatty.config import load_config
+    >>>
+    >>> config = load_config().config
+    >>> client = OpenAIClient(config)
+    >>>
+    >>> messages = [
+    ...     Message(role="system", content="You are helpful."),
+    ...     Message(role="user", content="Hello!"),
+    ... ]
+    >>> response = await client.chat(messages, stream=False)
+    >>> print(response.content)
+    "Hello! How can I help you today?"
+
+Streaming chat with token-by-token display:
+
+    >>> async for token in await client.chat(messages, stream=True):
+    ...     print(token, end="", flush=True)
+
+Cancellation during streaming (e.g., user presses Esc):
+
+    >>> import asyncio
+    >>> stream = await client.chat(messages, stream=True)
+    >>> task = asyncio.create_task(consume_stream(stream))
+    >>> # Later, when user cancels:
+    >>> task.cancel()  # Stream cleans up automatically
+
+Error handling:
+
+    >>> from chatty.client.openai_client import (
+    ...     ChattyClientError, AuthenticationError, RateLimitError
+    ... )
+    >>> try:
+    ...     response = await client.chat(messages, stream=False)
+    ... except AuthenticationError:
+    ...     print("Check your API key")
+    ... except RateLimitError:
+    ...     print("Too many requests, try again later")
+    ... except ChattyClientError as e:
+    ...     print(f"Client error: {e}")
+
+Always close the client when done:
+
+    >>> await client.close()
+
+Configuration
+-------------
+The client reads settings from Config, including:
+    - base_url: API endpoint (e.g., "https://api.openai.com/v1")
+    - api_key or api_key_file: Authentication
+    - model: Model name to use
+    - temperature: Sampling temperature
+    - timeout_s: Request timeout in seconds
+    - ca_bundle, verify_tls: TLS settings
+    - http_proxy: Proxy configuration
+"""
 
 from __future__ import annotations
 
