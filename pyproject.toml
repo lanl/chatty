@@ -26,6 +26,7 @@ dependencies = [
     "httpx-sse>=0.4",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
+    "tomli>=2.0;python_version<'3.11'",
     "typer>=0.9",
     "rich>=13.0",
 ]
