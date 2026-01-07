@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+from chatty.client.http import build_sync_client
+
 if TYPE_CHECKING:
     from chatty.config import ConfigWithSources
 
@@ -180,22 +182,9 @@ def check_connectivity(config_with_sources: ConfigWithSources) -> list[Diagnosti
         )
         return results
 
-    # Build httpx client with TLS settings
-    verify: bool | str = True
-    if config.ca_bundle:
-        verify = config.ca_bundle
-    if not config.verify_tls:
-        verify = False
-
-    proxy = config.http_proxy if config.http_proxy else None
-
     try:
-        # Test TLS handshake by making a simple request
-        with httpx.Client(
-            verify=verify,
-            proxy=proxy,
-            timeout=httpx.Timeout(10.0),
-        ) as client:
+        # Use shared HTTP client builder
+        with build_sync_client(config, timeout=10.0) as client:
             # Step 1: TLS handshake (just connect)
             try:
                 # Try to reach the models endpoint (doesn't require auth usually)
@@ -380,6 +369,13 @@ def run_doctor(
     )
 
 
+def _should_show_detail(check: DiagnosticResult, verbose: bool) -> bool:
+    """Determine if we should show the detail for a check."""
+    if not check.detail:
+        return False
+    return verbose or not check.passed
+
+
 def format_doctor_result(result: DoctorResult, *, verbose: bool = False) -> str:
     """Format doctor result for display."""
     lines = []
@@ -388,7 +384,7 @@ def format_doctor_result(result: DoctorResult, *, verbose: bool = False) -> str:
     for check in result.config_checks:
         symbol = "✓" if check.passed else "✗"
         lines.append(f"  {symbol} {check.message}")
-        if verbose and check.detail or not check.passed and check.detail:
+        if _should_show_detail(check, verbose):
             lines.append(f"    {check.detail}")
 
     if result.connectivity_checks:
@@ -397,7 +393,7 @@ def format_doctor_result(result: DoctorResult, *, verbose: bool = False) -> str:
         for check in result.connectivity_checks:
             symbol = "✓" if check.passed else "✗"
             lines.append(f"  {symbol} {check.message}")
-            if verbose and check.detail or not check.passed and check.detail:
+            if _should_show_detail(check, verbose):
                 lines.append(f"    {check.detail}")
 
     lines.append("")

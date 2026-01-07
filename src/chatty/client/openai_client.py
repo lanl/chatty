@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+from chatty.client.http import build_async_client
+
 if TYPE_CHECKING:
     from chatty.config import Config
 
@@ -37,26 +39,8 @@ class OpenAIClient:
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create the HTTP client."""
         if self._client is None:
-            self._client = self._build_client()
+            self._client = build_async_client(self.config, timeout=float(self.config.timeout_s))
         return self._client
-
-    def _build_client(self) -> httpx.AsyncClient:
-        """Build httpx client with institutional network settings."""
-        # CA bundle: path to PEM file, or True for system default
-        verify: bool | str = True
-        if self.config.ca_bundle:
-            verify = self.config.ca_bundle
-        if not self.config.verify_tls:
-            verify = False
-
-        # Proxy configuration
-        proxy = self.config.http_proxy if self.config.http_proxy else None
-
-        return httpx.AsyncClient(
-            verify=verify,
-            proxy=proxy,
-            timeout=httpx.Timeout(self.config.timeout_s),
-        )
 
     async def chat(
         self,
