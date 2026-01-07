@@ -268,6 +268,21 @@ chatty/
 
 For air-gapped systems where `uv sync` cannot reach PyPI:
 
+### Prerequisites for Building
+
+The build script requires both **uv** and **pip**:
+
+- **uv** — For generating `requirements.lock` from `uv.lock`
+- **pip** — For downloading wheels (uv does not yet have a `download` command)
+
+```bash
+# Verify prerequisites
+uv --version    # Must be installed
+pip --version   # Must be installed (system pip or pipx)
+```
+
+> **Note:** The install script (run on the air-gapped machine) uses only uv — pip is not required there.
+
 ### On Connected Machine (Build Wheelhouse)
 
 ```bash

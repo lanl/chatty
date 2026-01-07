@@ -7,6 +7,10 @@
 # This script downloads all dependencies as wheel files for transfer
 # to air-gapped systems. Run on a connected machine.
 #
+# Prerequisites:
+#   - uv (for generating requirements.lock)
+#   - pip (for downloading wheels — uv does not yet have a download command)
+#
 # Example:
 #   ./scripts/build-wheelhouse.sh
 #   # Creates wheelhouse/ directory
@@ -21,13 +25,36 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 WHEELHOUSE="${1:-${PROJECT_ROOT}/wheelhouse}"
 REQUIREMENTS="${PROJECT_ROOT}/requirements.lock"
 
-# Generate requirements.lock if not present
+# --- Prerequisite checks ---
+
+# Check for pip (required for downloading wheels)
+if ! command -v pip &>/dev/null; then
+    echo "Error: pip is required for building the wheelhouse."
+    echo ""
+    echo "uv does not yet support 'pip download', so this script uses pip directly."
+    echo ""
+    echo "Install pip:"
+    echo "  - macOS/Linux: https://pip.pypa.io/en/stable/installation/"
+    echo "  - Or use system Python: python3 -m ensurepip"
+    exit 1
+fi
+
+# Check for uv (required for generating requirements.lock)
+if ! command -v uv &>/dev/null; then
+    echo "Error: uv is required for generating requirements.lock."
+    echo ""
+    echo "Install uv: https://docs.astral.sh/uv/getting-started/installation/"
+    exit 1
+fi
+
+# --- Generate requirements.lock if not present ---
 if [[ ! -f "$REQUIREMENTS" ]]; then
     echo "Generating requirements.lock..."
     # Export without editable, filter out local package reference
     uv export --frozen --no-dev --no-editable | grep -v "^\.$" > "$REQUIREMENTS"
 fi
 
+# --- Build wheelhouse ---
 echo "Building wheelhouse for offline install..."
 echo "  Source: $REQUIREMENTS"
 echo "  Target: $WHEELHOUSE/"
@@ -35,15 +62,9 @@ echo "  Target: $WHEELHOUSE/"
 # Create wheelhouse directory
 mkdir -p "$WHEELHOUSE"
 
-# Ensure pip is available (uv venvs don't include pip by default)
-if ! python -m pip --version &>/dev/null; then
-    echo "Installing pip in virtual environment..."
-    uv pip install pip
-fi
-
-# Download all wheels
+# Download all wheels using pip
 # Note: Downloads wheels for the current platform
-python -m pip download -r "$REQUIREMENTS" -d "$WHEELHOUSE/"
+pip download -r "$REQUIREMENTS" -d "$WHEELHOUSE/"
 
 # Report results
 WHEEL_COUNT=$(find "$WHEELHOUSE" -name "*.whl" | wc -l | tr -d ' ')
