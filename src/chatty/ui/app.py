@@ -54,7 +54,10 @@ Key Design Decisions
 
 from __future__ import annotations
 
+import tempfile
+import uuid
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from textual.app import App, ComposeResult
@@ -508,17 +511,38 @@ class ChatApp(App[None]):
         then re-sends the previous user message to get a new response.
         Useful when the response was unsatisfactory.
         """
-        # TODO: Implement regeneration in Step 2
-        pass
+        if not self.conversation or len(self.conversation.messages) < 2:
+            return
+
+        # Check if the last message is from assistant
+        if self.conversation.messages[-1].role != "assistant":
+            return
+
+        # Remove the last assistant message from conversation
+        self.conversation.messages.pop()
+
+        # Remove from chat log display
+        chat_log = self.query_one("#chat-log", ChatLog)
+        chat_log.remove_last_message()
+
+        # Re-send (the last user message is still in conversation)
+        self.current_worker = self.run_worker(
+            self._send_message,
+            exclusive=True,
+            name="regenerate",
+        )
 
     def action_load_file(self) -> None:
         """Load a query from a file.
 
-        Opens a file dialog (or prompts for path) to load a query file.
-        Useful for long committee-written queries that are awkward to paste.
+        In v0.1, displays a message directing user to use --query-file flag.
+        Future versions may implement an interactive file picker.
         """
-        # TODO: Implement file loading in Step 2
-        pass
+        chat_log = self.query_one("#chat-log", ChatLog)
+        chat_log.add_message(
+            "system",
+            "To load a query from file, restart with: `chatty chat --query-file PATH`",
+        )
 
     def action_new_session(self) -> None:
         """Start a new session, clearing all history.
@@ -547,8 +571,36 @@ class ChatApp(App[None]):
         (headless HPC node), falls back to writing to a temp file
         and displays the file path to the user.
         """
-        # TODO: Implement clipboard copy in Step 2
-        pass
+        if not self.conversation or not self.conversation.messages:
+            return
+
+        # Get the last message content (raw, not formatted)
+        last_message = self.conversation.messages[-1]
+        content = last_message.content
+
+        chat_log = self.query_one("#chat-log", ChatLog)
+
+        # Try pyperclip first (optional dependency)
+        try:
+            import pyperclip
+
+            pyperclip.copy(content)
+            chat_log.add_message("system", "Copied to clipboard.")
+            return
+        except ImportError:
+            pass  # pyperclip not installed
+        except Exception:
+            pass  # Clipboard unavailable (headless)
+
+        # Fallback: write to temp file
+        try:
+            temp_dir = Path(tempfile.gettempdir())
+            filename = f"chatty-export-{uuid.uuid4().hex[:8]}.txt"
+            filepath = temp_dir / filename
+            filepath.write_text(content)
+            chat_log.add_message("system", f"Saved to: {filepath}")
+        except Exception as e:
+            chat_log.add_message("error", f"Failed to copy: {e}")
 
     def action_cancel(self) -> None:
         """Cancel the current generation.
