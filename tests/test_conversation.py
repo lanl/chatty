@@ -113,16 +113,16 @@ def test_get_token_display_server_reported() -> None:
 
     display = conv.get_token_display()
 
-    assert display == "12K / 128K tokens"
+    assert display == "12,000 / 128,000 tokens"
 
 
 def test_get_token_display_server_reported_small() -> None:
-    """Test token display with small token count."""
+    """Test token display with small token count (exact value shown)."""
     conv = Conversation(server_reported_tokens=500, context_window=128000)
 
     display = conv.get_token_display()
 
-    assert display == "0K / 128K tokens"  # 500 // 1000 = 0
+    assert display == "500 / 128,000 tokens"
 
 
 def test_get_token_display_tiktoken_fallback() -> None:

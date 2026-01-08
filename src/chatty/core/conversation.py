@@ -37,11 +37,15 @@ class Conversation:
         return [{"role": m.role, "content": m.content} for m in self.messages]
 
     def get_token_display(self) -> str:
-        """Get token count for status bar display."""
+        """Get token count for status bar display.
+
+        Shows exact token counts with comma formatting for readability.
+        Server-reported tokens are preferred; tiktoken estimate as fallback.
+        """
         if self.server_reported_tokens is not None:
-            used = self.server_reported_tokens // 1000
-            total = self.context_window // 1000
-            return f"{used}K / {total}K tokens"
+            used = f"{self.server_reported_tokens:,}"
+            total = f"{self.context_window:,}"
+            return f"{used} / {total} tokens"
 
         # Try tiktoken estimate
         try:
@@ -49,9 +53,9 @@ class Conversation:
 
             enc = tiktoken.encoding_for_model("gpt-4")
             total_tokens = sum(len(enc.encode(m.content)) for m in self.messages)
-            used = total_tokens // 1000
-            total = self.context_window // 1000
-            return f"~{used}K / {total}K tokens (est)"
+            used = f"{total_tokens:,}"
+            total = f"{self.context_window:,}"
+            return f"~{used} / {total} tokens (est)"
         except ImportError:
             return "usage unknown"
 
