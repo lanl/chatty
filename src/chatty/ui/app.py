@@ -64,7 +64,6 @@ from typing import TYPE_CHECKING, cast
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, VerticalScroll
-from textual.events import Key
 from textual.widgets import Footer, Header, Static, TextArea
 from textual.worker import Worker
 
@@ -89,36 +88,22 @@ class ChatInput(TextArea):
     Note: Ctrl+Enter is often captured by terminal emulators (e.g., iTerm2
     opens "New Tab"). Ctrl+E is more reliable across terminals.
 
-    Default TextArea bindings (Ctrl+E=End, Ctrl+C=Copy) are cleared to
-    avoid conflicts with app-level shortcuts.
+    BINDINGS override parent's ctrl+e=end to show "Send" in footer.
     """
 
-    # Clear TextArea's default bindings to avoid conflicts
-    BINDINGS = []
+    # Override parent's ctrl+e (cursor end) to show in footer
+    BINDINGS = [
+        ("ctrl+e", "send", "Send"),
+    ]
 
     class Submitted(TextArea.Changed):
-        """Event posted when Enter is pressed to submit input."""
+        """Event posted when Ctrl+E is pressed to submit input."""
 
         pass
 
-    async def _on_key(self, event: Key) -> None:
-        """Intercept key events for submit behavior.
-
-        Ctrl+Enter is captured by many terminal emulators (e.g., iTerm2).
-        Ctrl+E is more reliable and mnemonic (E for execute/enter).
-
-        Args:
-            event: The key event to handle.
-        """
-        # Ctrl+E submits (Ctrl+Enter often captured by terminal)
-        if event.key == "ctrl+e":
-            event.prevent_default()
-            event.stop()
-            self.post_message(self.Submitted(self))
-            return
-
-        # Enter and Shift+Enter: let TextArea insert newline
-        await super()._on_key(event)
+    def action_send(self) -> None:
+        """Handle Ctrl+E binding to submit message."""
+        self.post_message(self.Submitted(self))
 
 
 class ChatLog(Static):
