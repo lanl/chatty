@@ -61,8 +61,9 @@ from typing import TYPE_CHECKING, cast
 from rich.markdown import Markdown as RichMarkdown
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, VerticalScroll
-from textual.widgets import Footer, Header, Static, TextArea
+from textual.containers import Container, Vertical, VerticalScroll
+from textual.screen import ModalScreen
+from textual.widgets import Button, Footer, Header, Input, Label, Static, TextArea
 from textual.worker import Worker
 
 from chatty.client.openai_client import (
@@ -75,6 +76,80 @@ from chatty.core.conversation import Conversation
 
 if TYPE_CHECKING:
     pass
+
+
+class FileInputModal(ModalScreen[str | None]):
+    """Modal screen for entering a file path.
+
+    Returns the file path string if submitted, None if cancelled.
+    """
+
+    CSS = """
+    FileInputModal {
+        align: center middle;
+    }
+
+    #file-dialog {
+        width: 60;
+        height: auto;
+        padding: 1 2;
+        background: $surface;
+        border: thick $primary;
+    }
+
+    #file-dialog Label {
+        margin-bottom: 1;
+    }
+
+    #file-dialog Input {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #file-buttons {
+        width: 100%;
+        height: auto;
+        align: right middle;
+    }
+
+    #file-buttons Button {
+        margin-left: 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        """Create the dialog layout."""
+        with Vertical(id="file-dialog"):
+            yield Label("Enter file path:")
+            yield Input(placeholder="/path/to/file.txt", id="file-path")
+            with Container(id="file-buttons"):
+                yield Button("Cancel", variant="default", id="cancel-btn")
+                yield Button("Load", variant="primary", id="load-btn")
+
+    def on_mount(self) -> None:
+        """Focus the input when modal opens."""
+        self.query_one("#file-path", Input).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button clicks."""
+        if event.button.id == "load-btn":
+            path = self.query_one("#file-path", Input).value.strip()
+            self.dismiss(path if path else None)
+        else:
+            self.dismiss(None)
+
+    def on_input_submitted(self, _event: Input.Submitted) -> None:
+        """Handle Enter key in input field."""
+        path = self.query_one("#file-path", Input).value.strip()
+        self.dismiss(path if path else None)
+
+    def action_cancel(self) -> None:
+        """Handle Escape key."""
+        self.dismiss(None)
 
 
 class ChatInput(TextArea):
@@ -657,14 +732,41 @@ class ChatApp(App[None]):
     def action_load_file(self) -> None:
         """Load a query from a file.
 
-        In v0.1, displays a message directing user to use --query-file flag.
-        Future versions may implement an interactive file picker.
+        Opens a modal dialog for the user to enter a file path.
+        The file content is loaded into the input area (not auto-submitted).
         """
+        self.push_screen(FileInputModal(), self._handle_file_path)
+
+    def _handle_file_path(self, path: str | None) -> None:
+        """Handle the file path returned from the modal.
+
+        Args:
+            path: File path entered by user, or None if cancelled.
+        """
+        if not path:
+            return
+
         chat_log = self.query_one("#chat-log", ChatLog)
-        chat_log.add_message(
-            "system",
-            "To load a query from file, restart with: `chatty chat --query-file PATH`",
-        )
+
+        try:
+            with open(path) as f:
+                content = f.read().strip()
+
+            if content:
+                # Load content into input area (don't auto-submit)
+                input_widget = self.query_one("#input", ChatInput)
+                input_widget.text = content
+                input_widget.focus()
+                chat_log.add_message("system", f"Loaded query from: {path}")
+            else:
+                chat_log.add_message("error", f"File is empty: {path}")
+
+        except FileNotFoundError:
+            chat_log.add_message("error", f"File not found: {path}")
+        except PermissionError:
+            chat_log.add_message("error", f"Permission denied: {path}")
+        except Exception as e:
+            chat_log.add_message("error", f"Failed to load file: {e}")
 
     def action_new_session(self) -> None:
         """Start a new session, clearing all history.
