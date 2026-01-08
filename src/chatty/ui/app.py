@@ -58,6 +58,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, cast
 
+from rich.markdown import Markdown as RichMarkdown
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, VerticalScroll
@@ -100,14 +101,18 @@ class ChatInput(TextArea):
 
 
 class MessageWidget(Static):
-    """A single chat message with role prefix.
+    """A single chat message with role prefix and markdown rendering.
 
     Each message is rendered as a separate widget, allowing individual
     styling and future enhancements (timestamps, copy buttons, etc.).
 
+    For assistant messages, content is rendered as markdown when streaming
+    is complete. During streaming, raw text is shown for performance.
+
     Attributes:
         role: The message role (user, assistant, system, error).
         message_content: The message text content.
+        is_streaming: Whether the message is currently being streamed.
     """
 
     ROLE_PREFIXES = {
@@ -127,12 +132,24 @@ class MessageWidget(Static):
         super().__init__()
         self.role = role
         self.message_content: str = content
+        self.is_streaming: bool = False
         self._update_display()
 
     def _update_display(self) -> None:
-        """Update the displayed text."""
+        """Update the displayed text.
+
+        Shows raw text during streaming, markdown when complete (for assistant).
+        """
         prefix = self.ROLE_PREFIXES.get(self.role, self.role)
-        self.update(f"**{prefix}:** {self.message_content}")
+
+        if self.role == "assistant" and not self.is_streaming and self.message_content:
+            # Assistant messages get markdown rendering when not streaming
+            # Include prefix in the markdown content
+            markdown_content = f"**{prefix}:**\n\n{self.message_content}"
+            self.update(RichMarkdown(markdown_content))
+        else:
+            # User, system, error messages and streaming assistant use plain text
+            self.update(f"**{prefix}:** {self.message_content}")
 
     def append_content(self, text: str) -> None:
         """Append text to the message content (for streaming).
@@ -150,6 +167,11 @@ class MessageWidget(Static):
             content: New content.
         """
         self.message_content = content
+        self._update_display()
+
+    def finish_streaming(self) -> None:
+        """Mark streaming as complete and re-render with markdown."""
+        self.is_streaming = False
         self._update_display()
 
 
@@ -528,8 +550,9 @@ class ChatApp(App[None]):
                 # Streaming mode
                 status_bar.update_status(status="Streaming...")
 
-                # Add empty assistant message for streaming
-                chat_log.add_message("assistant", "")
+                # Add empty assistant message for streaming (marked as streaming)
+                msg_widget = chat_log.add_message("assistant", "")
+                msg_widget.is_streaming = True
                 response_content = ""
 
                 result = await self.client.chat(messages, stream=True)
@@ -539,11 +562,14 @@ class ChatApp(App[None]):
                     chat_log.append_to_last(token)
                     response_content += token
 
+                # Finish streaming - re-render with markdown
+                msg_widget.finish_streaming()
+
                 # Update conversation with complete response
                 self.conversation.add_assistant_message(response_content)
 
             else:
-                # Non-streaming mode
+                # Non-streaming mode - message renders with markdown immediately
                 from chatty.client.openai_client import AssistantMessage
 
                 result = await self.client.chat(messages, stream=False)
