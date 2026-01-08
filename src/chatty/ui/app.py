@@ -81,6 +81,37 @@ if TYPE_CHECKING:
     pass
 
 
+class ChatInput(TextArea):
+    """Custom TextArea that submits on Enter, newline on Shift+Enter.
+
+    Overrides the default TextArea key handling to intercept Enter
+    before it inserts a newline. This enables Slack/Discord-style UX
+    where Enter sends and Shift+Enter adds a newline.
+    """
+
+    class Submitted(TextArea.Changed):
+        """Event posted when Enter is pressed to submit input."""
+
+        pass
+
+    async def _on_key(self, event: Key) -> None:
+        """Intercept Enter key before TextArea processes it.
+
+        Args:
+            event: The key event to handle.
+        """
+        # Plain Enter submits (key is "enter", not "shift+enter")
+        if event.key == "enter":
+            event.prevent_default()
+            event.stop()
+            # Post message to app — cleaner than direct app reference
+            self.post_message(self.Submitted(self))
+            return
+
+        # All other keys (including shift+enter) go to parent
+        await super()._on_key(event)
+
+
 class ChatLog(Static):
     """Scrollable widget to display chat messages with markdown rendering.
 
@@ -333,7 +364,7 @@ class ChatApp(App[None]):
         Yields widgets in top-to-bottom order. The layout is:
         - Header: Shows app title
         - VerticalScroll with ChatLog: Main scrollable area for messages
-        - Container with TextArea: User text input area (multi-line)
+        - Container with ChatInput: User text input area (multi-line)
         - StatusBar: Single-line status display
         - Footer: Shows available keyboard shortcuts
         """
@@ -343,7 +374,7 @@ class ChatApp(App[None]):
             id="chat-container",
         )
         yield Container(
-            TextArea(id="input"),
+            ChatInput(id="input"),
             id="input-container",
         )
         yield StatusBar(id="status-bar", model=self.config.model, streaming=self.streaming)
@@ -359,7 +390,7 @@ class ChatApp(App[None]):
         - Add system prompt if configured
         - Load query from file if provided
         """
-        self.query_one("#input", TextArea).focus()
+        self.query_one("#input", ChatInput).focus()
 
         # Initialize client and conversation
         self.client = OpenAIClient(self.config)
@@ -385,15 +416,19 @@ class ChatApp(App[None]):
                 content = f.read().strip()
             if content:
                 # Set input text and trigger submit
-                input_widget = self.query_one("#input", TextArea)
+                input_widget = self.query_one("#input", ChatInput)
                 input_widget.text = content
                 self.action_submit()
         except Exception as e:
             chat_log = self.query_one("#chat-log", ChatLog)
             chat_log.add_message("error", f"Failed to load query file: {e}")
 
+    def on_chat_input_submitted(self, _event: ChatInput.Submitted) -> None:
+        """Handle Enter key from ChatInput widget."""
+        self.action_submit()
+
     def action_submit(self) -> None:
-        """Submit the current message (Ctrl+Enter).
+        """Submit the current message (Enter or Ctrl+Enter).
 
         This is the main chat workflow entry point:
         1. Validate input (non-empty)
@@ -402,7 +437,7 @@ class ChatApp(App[None]):
         4. Start async worker for LLM call
         5. Worker streams response to chat log
         """
-        input_widget = self.query_one("#input", TextArea)
+        input_widget = self.query_one("#input", ChatInput)
         user_message = input_widget.text.strip()
 
         if not user_message:
@@ -620,25 +655,6 @@ class ChatApp(App[None]):
             self.current_worker.cancel()
             self.query_one("#status-bar", StatusBar).update_status(status="Cancelled")
             self.current_worker = None
-
-    def on_key(self, event: Key) -> None:
-        """Handle key events for Enter-to-submit UX.
-
-        Enter submits the message (like Slack/Discord).
-        Shift+Enter inserts a newline for multi-line input.
-        """
-        # Only handle plain Enter when input is focused
-        # shift+enter, ctrl+enter, etc. have different key names
-        input_widget = self.query_one("#input", TextArea)
-        if not input_widget.has_focus:
-            return
-
-        # Plain Enter (no modifiers) submits
-        # "shift+enter" is handled by TextArea (inserts newline)
-        if event.key == "enter":
-            event.prevent_default()
-            event.stop()
-            self.action_submit()
 
     async def on_unmount(self) -> None:
         """Clean up when app is closing."""
