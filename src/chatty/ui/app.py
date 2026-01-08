@@ -18,7 +18,7 @@ Widget Hierarchy
 Data Flow
 ---------
     1. User types message in TextArea widget
-    2. Ctrl+Enter triggers action_submit()
+    2. Enter (or Ctrl+Enter) triggers action_submit()
     3. Message added to Conversation state
     4. RAGProvider.augment() called (NullProvider passthrough in v0.1)
     5. OpenAIClient.chat() called with streaming
@@ -28,14 +28,16 @@ Data Flow
 
 Keyboard Shortcuts
 ------------------
-    Ctrl+C     : Quit (clean shutdown)
-    Ctrl+T     : Toggle streaming mode on/off
-    Ctrl+R     : Regenerate last response
-    Ctrl+O     : Load query from file
-    Ctrl+N     : New session (clear history)
-    Ctrl+Y     : Copy last message to clipboard
-    Ctrl+Enter : Send message
-    Escape     : Cancel current generation
+    Ctrl+C      : Quit (clean shutdown)
+    Ctrl+T      : Toggle streaming mode on/off
+    Ctrl+R      : Regenerate last response
+    Ctrl+O      : Load query from file
+    Ctrl+N      : New session (clear history)
+    Ctrl+Y      : Copy last message to clipboard
+    Enter       : Send message
+    Shift+Enter : Insert newline (multi-line input)
+    Ctrl+Enter  : Send message (alternative)
+    Escape      : Cancel current generation
 
 Integration Points
 ------------------
@@ -63,6 +65,7 @@ from typing import TYPE_CHECKING, cast
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, VerticalScroll
+from textual.events import Key
 from textual.widgets import Footer, Header, Static, TextArea
 from textual.worker import Worker
 
@@ -617,6 +620,25 @@ class ChatApp(App[None]):
             self.current_worker.cancel()
             self.query_one("#status-bar", StatusBar).update_status(status="Cancelled")
             self.current_worker = None
+
+    def on_key(self, event: Key) -> None:
+        """Handle key events for Enter-to-submit UX.
+
+        Enter submits the message (like Slack/Discord).
+        Shift+Enter inserts a newline for multi-line input.
+        """
+        # Only handle plain Enter when input is focused
+        # shift+enter, ctrl+enter, etc. have different key names
+        input_widget = self.query_one("#input", TextArea)
+        if not input_widget.has_focus:
+            return
+
+        # Plain Enter (no modifiers) submits
+        # "shift+enter" is handled by TextArea (inserts newline)
+        if event.key == "enter":
+            event.prevent_default()
+            event.stop()
+            self.action_submit()
 
     async def on_unmount(self) -> None:
         """Clean up when app is closing."""
