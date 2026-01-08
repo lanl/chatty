@@ -129,7 +129,7 @@ class MessageWidget(Static):
             role: Message role (user, assistant, system, error).
             content: Initial message content.
         """
-        super().__init__()
+        super().__init__(classes=f"{role}-message")
         self.role = role
         self.message_content: str = content
         self.is_streaming: bool = False
@@ -364,6 +364,28 @@ class ChatApp(App[None]):
 
     MessageWidget {
         margin-bottom: 1;
+    }
+
+    /* User messages: dimmed - your input is secondary focus */
+    .user-message {
+        color: $text-muted;
+    }
+
+    /* Assistant messages: default bright - main content */
+    .assistant-message {
+        color: $text;
+    }
+
+    /* System messages: cyan/blue - informational */
+    .system-message {
+        color: $accent;
+    }
+
+    /* Error messages: red - attention needed */
+    .error-message {
+        color: $error;
+        background: $error 10%;
+        padding: 1;
     }
 
     #input-container {
