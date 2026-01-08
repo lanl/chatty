@@ -114,6 +114,36 @@ chatty print-config
 - **Streaming** — real-time token display with cancellation support
 - **Offline-friendly** — works without RAG (v0.1), graceful errors with RAG (v0.3+)
 
+## Tips
+
+### Adjusting Font Size
+
+Font size is controlled by your terminal emulator, not chatty. To increase readability:
+
+**macOS Terminal / iTerm2:**
+- `Cmd +` to zoom in, `Cmd -` to zoom out
+- Or: Preferences → Profiles → Text → Font size (14-16pt recommended)
+
+**VS Code integrated terminal:**
+- `Cmd +` to zoom in
+- Or: Settings → Terminal › Integrated: Font Size
+
+**Linux terminals:**
+- `Ctrl + Shift +` typically
+- Or: Preferences → Profile → Font
+
+### Local Endpoints (LM Studio, Ollama)
+
+When using local endpoints, make sure your `base_url` includes `/v1`:
+
+```toml
+# ✅ Correct
+base_url = "http://localhost:1234/v1"
+
+# ❌ Wrong - missing /v1
+base_url = "http://localhost:1234"
+```
+
 ## Development
 
 ```bash
