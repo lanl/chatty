@@ -96,7 +96,7 @@ chatty print-config
 | Key | Action |
 |-----|--------|
 | `Ctrl+Q` | Quit |
-| `Ctrl+E` | Send message |
+| `Alt+Enter` | Send message (Option+Enter on Mac) |
 | `Ctrl+O` | Load query from file |
 | `Ctrl+N` | New session |
 | `Ctrl+R` | Regenerate last response |

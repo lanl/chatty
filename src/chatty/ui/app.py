@@ -18,7 +18,7 @@ Widget Hierarchy
 Data Flow
 ---------
     1. User types message in TextArea widget
-    2. Ctrl+E triggers action_submit()
+    2. Alt+Enter triggers action_submit()
     3. Message added to Conversation state
     4. RAGProvider.augment() called (NullProvider passthrough in v0.1)
     5. OpenAIClient.chat() called with streaming
@@ -29,7 +29,7 @@ Data Flow
 Keyboard Shortcuts
 ------------------
     Ctrl+Q      : Quit (clean shutdown)
-    Ctrl+E      : Send message (E for execute/enter)
+    Alt+Enter   : Send message (Option+Enter on Mac)
     Ctrl+O      : Load query from file
     Ctrl+N      : New session (clear history)
     Ctrl+R      : Regenerate last response
@@ -309,7 +309,7 @@ class ChatApp(App[None]):
     # Order determines display in footer (most important first)
     BINDINGS = [
         ("ctrl+q", "quit", "Quit"),
-        ("ctrl+e", "submit", "Send Message"),
+        ("alt+enter", "submit", "Send Message"),
         ("ctrl+o", "load_file", "Load File"),
         ("ctrl+n", "new_session", "New Session"),
         ("ctrl+r", "regenerate", "Regenerate"),
@@ -407,7 +407,7 @@ class ChatApp(App[None]):
         self.action_submit()
 
     def action_submit(self) -> None:
-        """Submit the current message (Ctrl+E).
+        """Submit the current message (Alt+Enter).
 
         This is the main chat workflow entry point:
         1. Validate input (non-empty)
