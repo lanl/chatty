@@ -18,7 +18,7 @@ Widget Hierarchy
 Data Flow
 ---------
     1. User types message in TextArea widget
-    2. Alt+Enter triggers action_submit()
+    2. Ctrl+E triggers action_submit()
     3. Message added to Conversation state
     4. RAGProvider.augment() called (NullProvider passthrough in v0.1)
     5. OpenAIClient.chat() called with streaming
@@ -29,7 +29,7 @@ Data Flow
 Keyboard Shortcuts
 ------------------
     Ctrl+Q      : Quit (clean shutdown)
-    Alt+Enter   : Send message (Option+Enter on Mac)
+    Ctrl+E      : Send message
     Ctrl+O      : Load query from file
     Ctrl+N      : New session (clear history)
     Ctrl+R      : Regenerate last response
@@ -76,19 +76,28 @@ if TYPE_CHECKING:
 
 
 class ChatInput(TextArea):
-    """Custom TextArea for chat input.
+    """Custom TextArea for chat input with Ctrl+E submit.
 
     Inherits standard TextArea bindings (cursor movement, copy/paste, etc.)
     for normal text editing. Multi-line input via Enter key.
 
-    Note: Submit is handled via Ctrl+E at the app level, not here,
-    to preserve TextArea's standard editing bindings.
+    Ctrl+E is overridden to submit instead of "end of line" cursor move.
+    All other TextArea bindings (Ctrl+A, Ctrl+C, etc.) work normally.
     """
 
+    # Override ctrl+e (normally "end of line") to submit
+    BINDINGS = [
+        ("ctrl+e", "send", "Send Message"),
+    ]
+
     class Submitted(TextArea.Changed):
-        """Event posted when message should be submitted."""
+        """Event posted when Ctrl+E is pressed to submit."""
 
         pass
+
+    def action_send(self) -> None:
+        """Handle Ctrl+E to submit the message."""
+        self.post_message(self.Submitted(self))
 
 
 class ChatLog(Static):
@@ -309,7 +318,7 @@ class ChatApp(App[None]):
     # Order determines display in footer (most important first)
     BINDINGS = [
         ("ctrl+q", "quit", "Quit"),
-        ("alt+enter", "submit", "Send Message"),
+        ("ctrl+e", "submit", "Send Message"),
         ("ctrl+o", "load_file", "Load File"),
         ("ctrl+n", "new_session", "New Session"),
         ("ctrl+r", "regenerate", "Regenerate"),
@@ -407,7 +416,7 @@ class ChatApp(App[None]):
         self.action_submit()
 
     def action_submit(self) -> None:
-        """Submit the current message (Alt+Enter).
+        """Submit the current message (Ctrl+E).
 
         This is the main chat workflow entry point:
         1. Validate input (non-empty)
