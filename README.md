@@ -95,10 +95,10 @@ chatty print-config
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+Q` | Quit |
 | `Ctrl+E` | Submit query |
-| `Ctrl+O` | Load file |
+| `Ctrl+Q` | Quit |
 | `Ctrl+N` | New session |
+| `Ctrl+O` | Load file |
 | `Esc` | Interrupt generation |
 | `Enter` | Insert newline |
 

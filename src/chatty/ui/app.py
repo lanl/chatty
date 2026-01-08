@@ -99,73 +99,126 @@ class ChatInput(TextArea):
         self.post_message(self.Submitted(self))
 
 
-class ChatLog(Static):
-    """Scrollable widget to display chat messages with markdown rendering.
+class MessageWidget(Static):
+    """A single chat message with role prefix.
 
-    This widget maintains a list of messages and renders them with role
-    prefixes. Messages are formatted as markdown and updated incrementally
-    during streaming.
+    Each message is rendered as a separate widget, allowing individual
+    styling and future enhancements (timestamps, copy buttons, etc.).
 
     Attributes:
-        messages: List of formatted message strings for display.
+        role: The message role (user, assistant, system, error).
+        message_content: The message text content.
+    """
 
-    Example:
-        chat_log = ChatLog(id="chat-log")
-        chat_log.add_message("user", "Hello!")
-        chat_log.add_message("assistant", "Hi there!")
+    ROLE_PREFIXES = {
+        "user": "You",
+        "assistant": "Assistant",
+        "system": "System",
+        "error": "⚠ Error",
+    }
+
+    def __init__(self, role: str, content: str = "") -> None:
+        """Initialize a message widget.
+
+        Args:
+            role: Message role (user, assistant, system, error).
+            content: Initial message content.
+        """
+        super().__init__()
+        self.role = role
+        self.message_content: str = content
+        self._update_display()
+
+    def _update_display(self) -> None:
+        """Update the displayed text."""
+        prefix = self.ROLE_PREFIXES.get(self.role, self.role)
+        self.update(f"**{prefix}:** {self.message_content}")
+
+    def append_content(self, text: str) -> None:
+        """Append text to the message content (for streaming).
+
+        Args:
+            text: Text to append.
+        """
+        self.message_content += text
+        self._update_display()
+
+    def set_content(self, content: str) -> None:
+        """Replace the message content.
+
+        Args:
+            content: New content.
+        """
+        self.message_content = content
+        self._update_display()
+
+
+class ChatLog(VerticalScroll):
+    """Scrollable container for chat messages.
+
+    Each message is a separate MessageWidget, allowing individual styling
+    and future enhancements (timestamps, copy buttons, bookmarks).
+
+    Methods:
+        add_message: Add a new message widget.
+        get_last_message: Get the last message widget (for streaming).
+        clear_messages: Remove all messages.
+        remove_last_message: Remove the last message (for regeneration).
     """
 
     def __init__(self, id: str | None = None) -> None:  # noqa: A002
-        """Initialize the chat log widget.
+        """Initialize the chat log container.
 
         Args:
-            id: Optional DOM identifier for CSS styling and queries.
+            id: Optional DOM identifier for CSS styling.
         """
-        super().__init__("", id=id)
-        self.messages: list[str] = []
+        super().__init__(id=id)
 
-    def add_message(self, role: str, content: str) -> None:
-        """Add a message to the chat log.
-
-        Formats the message with a role prefix and updates the display.
-        Roles are mapped to human-readable names (user → "You", etc.).
+    def add_message(self, role: str, content: str = "") -> MessageWidget:
+        """Add a new message to the chat log.
 
         Args:
-            role: Message role ("user", "assistant", "system", "error", or custom).
-            content: The message content (supports markdown).
+            role: Message role (user, assistant, system, error).
+            content: Initial message content (can be empty for streaming).
+
+        Returns:
+            The created MessageWidget (useful for streaming updates).
         """
-        prefix_map = {
-            "user": "You",
-            "assistant": "Assistant",
-            "system": "System",
-            "error": "⚠ Error",
-        }
-        prefix = prefix_map.get(role, role)
-        self.messages.append(f"**{prefix}:** {content}")
-        self.update("\n\n".join(self.messages))
+        widget = MessageWidget(role, content)
+        self.mount(widget)
+        self.scroll_end(animate=False)
+        return widget
+
+    def get_last_message(self) -> MessageWidget | None:
+        """Get the last message widget.
+
+        Returns:
+            The last MessageWidget, or None if no messages.
+        """
+        children = list(self.query(MessageWidget))
+        return children[-1] if children else None
 
     def append_to_last(self, content: str) -> None:
         """Append content to the last message (for streaming).
 
-        Used during streaming to incrementally build the assistant's response.
-
         Args:
-            content: Content to append to the last message.
+            content: Content to append.
         """
-        if self.messages:
-            self.messages[-1] += content
-            self.update("\n\n".join(self.messages))
+        last = self.get_last_message()
+        if last:
+            last.append_content(content)
+            self.scroll_end(animate=False)
 
     def clear_messages(self) -> None:
-        """Clear all messages from the chat log."""
-        self.messages = []
-        self.update("")
+        """Remove all messages from the chat log."""
+        for widget in list(self.query(MessageWidget)):
+            widget.remove()
 
     def remove_last_message(self) -> None:
         """Remove the last message (for regeneration)."""
-        if self.messages:
-            self.messages.pop()
-            self.update("\n\n".join(self.messages))
+        last = self.get_last_message()
+        if last:
+            last.remove()
 
 
 class StatusBar(Static):
@@ -282,13 +335,13 @@ class ChatApp(App[None]):
         grid-rows: 1fr auto auto;
     }
 
-    #chat-container {
+    #chat-log {
         height: 100%;
+        padding: 1;
     }
 
-    #chat-log {
-        height: auto;
-        padding: 1;
+    MessageWidget {
+        margin-bottom: 1;
     }
 
     #input-container {
@@ -351,16 +404,13 @@ class ChatApp(App[None]):
 
         Yields widgets in top-to-bottom order. The layout is:
         - Header: Shows app title
-        - VerticalScroll with ChatLog: Main scrollable area for messages
+        - ChatLog: Scrollable area for messages (extends VerticalScroll)
         - Container with ChatInput: User text input area (multi-line)
         - StatusBar: Single-line status display
         - Footer: Shows available keyboard shortcuts
         """
         yield Header()
-        yield VerticalScroll(
-            ChatLog(id="chat-log"),
-            id="chat-container",
-        )
+        yield ChatLog(id="chat-log")
         yield Container(
             ChatInput(id="input"),
             id="input-container",
@@ -488,9 +538,6 @@ class ChatApp(App[None]):
                 async for token in stream:
                     chat_log.append_to_last(token)
                     response_content += token
-                    # Scroll to bottom
-                    container = self.query_one("#chat-container", VerticalScroll)
-                    container.scroll_end(animate=False)
 
                 # Update conversation with complete response
                 self.conversation.add_assistant_message(response_content)
@@ -504,10 +551,6 @@ class ChatApp(App[None]):
 
                 chat_log.add_message("assistant", response.content)
                 self.conversation.add_assistant_message(response.content, response.usage)
-
-                # Scroll to bottom
-                container = self.query_one("#chat-container", VerticalScroll)
-                container.scroll_end(animate=False)
 
             # Update status with token count
             status_bar.update_status(
