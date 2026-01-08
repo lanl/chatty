@@ -95,13 +95,13 @@ chatty print-config
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+C` | Quit |
-| `Ctrl+T` | Toggle streaming |
-| `Ctrl+R` | Regenerate last response |
+| `Ctrl+Q` | Quit |
+| `Ctrl+E` | Send message |
 | `Ctrl+O` | Load query from file |
 | `Ctrl+N` | New session |
+| `Ctrl+R` | Regenerate last response |
+| `Ctrl+T` | Toggle streaming |
 | `Ctrl+Y` | Copy message to clipboard |
-| `Ctrl+E` | Send message |
 | `Enter` | Insert newline |
 | `Esc` | Cancel generation |
 

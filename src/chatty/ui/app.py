@@ -28,13 +28,13 @@ Data Flow
 
 Keyboard Shortcuts
 ------------------
-    Ctrl+C      : Quit (clean shutdown)
-    Ctrl+T      : Toggle streaming mode on/off
-    Ctrl+R      : Regenerate last response
+    Ctrl+Q      : Quit (clean shutdown)
+    Ctrl+E      : Send message (E for execute/enter)
     Ctrl+O      : Load query from file
     Ctrl+N      : New session (clear history)
+    Ctrl+R      : Regenerate last response
+    Ctrl+T      : Toggle streaming mode on/off
     Ctrl+Y      : Copy last message to clipboard
-    Ctrl+E      : Send message (E for execute/enter)
     Enter       : Insert newline (multi-line input)
     Escape      : Cancel current generation
 
@@ -88,7 +88,13 @@ class ChatInput(TextArea):
 
     Note: Ctrl+Enter is often captured by terminal emulators (e.g., iTerm2
     opens "New Tab"). Ctrl+E is more reliable across terminals.
+
+    Default TextArea bindings (Ctrl+E=End, Ctrl+C=Copy) are cleared to
+    avoid conflicts with app-level shortcuts.
     """
+
+    # Clear TextArea's default bindings to avoid conflicts
+    BINDINGS = []
 
     class Submitted(TextArea.Changed):
         """Event posted when Enter is pressed to submit input."""
@@ -330,14 +336,15 @@ class ChatApp(App[None]):
     """
 
     # Keyboard bindings - each tuple is (key, action_method, description)
+    # Order determines display in footer (most important first)
     BINDINGS = [
-        ("ctrl+c", "quit", "Quit"),
-        ("ctrl+t", "toggle_stream", "Toggle Stream"),
-        ("ctrl+r", "regenerate", "Regenerate"),
-        ("ctrl+o", "load_file", "Load File"),
-        ("ctrl+n", "new_session", "New Session"),
-        ("ctrl+y", "copy_message", "Copy"),
+        ("ctrl+q", "quit", "Quit"),
         ("ctrl+e", "submit", "Send"),
+        ("ctrl+o", "load_file", "Load"),
+        ("ctrl+n", "new_session", "New"),
+        ("ctrl+r", "regenerate", "Regen"),
+        ("ctrl+t", "toggle_stream", "Stream"),
+        ("ctrl+y", "copy_message", "Copy"),
         ("escape", "cancel", "Cancel"),
     ]
 
