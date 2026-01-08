@@ -18,7 +18,7 @@ Widget Hierarchy
 Data Flow
 ---------
     1. User types message in TextArea widget
-    2. Enter (or Ctrl+Enter) triggers action_submit()
+    2. Ctrl+Enter triggers action_submit()
     3. Message added to Conversation state
     4. RAGProvider.augment() called (NullProvider passthrough in v0.1)
     5. OpenAIClient.chat() called with streaming
@@ -34,9 +34,8 @@ Keyboard Shortcuts
     Ctrl+O      : Load query from file
     Ctrl+N      : New session (clear history)
     Ctrl+Y      : Copy last message to clipboard
-    Enter       : Send message
-    Shift+Enter : Insert newline (multi-line input)
-    Ctrl+Enter  : Send message (alternative)
+    Ctrl+Enter  : Send message
+    Enter       : Insert newline (multi-line input)
     Escape      : Cancel current generation
 
 Integration Points
@@ -82,11 +81,13 @@ if TYPE_CHECKING:
 
 
 class ChatInput(TextArea):
-    """Custom TextArea that submits on Enter, newline on Shift+Enter.
+    """Custom TextArea that submits on Ctrl+Enter.
 
-    Overrides the default TextArea key handling to intercept Enter
-    before it inserts a newline. This enables Slack/Discord-style UX
-    where Enter sends and Shift+Enter adds a newline.
+    Overrides the default TextArea key handling to intercept Ctrl+Enter
+    for submitting. Enter inserts newlines for multi-line input.
+
+    Note: Terminal emulators often can't distinguish Shift+Enter from Enter,
+    so we use Ctrl+Enter for reliable submit behavior across all terminals.
     """
 
     class Submitted(TextArea.Changed):
@@ -95,20 +96,22 @@ class ChatInput(TextArea):
         pass
 
     async def _on_key(self, event: Key) -> None:
-        """Intercept Enter key before TextArea processes it.
+        """Intercept key events for submit behavior.
+
+        Terminal emulators often can't distinguish Shift+Enter from Enter,
+        so we use Ctrl+Enter for submit to be reliable.
 
         Args:
             event: The key event to handle.
         """
-        # Plain Enter submits (key is "enter", not "shift+enter")
-        if event.key == "enter":
+        # Ctrl+Enter submits (most reliable across terminals)
+        if event.key == "ctrl+enter":
             event.prevent_default()
             event.stop()
-            # Post message to app — cleaner than direct app reference
             self.post_message(self.Submitted(self))
             return
 
-        # All other keys (including shift+enter) go to parent
+        # Enter and Shift+Enter: let TextArea insert newline
         await super()._on_key(event)
 
 
@@ -428,7 +431,7 @@ class ChatApp(App[None]):
         self.action_submit()
 
     def action_submit(self) -> None:
-        """Submit the current message (Enter or Ctrl+Enter).
+        """Submit the current message (Ctrl+Enter).
 
         This is the main chat workflow entry point:
         1. Validate input (non-empty)
