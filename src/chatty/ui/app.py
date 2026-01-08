@@ -314,13 +314,13 @@ class ChatApp(App[None]):
     """
 
     # Keyboard bindings - order determines display in footer
-    # Note: ChatInput's ctrl+e binding shows first (focused widget)
+    # Note: ChatInput's ctrl+e shows first (focused widget), then quit has priority
     # Hidden bindings (show=False) are functional but not shown in footer
     BINDINGS = [
+        Binding("ctrl+q", "quit", "Quit"),
+        Binding("ctrl+n", "new_session", "New Session"),
         Binding("ctrl+o", "load_file", "Load File"),
         Binding("escape", "cancel", "Interrupt"),
-        Binding("ctrl+n", "new_session", "New Session"),
-        Binding("ctrl+q", "quit", "Quit"),
         # Hidden but functional (accessible via ^p palette or Keys panel)
         Binding("ctrl+r", "regenerate", "Regenerate Last Response", show=False),
         Binding("ctrl+t", "toggle_stream", "Toggle Streaming", show=False),
