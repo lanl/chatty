@@ -87,8 +87,9 @@ class ChatInput(TextArea):
     """
 
     # Override ctrl+e (normally "end of line") to submit
+    # show=False because we want the app's binding to show in footer
     BINDINGS = [
-        ("ctrl+e", "send", "Submit Query"),
+        Binding("ctrl+e", "send", "Submit Query", show=False),
     ]
 
     class Submitted(TextArea.Changed):
