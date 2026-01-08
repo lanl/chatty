@@ -11,14 +11,14 @@ Widget Hierarchy
     ├── Container
     │   └── ChatLog (scrollable message display with markdown)
     ├── Vertical
-    │   └── Input (user text entry)
+    │   └── TextArea (multi-line text entry)
     ├── StatusBar (model, tokens, connection status)
     └── Footer (Textual built-in - shows keybindings)
 
 Data Flow
 ---------
-    1. User types message in Input widget
-    2. on_input_submitted() receives the event
+    1. User types message in TextArea widget
+    2. Ctrl+Enter triggers action_submit()
     3. Message added to Conversation state
     4. RAGProvider.augment() called (NullProvider passthrough in v0.1)
     5. OpenAIClient.chat() called with streaming
@@ -28,13 +28,14 @@ Data Flow
 
 Keyboard Shortcuts
 ------------------
-    Ctrl+C : Quit (clean shutdown)
-    Ctrl+T : Toggle streaming mode on/off
-    Ctrl+R : Regenerate last response
-    Ctrl+O : Load query from file
-    Ctrl+N : New session (clear history)
-    Ctrl+Y : Copy last message to clipboard
-    Escape : Cancel current generation
+    Ctrl+C     : Quit (clean shutdown)
+    Ctrl+T     : Toggle streaming mode on/off
+    Ctrl+R     : Regenerate last response
+    Ctrl+O     : Load query from file
+    Ctrl+N     : New session (clear history)
+    Ctrl+Y     : Copy last message to clipboard
+    Ctrl+Enter : Send message
+    Escape     : Cancel current generation
 
 Integration Points
 ------------------
@@ -62,7 +63,7 @@ from typing import TYPE_CHECKING, cast
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, VerticalScroll
-from textual.widgets import Footer, Header, Input, Static
+from textual.widgets import Footer, Header, Static, TextArea
 from textual.worker import Worker
 
 from chatty.client.openai_client import (
@@ -271,6 +272,7 @@ class ChatApp(App[None]):
 
     #input-container {
         height: auto;
+        max-height: 10;
         padding: 1;
         border-top: solid $primary;
     }
@@ -282,8 +284,11 @@ class ChatApp(App[None]):
         padding: 0 1;
     }
 
-    Input {
+    #input {
         width: 100%;
+        height: auto;
+        min-height: 3;
+        max-height: 8;
     }
     """
 
@@ -295,6 +300,7 @@ class ChatApp(App[None]):
         ("ctrl+o", "load_file", "Load File"),
         ("ctrl+n", "new_session", "New Session"),
         ("ctrl+y", "copy_message", "Copy"),
+        ("ctrl+enter", "submit", "Send"),
         ("escape", "cancel", "Cancel"),
     ]
 
@@ -324,7 +330,7 @@ class ChatApp(App[None]):
         Yields widgets in top-to-bottom order. The layout is:
         - Header: Shows app title
         - VerticalScroll with ChatLog: Main scrollable area for messages
-        - Container with Input: User text input area
+        - Container with TextArea: User text input area (multi-line)
         - StatusBar: Single-line status display
         - Footer: Shows available keyboard shortcuts
         """
@@ -334,7 +340,7 @@ class ChatApp(App[None]):
             id="chat-container",
         )
         yield Container(
-            Input(placeholder="Type your message...", id="input"),
+            TextArea(id="input"),
             id="input-container",
         )
         yield StatusBar(id="status-bar", model=self.config.model, streaming=self.streaming)
@@ -350,7 +356,7 @@ class ChatApp(App[None]):
         - Add system prompt if configured
         - Load query from file if provided
         """
-        self.query_one("#input", Input).focus()
+        self.query_one("#input", TextArea).focus()
 
         # Initialize client and conversation
         self.client = OpenAIClient(self.config)
@@ -375,16 +381,16 @@ class ChatApp(App[None]):
             with open(self.query_file) as f:
                 content = f.read().strip()
             if content:
-                # Set input value and post the submit event
-                input_widget = self.query_one("#input", Input)
-                input_widget.value = content
-                self.post_message(Input.Submitted(input_widget, content))
+                # Set input text and trigger submit
+                input_widget = self.query_one("#input", TextArea)
+                input_widget.text = content
+                self.action_submit()
         except Exception as e:
             chat_log = self.query_one("#chat-log", ChatLog)
             chat_log.add_message("error", f"Failed to load query file: {e}")
 
-    async def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handle message submission from the input widget.
+    def action_submit(self) -> None:
+        """Submit the current message (Ctrl+Enter).
 
         This is the main chat workflow entry point:
         1. Validate input (non-empty)
@@ -392,21 +398,20 @@ class ChatApp(App[None]):
         3. Clear input for next message
         4. Start async worker for LLM call
         5. Worker streams response to chat log
-
-        Args:
-            event: Input submission event containing the message text.
         """
-        if not event.value.strip():
+        input_widget = self.query_one("#input", TextArea)
+        user_message = input_widget.text.strip()
+
+        if not user_message:
             return
 
-        user_message = event.value.strip()
         chat_log = self.query_one("#chat-log", ChatLog)
 
         # Display user message
         chat_log.add_message("user", user_message)
 
         # Clear input for next message
-        event.input.value = ""
+        input_widget.text = ""
 
         # Add to conversation state
         if self.conversation:

@@ -101,6 +101,7 @@ chatty print-config
 | `Ctrl+O` | Load query from file |
 | `Ctrl+N` | New session |
 | `Ctrl+Y` | Copy message to clipboard |
+| `Ctrl+Enter` | Send message |
 | `Esc` | Cancel generation |
 
 ## Features
