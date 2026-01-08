@@ -59,6 +59,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, cast
 
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import Container, VerticalScroll
 from textual.widgets import Footer, Header, Static, TextArea
 from textual.worker import Worker
@@ -87,7 +88,7 @@ class ChatInput(TextArea):
 
     # Override ctrl+e (normally "end of line") to submit
     BINDINGS = [
-        ("ctrl+e", "send", "Send Message"),
+        ("ctrl+e", "send", "Submit Query"),
     ]
 
     class Submitted(TextArea.Changed):
@@ -314,16 +315,17 @@ class ChatApp(App[None]):
     }
     """
 
-    # Keyboard bindings - each tuple is (key, action_method, description)
-    # Order determines display in footer (most important first)
+    # Keyboard bindings - order determines display in footer
+    # Hidden bindings (show=False) are functional but not shown in footer
     BINDINGS = [
-        ("ctrl+q", "quit", "Quit"),
-        ("ctrl+e", "submit", "Send Message"),
-        ("ctrl+o", "load_file", "Load File"),
-        ("ctrl+n", "new_session", "New Session"),
-        ("ctrl+r", "regenerate", "Regenerate"),
-        ("ctrl+t", "toggle_stream", "Toggle Stream"),
-        ("escape", "cancel", "Cancel"),
+        Binding("ctrl+q", "quit", "Quit"),
+        Binding("ctrl+e", "submit", "Submit Query"),
+        Binding("ctrl+o", "load_file", "Load File"),
+        Binding("ctrl+n", "new_session", "New Session"),
+        Binding("escape", "cancel", "Interrupt"),
+        # Hidden but functional (accessible via ^p palette or Keys panel)
+        Binding("ctrl+r", "regenerate", "Regenerate Last Response", show=False),
+        Binding("ctrl+t", "toggle_stream", "Toggle Streaming", show=False),
     ]
 
     def __init__(

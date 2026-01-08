@@ -96,13 +96,15 @@ chatty print-config
 | Key | Action |
 |-----|--------|
 | `Ctrl+Q` | Quit |
-| `Ctrl+E` | Send message |
-| `Ctrl+O` | Load query from file |
+| `Ctrl+E` | Submit query |
+| `Ctrl+O` | Load file |
 | `Ctrl+N` | New session |
-| `Ctrl+R` | Regenerate last response |
-| `Ctrl+T` | Toggle streaming |
+| `Esc` | Interrupt generation |
 | `Enter` | Insert newline |
-| `Esc` | Cancel generation |
+
+**Power user shortcuts** (hidden from footer, accessible via `Ctrl+P` palette):
+- `Ctrl+R` — Regenerate last response
+- `Ctrl+T` — Toggle streaming mode
 
 ## Features
 
