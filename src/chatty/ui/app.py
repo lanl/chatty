@@ -82,14 +82,11 @@ class ChatInput(TextArea):
     Inherits standard TextArea bindings (cursor movement, copy/paste, etc.)
     for normal text editing. Multi-line input via Enter key.
 
-    Ctrl+E is overridden to submit instead of "end of line" cursor move.
-    All other TextArea bindings (Ctrl+A, Ctrl+C, etc.) work normally.
+    Ctrl+E overrides TextArea's "end of line" binding to submit instead.
     """
 
-    # Override ctrl+e (normally "end of line") to submit
-    # show=False because we want the app's binding to show in footer
     BINDINGS = [
-        Binding("ctrl+e", "send", "Submit Query", show=False),
+        Binding("ctrl+e", "send", "Submit Query"),
     ]
 
     class Submitted(TextArea.Changed):
@@ -317,13 +314,13 @@ class ChatApp(App[None]):
     """
 
     # Keyboard bindings - order determines display in footer
+    # Note: ChatInput's ctrl+e binding shows first (focused widget)
     # Hidden bindings (show=False) are functional but not shown in footer
     BINDINGS = [
-        Binding("ctrl+q", "quit", "Quit"),
-        Binding("ctrl+n", "new_session", "New Session"),
         Binding("ctrl+o", "load_file", "Load File"),
-        Binding("ctrl+e", "submit", "Submit Query"),
         Binding("escape", "cancel", "Interrupt"),
+        Binding("ctrl+n", "new_session", "New Session"),
+        Binding("ctrl+q", "quit", "Quit"),
         # Hidden but functional (accessible via ^p palette or Keys panel)
         Binding("ctrl+r", "regenerate", "Regenerate Last Response", show=False),
         Binding("ctrl+t", "toggle_stream", "Toggle Streaming", show=False),
