@@ -101,7 +101,6 @@ chatty print-config
 | `Ctrl+N` | New session |
 | `Ctrl+R` | Regenerate last response |
 | `Ctrl+T` | Toggle streaming |
-| `Ctrl+Y` | Copy message to clipboard |
 | `Enter` | Insert newline |
 | `Esc` | Cancel generation |
 

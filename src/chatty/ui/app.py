@@ -34,7 +34,6 @@ Keyboard Shortcuts
     Ctrl+N      : New session (clear history)
     Ctrl+R      : Regenerate last response
     Ctrl+T      : Toggle streaming mode on/off
-    Ctrl+Y      : Copy last message to clipboard
     Enter       : Insert newline (multi-line input)
     Escape      : Cancel current generation
 
@@ -56,10 +55,7 @@ Key Design Decisions
 
 from __future__ import annotations
 
-import tempfile
-import uuid
 from collections.abc import AsyncIterator
-from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from textual.app import App, ComposeResult
@@ -80,30 +76,19 @@ if TYPE_CHECKING:
 
 
 class ChatInput(TextArea):
-    """Custom TextArea that submits on Ctrl+E.
+    """Custom TextArea for chat input.
 
-    Overrides the default TextArea key handling to intercept Ctrl+E
-    for submitting. Enter inserts newlines for multi-line input.
+    Inherits standard TextArea bindings (cursor movement, copy/paste, etc.)
+    for normal text editing. Multi-line input via Enter key.
 
-    Note: Ctrl+Enter is often captured by terminal emulators (e.g., iTerm2
-    opens "New Tab"). Ctrl+E is more reliable across terminals.
-
-    BINDINGS override parent's ctrl+e=end to show "Send" in footer.
+    Note: Submit is handled via Ctrl+E at the app level, not here,
+    to preserve TextArea's standard editing bindings.
     """
 
-    # Override parent's ctrl+e (cursor end) to show in footer
-    BINDINGS = [
-        ("ctrl+e", "send", "Send"),
-    ]
-
     class Submitted(TextArea.Changed):
-        """Event posted when Ctrl+E is pressed to submit input."""
+        """Event posted when message should be submitted."""
 
         pass
-
-    def action_send(self) -> None:
-        """Handle Ctrl+E binding to submit message."""
-        self.post_message(self.Submitted(self))
 
 
 class ChatLog(Static):
@@ -324,12 +309,11 @@ class ChatApp(App[None]):
     # Order determines display in footer (most important first)
     BINDINGS = [
         ("ctrl+q", "quit", "Quit"),
-        ("ctrl+e", "submit", "Send"),
-        ("ctrl+o", "load_file", "Load"),
-        ("ctrl+n", "new_session", "New"),
-        ("ctrl+r", "regenerate", "Regen"),
-        ("ctrl+t", "toggle_stream", "Stream"),
-        ("ctrl+y", "copy_message", "Copy"),
+        ("ctrl+e", "submit", "Send Message"),
+        ("ctrl+o", "load_file", "Load File"),
+        ("ctrl+n", "new_session", "New Session"),
+        ("ctrl+r", "regenerate", "Regenerate"),
+        ("ctrl+t", "toggle_stream", "Toggle Stream"),
         ("escape", "cancel", "Cancel"),
     ]
 
@@ -601,44 +585,6 @@ class ChatApp(App[None]):
             status="Ready",
             tokens="",
         )
-
-    def action_copy_message(self) -> None:
-        """Copy the last message to clipboard.
-
-        Attempts to use pyperclip. If clipboard is unavailable
-        (headless HPC node), falls back to writing to a temp file
-        and displays the file path to the user.
-        """
-        if not self.conversation or not self.conversation.messages:
-            return
-
-        # Get the last message content (raw, not formatted)
-        last_message = self.conversation.messages[-1]
-        content = last_message.content
-
-        chat_log = self.query_one("#chat-log", ChatLog)
-
-        # Try pyperclip first (optional dependency)
-        try:
-            import pyperclip
-
-            pyperclip.copy(content)
-            chat_log.add_message("system", "Copied to clipboard.")
-            return
-        except ImportError:
-            pass  # pyperclip not installed
-        except Exception:
-            pass  # Clipboard unavailable (headless)
-
-        # Fallback: write to temp file
-        try:
-            temp_dir = Path(tempfile.gettempdir())
-            filename = f"chatty-export-{uuid.uuid4().hex[:8]}.txt"
-            filepath = temp_dir / filename
-            filepath.write_text(content)
-            chat_log.add_message("system", f"Saved to: {filepath}")
-        except Exception as e:
-            chat_log.add_message("error", f"Failed to copy: {e}")
 
     def action_cancel(self) -> None:
         """Cancel the current generation.
