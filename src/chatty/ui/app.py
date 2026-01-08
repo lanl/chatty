@@ -319,9 +319,9 @@ class ChatApp(App[None]):
     # Hidden bindings (show=False) are functional but not shown in footer
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),
-        Binding("ctrl+e", "submit", "Submit Query"),
-        Binding("ctrl+o", "load_file", "Load File"),
         Binding("ctrl+n", "new_session", "New Session"),
+        Binding("ctrl+o", "load_file", "Load File"),
+        Binding("ctrl+e", "submit", "Submit Query"),
         Binding("escape", "cancel", "Interrupt"),
         # Hidden but functional (accessible via ^p palette or Keys panel)
         Binding("ctrl+r", "regenerate", "Regenerate Last Response", show=False),
