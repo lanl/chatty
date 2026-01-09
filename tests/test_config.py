@@ -9,6 +9,7 @@ import pytest
 from chatty.config import (
     Config,
     ConfigWithSources,
+    find_config_path,
     format_config_with_sources,
     get_config_path,
     load_config,
@@ -217,3 +218,127 @@ def test_config_precedence_toml_over_default(tmp_path: Path) -> None:
         assert result.config.model == "toml-model"
         # Source will include the path info
         assert "config" in result.sources["model"].lower() or "toml" in result.sources["model"]
+
+
+def test_find_config_path_chatty_config_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Test CHATTY_CONFIG env var takes priority."""
+    config_file = tmp_path / "custom-config.toml"
+    config_file.write_text('model = "env-config-model"')
+
+    monkeypatch.setenv("CHATTY_CONFIG", str(config_file))
+
+    result = find_config_path()
+    assert result == config_file
+
+
+def test_find_config_path_chatty_config_env_nonexistent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test CHATTY_CONFIG env var with nonexistent path falls through."""
+    monkeypatch.setenv("CHATTY_CONFIG", "/nonexistent/path/to/config.toml")
+
+    # When CHATTY_CONFIG points to nonexistent file, find_config_path falls through
+    # to check other locations. Just verify it doesn't crash.
+    find_config_path()
+
+
+def test_find_config_path_repo_local_chatty_toml(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Test ./chatty.toml is found when it exists."""
+    # Change to temp directory
+    monkeypatch.chdir(tmp_path)
+
+    # Create chatty.toml in temp directory
+    config_file = tmp_path / "chatty.toml"
+    config_file.write_text('model = "local-model"')
+
+    # Clear CHATTY_CONFIG if set
+    monkeypatch.delenv("CHATTY_CONFIG", raising=False)
+
+    result = find_config_path()
+    assert result is not None
+    assert result.name == "chatty.toml"
+
+
+def test_get_transcript_path_expands_tilde() -> None:
+    """Test get_transcript_path expands ~ to home directory."""
+    config = Config(transcript_path="~/.config/chatty/transcripts")
+    path = config.get_transcript_path()
+
+    assert "~" not in str(path)
+    assert str(path).startswith(str(Path.home()))
+
+
+def test_get_transcript_path_relative() -> None:
+    """Test get_transcript_path handles relative paths."""
+    config = Config(transcript_path="./transcripts")
+    path = config.get_transcript_path()
+
+    assert path == Path("./transcripts")
+
+
+def test_config_display_all_fields() -> None:
+    """Test display() includes all expected fields."""
+    config = Config(
+        base_url="https://example.com/v1",
+        model="test-model",
+        temperature=0.5,
+        stream=True,
+        timeout_s=120,
+        show_timestamps=True,
+        transcript_enabled=True,
+        transcript_path="./transcripts",
+    )
+    display = config.display()
+
+    assert display["base_url"] == "https://example.com/v1"
+    assert display["model"] == "test-model"
+    assert display["temperature"] == "0.5"
+    assert display["stream"] == "True"
+    assert display["timeout_s"] == "120"
+    assert display["show_timestamps"] == "True"
+    assert display["transcript_enabled"] == "True"
+    assert display["transcript_path"] == "./transcripts"
+
+
+def test_format_config_shows_config_file_path(tmp_path: Path) -> None:
+    """Test format_config_with_sources shows which config file was loaded."""
+    config_file = tmp_path / "chatty.toml"
+    config_file.write_text('model = "file-model"')
+
+    with patch("chatty.config.find_config_path") as mock_find:
+        mock_find.return_value = config_file
+
+        config = Config(model="file-model")
+        sources = {"model": "chatty.toml"}
+        config_with_sources = ConfigWithSources(config=config, sources=sources)
+
+        output = format_config_with_sources(config_with_sources)
+        assert f"Config file: {config_file}" in output
+
+
+def test_format_config_shows_no_config_file() -> None:
+    """Test format_config_with_sources shows when no config file found."""
+    with patch("chatty.config.find_config_path") as mock_find:
+        mock_find.return_value = None
+
+        config = Config()
+        sources = {"model": "default"}
+        config_with_sources = ConfigWithSources(config=config, sources=sources)
+
+        output = format_config_with_sources(config_with_sources)
+        assert "Config file: (none found)" in output
+
+
+def test_load_toml_config_source_chatty_toml(tmp_path: Path) -> None:
+    """Test source is 'chatty.toml' for repo-local config."""
+    config_file = tmp_path / "chatty.toml"
+    config_file.write_text('model = "local-model"')
+
+    with patch("chatty.config.find_config_path") as mock_path:
+        mock_path.return_value = config_file
+        _result, source = load_toml_config()
+        assert source == "chatty.toml"
