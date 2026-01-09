@@ -160,13 +160,17 @@ Font size is controlled by your terminal emulator, not chatty. To increase reada
 
 When using local endpoints, make sure your `base_url` includes `/v1`:
 
+**LM Studio:**
 ```toml
-# ✅ Correct
 base_url = "http://localhost:1234/v1"
-
-# ❌ Wrong - missing /v1
-base_url = "http://localhost:1234"
 ```
+
+**Ollama:**
+```toml
+base_url = "http://localhost:11434/v1"
+```
+
+> **Note:** These are the default ports. If you've configured a different port, adjust accordingly.
 
 ## Complete Example Config
 
