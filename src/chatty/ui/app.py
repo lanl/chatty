@@ -55,6 +55,7 @@ Key Design Decisions
 
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, cast
 
@@ -323,16 +324,16 @@ class StatusBar(Static):
 
     Shows: connection status, model name, streaming mode, and token usage.
     Updates dynamically as state changes. Includes animated spinner during
-    active operations (Thinking, Streaming).
+    active operations (Thinking, Streaming) with elapsed time display.
 
     Display Format:
-        "Ready | Model: gpt-4.1 | Stream: on | 12K / 128K tokens"
-        "⣾ Thinking... | Model: gpt-4.1 | Stream: on"
+        "Ready (3.2s) | Model: gpt-4.1 | Stream: on | 12K / 128K tokens"
+        "⣾ Thinking... (1.5s) | Model: gpt-4.1 | Stream: on"
 
     Status States:
-        - Ready: Idle, waiting for user input
-        - Thinking...: Waiting for LLM response (with spinner)
-        - Streaming...: Receiving tokens (with spinner)
+        - Ready: Idle, waiting for user input (shows response time after generation)
+        - Thinking...: Waiting for LLM response (with spinner + elapsed time)
+        - Streaming...: Receiving tokens (with spinner + elapsed time)
         - Error: Last request failed
         - Cancelled: User cancelled generation
     """
@@ -361,14 +362,35 @@ class StatusBar(Static):
         self._tokens = ""
         self._spinner_index = 0
         self._spinner_timer: object | None = None
+        self._start_time: float | None = None
+        self._last_response_time: float | None = None
         self._rebuild_display()
+
+    def _format_elapsed(self, seconds: float) -> str:
+        """Format elapsed time as a human-readable string.
+
+        Args:
+            seconds: Elapsed time in seconds.
+
+        Returns:
+            Formatted string like "1.5s" or "1m 23s".
+        """
+        if seconds < 60:
+            return f"{seconds:.1f}s"
+        minutes = int(seconds // 60)
+        remaining = seconds % 60
+        return f"{minutes}m {remaining:.0f}s"
 
     def _rebuild_display(self) -> None:
         """Rebuild the status bar text from current state."""
-        # Add spinner prefix for active states
+        # Add spinner prefix and elapsed time for active states
         if self._status in ("Thinking...", "Streaming..."):
             spinner_char = self.SPINNER_FRAMES[self._spinner_index]
-            status_display = f"{spinner_char} {self._status}"
+            elapsed = time.monotonic() - self._start_time if self._start_time else 0
+            status_display = f"{spinner_char} {self._status} ({self._format_elapsed(elapsed)})"
+        elif self._status == "Ready" and self._last_response_time is not None:
+            # Show response time after generation completes
+            status_display = f"Ready ({self._format_elapsed(self._last_response_time)})"
         else:
             status_display = self._status
 
@@ -380,22 +402,27 @@ class StatusBar(Static):
         self.update(" | ".join(parts))
 
     def _advance_spinner(self) -> None:
-        """Advance spinner to next frame."""
+        """Advance spinner to next frame and update elapsed time."""
         self._spinner_index = (self._spinner_index + 1) % len(self.SPINNER_FRAMES)
         self._rebuild_display()
 
     def _start_spinner(self) -> None:
-        """Start the spinner animation."""
+        """Start the spinner animation and elapsed timer."""
         if self._spinner_timer is None:
             self._spinner_index = 0
+            self._start_time = time.monotonic()
             self._spinner_timer = self.set_interval(0.1, self._advance_spinner)
 
     def _stop_spinner(self) -> None:
-        """Stop the spinner animation."""
+        """Stop the spinner animation and record response time."""
         if self._spinner_timer is not None:
+            # Calculate final response time
+            if self._start_time is not None:
+                self._last_response_time = time.monotonic() - self._start_time
             # Remove the timer by calling its stop method
             timer = self._spinner_timer
             self._spinner_timer = None
+            self._start_time = None
             if hasattr(timer, "stop"):
                 timer.stop()
 
@@ -424,7 +451,9 @@ class StatusBar(Static):
 
             # Start/stop spinner based on status
             if status in ("Thinking...", "Streaming..."):
-                self._start_spinner()
+                if old_status not in ("Thinking...", "Streaming..."):
+                    # Only start spinner if not already running
+                    self._start_spinner()
             elif old_status in ("Thinking...", "Streaming..."):
                 self._stop_spinner()
 
