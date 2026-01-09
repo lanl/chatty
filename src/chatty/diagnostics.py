@@ -114,7 +114,7 @@ def check_config(config_with_sources: ConfigWithSources) -> list[DiagnosticResul
 
     # Check CA bundle if specified
     if config.ca_bundle:
-        ca_path = Path(config.ca_bundle)
+        ca_path = Path(config.ca_bundle).expanduser()
         if ca_path.exists():
             results.append(
                 DiagnosticResult(

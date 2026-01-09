@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx
@@ -23,7 +24,7 @@ def build_sync_client(config: Config, *, timeout: float = 60.0) -> httpx.Client:
     # TLS verification: path to CA bundle, True for system default, False to disable
     verify: bool | str = True
     if config.ca_bundle:
-        verify = config.ca_bundle
+        verify = str(Path(config.ca_bundle).expanduser())
     if not config.verify_tls:
         verify = False
 
@@ -50,7 +51,7 @@ def build_async_client(config: Config, *, timeout: float = 60.0) -> httpx.AsyncC
     # TLS verification: path to CA bundle, True for system default, False to disable
     verify: bool | str = True
     if config.ca_bundle:
-        verify = config.ca_bundle
+        verify = str(Path(config.ca_bundle).expanduser())
     if not config.verify_tls:
         verify = False
 
