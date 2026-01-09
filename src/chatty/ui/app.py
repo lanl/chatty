@@ -57,7 +57,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 from rich.markdown import Markdown as RichMarkdown
 from textual.app import App, ComposeResult
@@ -74,9 +74,7 @@ from chatty.client.openai_client import (
 )
 from chatty.config import ConfigWithSources, load_config
 from chatty.core.conversation import Conversation
-
-if TYPE_CHECKING:
-    pass
+from chatty.core.transcript import TranscriptLogger
 
 
 class FileInputModal(ModalScreen[str | None]):
@@ -589,6 +587,7 @@ class ChatApp(App[None]):
         self.client: OpenAIClient | None = None
         self.conversation: Conversation | None = None
         self.current_worker: Worker[None] | None = None
+        self.transcript: TranscriptLogger = TranscriptLogger(self.config)
 
     def compose(self) -> ComposeResult:
         """Create the UI layout.
@@ -616,6 +615,7 @@ class ChatApp(App[None]):
         - Initial focus on input widget
         - Create OpenAI client
         - Initialize conversation state
+        - Start transcript logging if enabled
         - Add system prompt if configured
         - Load query from file if provided
         """
@@ -625,9 +625,16 @@ class ChatApp(App[None]):
         self.client = OpenAIClient(self.config)
         self.conversation = Conversation()
 
+        # Start transcript logging
+        transcript_file = self.transcript.start_session()
+        if transcript_file:
+            chat_log = self.query_one("#chat-log", ChatLog)
+            chat_log.add_message("system", f"Transcript: {transcript_file}")
+
         # Add system prompt if configured
         if self.config.system_prompt:
             self.conversation.add_system_message(self.config.system_prompt)
+            self.transcript.log_message("system", self.config.system_prompt)
 
         # Update status bar with actual model
         self.query_one("#status-bar", StatusBar).update_status(model=self.config.model)
@@ -680,9 +687,10 @@ class ChatApp(App[None]):
         # Clear input for next message
         input_widget.text = ""
 
-        # Add to conversation state
+        # Add to conversation state and log to transcript
         if self.conversation:
             self.conversation.add_user_message(user_message)
+        self.transcript.log_message("user", user_message)
 
         # Start async worker for LLM call
         # Pass method reference (not called) — Textual invokes it
@@ -737,6 +745,16 @@ class ChatApp(App[None]):
                 # Update conversation with complete response
                 self.conversation.add_assistant_message(response_content)
 
+                # Log to transcript with response time
+                response_time = status_bar._last_response_time
+                self.transcript.log_message(
+                    "assistant",
+                    response_content,
+                    model=self.config.model,
+                    response_time_s=response_time,
+                    tokens=self.conversation.server_reported_tokens,
+                )
+
             else:
                 # Non-streaming mode - message renders with markdown immediately
                 from chatty.client.openai_client import AssistantMessage
@@ -747,6 +765,14 @@ class ChatApp(App[None]):
                 chat_log.add_message("assistant", response.content)
                 self.conversation.add_assistant_message(response.content, response.usage)
 
+                # Log to transcript
+                self.transcript.log_message(
+                    "assistant",
+                    response.content,
+                    model=self.config.model,
+                    tokens=response.usage.get("total_tokens") if response.usage else None,
+                )
+
             # Update status with token count
             status_bar.update_status(
                 status="Ready",
@@ -756,10 +782,12 @@ class ChatApp(App[None]):
         except ChattyClientError as e:
             chat_log.add_message("error", str(e))
             status_bar.update_status(status="Error")
+            self.transcript.log_message("error", str(e))
 
         except Exception as e:
             chat_log.add_message("error", f"Unexpected error: {e}")
             status_bar.update_status(status="Error")
+            self.transcript.log_message("error", f"Unexpected error: {e}")
 
         finally:
             self.current_worker = None
@@ -873,6 +901,7 @@ class ChatApp(App[None]):
 
     async def on_unmount(self) -> None:
         """Clean up when app is closing."""
+        self.transcript.close()
         if self.client:
             await self.client.close()
 
