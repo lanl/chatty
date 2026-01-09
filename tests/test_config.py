@@ -75,9 +75,12 @@ def test_load_config_source_attribution_env(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_load_config_source_attribution_default() -> None:
     """Test source attribution for default values."""
-    result = load_config()
-    assert result.sources["model"] == "default"
-    assert result.sources["temperature"] == "default"
+    # Mock find_config_path to ensure no config file is found
+    with patch("chatty.config.find_config_path") as mock_find:
+        mock_find.return_value = None
+        result = load_config()
+        assert result.sources["model"] == "default"
+        assert result.sources["temperature"] == "default"
 
 
 def test_display_redacts_secrets(mock_config: Config) -> None:
@@ -140,9 +143,12 @@ def test_format_config_with_sources() -> None:
 
 
 def test_get_config_path() -> None:
-    """Test config path location."""
-    path = get_config_path()
-    assert path == Path.home() / ".config" / "chatty" / "config.toml"
+    """Test config path location defaults to user config when no file found."""
+    # When no config file exists, get_config_path returns the default user location
+    with patch("chatty.config.find_config_path") as mock_find:
+        mock_find.return_value = None
+        path = get_config_path()
+        assert path == Path.home() / ".config" / "chatty" / "config.toml"
 
 
 def test_load_toml_config_no_file() -> None:

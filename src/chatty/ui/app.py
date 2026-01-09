@@ -72,7 +72,7 @@ from chatty.client.openai_client import (
     Message,
     OpenAIClient,
 )
-from chatty.config import ConfigWithSources, load_config
+from chatty.config import ConfigWithSources, find_config_path, load_config
 from chatty.core.conversation import Conversation
 from chatty.core.transcript import TranscriptLogger
 
@@ -613,6 +613,7 @@ class ChatApp(App[None]):
 
         Called when the app is fully loaded and ready. Sets up:
         - Initial focus on input widget
+        - Check for missing configuration (show warnings)
         - Create OpenAI client
         - Initialize conversation state
         - Start transcript logging if enabled
@@ -620,6 +621,10 @@ class ChatApp(App[None]):
         - Load query from file if provided
         """
         self.query_one("#input", ChatInput).focus()
+        chat_log = self.query_one("#chat-log", ChatLog)
+
+        # Check for missing configuration and warn user
+        self._check_startup_config(chat_log)
 
         # Initialize client and conversation
         self.client = OpenAIClient(self.config)
@@ -628,7 +633,6 @@ class ChatApp(App[None]):
         # Start transcript logging
         transcript_file = self.transcript.start_session()
         if transcript_file:
-            chat_log = self.query_one("#chat-log", ChatLog)
             chat_log.add_message("system", f"Transcript: {transcript_file}")
 
         # Add system prompt if configured
@@ -642,6 +646,41 @@ class ChatApp(App[None]):
         # Load query from file if provided
         if self.query_file:
             self._load_and_submit_query_file()
+
+    def _check_startup_config(self, chat_log: ChatLog) -> None:
+        """Check configuration at startup and show warnings for issues.
+
+        Args:
+            chat_log: The chat log widget to display warnings.
+        """
+        config_path = find_config_path()
+        warnings = []
+
+        # Check if no config file found
+        if config_path is None:
+            warnings.append(
+                "⚠ No config file found.\n\n"
+                "Searched:\n"
+                "  ./chatty.toml\n"
+                "  ~/.config/chatty/config.toml\n\n"
+                "To fix:\n"
+                "  • Run from repo root: cd ~/Code/chatty\n"
+                "  • Or set: export CHATTY_CONFIG='/path/to/chatty.toml'\n"
+                "  • Or create: ~/.config/chatty/config.toml\n\n"
+                "Run 'chatty doctor' to diagnose."
+            )
+
+        # Check if base_url is empty
+        if not self.config.base_url:
+            warnings.append(
+                "⚠ No base_url configured. Chat will fail.\n\n"
+                "To fix, add to your config file:\n"
+                '  base_url = "http://localhost:1234/v1"'
+            )
+
+        # Show warnings
+        for warning in warnings:
+            chat_log.add_message("error", warning)
 
     def _load_and_submit_query_file(self) -> None:
         """Load query from file and submit it."""
