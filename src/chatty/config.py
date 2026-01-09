@@ -142,9 +142,9 @@ class Config(BaseSettings):
     def get_api_key(self) -> str:
         """Load API key from file (preferred) or direct config."""
         if self.api_key_file:
-            path = self.api_key_file
+            path = self.api_key_file.expanduser()
             if not path.exists():
-                raise ValueError(f"API key file not found: {path}")
+                raise ValueError(f"API key file not found: {self.api_key_file}")
             # Check file permissions (should be 600)
             mode = path.stat().st_mode & 0o777
             if mode & 0o077:
