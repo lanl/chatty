@@ -1,4 +1,11 @@
+# Repo-local config (may contain API keys)
+chatty.toml
+
 # Transcripts (local conversation logs)
+# Supported locations (set transcript_path in chatty.toml):
+#   transcript_path = "./transcripts"             # repo-local
+#   transcript_path = "~/.config/chatty/transcripts"  # user config dir (default)
+#   transcript_path = "~/.local/share/chatty/transcripts"  # XDG data dir
 transcripts/
 *.jsonl
 
