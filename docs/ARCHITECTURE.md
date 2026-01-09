@@ -122,6 +122,26 @@ This is the pre-container offline story. For full air-gap deployment, use the Ch
 
 ## Module Breakdown
 
+### `chatty/diagnostics.py`
+
+Connectivity diagnostics for the doctor command.
+
+**Responsibilities:**
+- Validate required configuration (base_url, api_key/api_key_file)
+- Check CA bundle exists (if specified)
+- Test TLS handshake with endpoint
+- Authenticate with API key
+- Verify endpoint supports `/chat/completions`
+
+**Exit Codes:**
+| Code | Meaning |
+|------|---------|
+| 0 | All checks passed |
+| 1 | Missing required config |
+| 2 | Authentication failure |
+| 3 | Network/TLS failure |
+| 4 | API incompatibility |
+
 ### `chatty/config.py`
 
 Pydantic Settings class handling configuration from multiple sources.
@@ -204,6 +224,21 @@ def get_api_key(config) -> str:
 ```
 
 **HPC Best Practice:** Use `api_key_file` pointing to a `chmod 600` file. Avoid passing keys via environment variables on shared systems (they appear in shell history, job logs, `/proc`).
+
+### `chatty/client/http.py`
+
+Shared HTTP client utilities.
+
+**Responsibilities:**
+- Build configured httpx clients (sync and async)
+- Apply TLS/CA settings with tilde expansion
+- Configure proxy settings
+
+**Interface:**
+```python
+def build_sync_client(config: Config, timeout: float = 60.0) -> httpx.Client
+def build_async_client(config: Config, timeout: float = 60.0) -> httpx.AsyncClient
+```
 
 ### `chatty/client/openai_client.py`
 
@@ -405,6 +440,21 @@ Output formatting and display utilities.
 **Key Design Decisions:**
 - Separating rendering from conversation keeps concerns clean
 - Future citation rendering won't require changes to conversation logic
+
+### `chatty/core/transcript.py`
+
+JSONL transcript logging for conversation history.
+
+**Responsibilities:**
+- Log conversation messages to JSONL files
+- Generate timestamped filenames per session
+- Handle graceful degradation if logging fails
+
+**Key Design Decisions:**
+- One JSON object per line (streaming-friendly, grep-able)
+- Timestamps in ISO 8601 format
+- Optional metadata: model, response_time_s, tokens
+- File opened at session start, flushed after each message
 
 ### `chatty/rag/provider.py`
 
