@@ -67,7 +67,7 @@ def check_config(config_with_sources: ConfigWithSources) -> list[DiagnosticResul
 
     # Check api_key or api_key_file
     if config.api_key_file:
-        file_path = config.api_key_file
+        file_path = config.api_key_file.expanduser()
         if file_path.exists():
             # Check permissions
             mode = file_path.stat().st_mode & 0o777

@@ -130,6 +130,33 @@ def test_check_config_api_key_file_not_found() -> None:
     assert "File not found" in (api_key_check.detail or "")
 
 
+def test_check_config_api_key_file_tilde_expansion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test config check expands ~ in api_key_file path."""
+    # Create a key file in a fake home directory
+    fake_home = tmp_path / "home" / "user"
+    fake_home.mkdir(parents=True)
+    key_file = fake_home / ".api_key"
+    key_file.write_text("secret-key")
+    key_file.chmod(0o600)
+
+    # Mock expanduser to return our fake home
+    monkeypatch.setattr(
+        Path,
+        "expanduser",
+        lambda self: fake_home / str(self)[2:] if str(self).startswith("~/") else self,
+    )
+
+    config = Config(base_url="https://api.test.com/v1", api_key_file=Path("~/.api_key"))
+    config_with_sources = ConfigWithSources(config=config, sources={})
+
+    results = check_config(config_with_sources)
+    api_key_check = next(r for r in results if "api_key" in r.message)
+    assert api_key_check.passed is True
+    assert "api_key_file" in (api_key_check.detail or "")
+
+
 def test_check_config_ca_bundle_exists(tmp_path: Path) -> None:
     """Test config check with existing CA bundle."""
     ca_file = tmp_path / "ca.pem"
