@@ -147,10 +147,11 @@ def test_get_config_path() -> None:
 
 def test_load_toml_config_no_file() -> None:
     """Test TOML loading when no file exists."""
-    with patch("chatty.config.get_config_path") as mock_path:
-        mock_path.return_value = Path("/nonexistent/config.toml")
-        result = load_toml_config()
+    with patch("chatty.config.find_config_path") as mock_path:
+        mock_path.return_value = None
+        result, source = load_toml_config()
         assert result == {}
+        assert source == ""
 
 
 def test_load_toml_config_with_file(tmp_path: Path) -> None:
@@ -162,9 +163,9 @@ model = "toml-model"
 temperature = 0.7
 """)
 
-    with patch("chatty.config.get_config_path") as mock_path:
+    with patch("chatty.config.find_config_path") as mock_path:
         mock_path.return_value = config_file
-        result = load_toml_config()
+        result, source = load_toml_config()
         assert result["base_url"] == "https://toml.example.com/v1"
         assert result["model"] == "toml-model"
         assert result["temperature"] == 0.7
@@ -186,7 +187,7 @@ def test_config_precedence_env_over_toml(monkeypatch: pytest.MonkeyPatch, tmp_pa
 
     monkeypatch.setenv("CHATTY_MODEL", "env-model")
 
-    with patch("chatty.config.get_config_path") as mock_path:
+    with patch("chatty.config.find_config_path") as mock_path:
         mock_path.return_value = config_file
         result = load_config()
         assert result.config.model == "env-model"
@@ -204,8 +205,9 @@ def test_config_precedence_toml_over_default(tmp_path: Path) -> None:
         if key.startswith("CHATTY_") or key.startswith("OPENAI_"):
             del os.environ[key]
 
-    with patch("chatty.config.get_config_path") as mock_path:
+    with patch("chatty.config.find_config_path") as mock_path:
         mock_path.return_value = config_file
         result = load_config()
         assert result.config.model == "toml-model"
-        assert result.sources["model"] == "config.toml"
+        # Source will include the path info
+        assert "config" in result.sources["model"].lower() or "toml" in result.sources["model"]

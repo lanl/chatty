@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,18 +20,72 @@ class ConfigSource:
     source: str  # "default", "config.toml", "env:VAR_NAME", "cli"
 
 
+def find_config_path() -> Path | None:
+    """Find the config file using search order.
+
+    Search order:
+    1. CHATTY_CONFIG environment variable (explicit override)
+    2. ./chatty.toml (repo-local config)
+    3. ~/.config/chatty/config.toml (user default)
+
+    Returns:
+        Path to config file if found, None otherwise.
+    """
+    # 1. CHATTY_CONFIG env var
+    env_config = os.environ.get("CHATTY_CONFIG")
+    if env_config:
+        path = Path(env_config).expanduser()
+        if path.exists():
+            return path
+        # If explicitly set but doesn't exist, that's an error handled later
+
+    # 2. Repo-local config
+    local_config = Path("chatty.toml")
+    if local_config.exists():
+        return local_config
+
+    # 3. User config
+    user_config = Path.home() / ".config" / "chatty" / "config.toml"
+    if user_config.exists():
+        return user_config
+
+    return None
+
+
 def get_config_path() -> Path:
-    """Get the path to the config file."""
+    """Get the path to the config file (for backwards compatibility).
+
+    Returns the found config path or the default user config location.
+    """
+    found = find_config_path()
+    if found:
+        return found
     return Path.home() / ".config" / "chatty" / "config.toml"
 
 
-def load_toml_config() -> dict[str, Any]:
-    """Load configuration from TOML file if it exists."""
-    config_path = get_config_path()
-    if config_path.exists():
-        with open(config_path, "rb") as f:
-            return tomllib.load(f)
-    return {}
+def load_toml_config() -> tuple[dict[str, Any], str]:
+    """Load configuration from TOML file if it exists.
+
+    Returns:
+        Tuple of (config dict, source description).
+        Source is one of: "chatty.toml", "~/.config/chatty/config.toml", "env:CHATTY_CONFIG"
+    """
+    config_path = find_config_path()
+    if config_path is None:
+        return {}, ""
+
+    with open(config_path, "rb") as f:
+        config = tomllib.load(f)
+
+    # Determine source description
+    if os.environ.get("CHATTY_CONFIG"):
+        source = f"env:CHATTY_CONFIG ({config_path})"
+    elif config_path.name == "chatty.toml":
+        source = "chatty.toml"
+    else:
+        source = "~/.config/chatty/config.toml"
+
+    return config, source
 
 
 class Config(BaseSettings):
@@ -77,6 +132,13 @@ class Config(BaseSettings):
     system_prompt: str = "You are a helpful assistant."
     timeout_s: int = 60
 
+    # UI & Display
+    show_timestamps: bool = False
+
+    # Transcript Logging
+    transcript_enabled: bool = False
+    transcript_path: str = "~/.config/chatty/transcripts"
+
     def get_api_key(self) -> str:
         """Load API key from file (preferred) or direct config."""
         if self.api_key_file:
@@ -108,7 +170,14 @@ class Config(BaseSettings):
             "temperature": str(self.temperature),
             "stream": str(self.stream),
             "timeout_s": str(self.timeout_s),
+            "show_timestamps": str(self.show_timestamps),
+            "transcript_enabled": str(self.transcript_enabled),
+            "transcript_path": self.transcript_path,
         }
+
+    def get_transcript_path(self) -> Path:
+        """Get the resolved transcript path with ~ expanded."""
+        return Path(self.transcript_path).expanduser()
 
 
 @dataclass
@@ -125,7 +194,12 @@ def load_config(
 ) -> ConfigWithSources:
     """Load configuration from all sources with attribution.
 
-    Precedence (highest to lowest):
+    Config file search order:
+    1. CHATTY_CONFIG environment variable
+    2. ./chatty.toml (repo-local)
+    3. ~/.config/chatty/config.toml (user default)
+
+    Value precedence (highest to lowest):
     1. cli_overrides (passed from CLI flags)
     2. Environment variables
     3. TOML config file
@@ -134,10 +208,8 @@ def load_config(
     Returns:
         ConfigWithSources with the resolved config and source attribution.
     """
-    import os
-
     sources: dict[str, str] = {}
-    toml_config = load_toml_config()
+    toml_config, toml_source = load_toml_config()
     cli_overrides = cli_overrides or {}
 
     # Get defaults from the model
@@ -154,6 +226,9 @@ def load_config(
         "stream": True,
         "system_prompt": "You are a helpful assistant.",
         "timeout_s": 60,
+        "show_timestamps": False,
+        "transcript_enabled": False,
+        "transcript_path": "~/.config/chatty/transcripts",
     }
 
     # Map env var names to config keys
@@ -170,6 +245,9 @@ def load_config(
         "stream": ["CHATTY_STREAM"],
         "system_prompt": ["CHATTY_SYSTEM_PROMPT"],
         "timeout_s": ["CHATTY_TIMEOUT", "CHATTY_TIMEOUT_S"],
+        "show_timestamps": ["CHATTY_SHOW_TIMESTAMPS"],
+        "transcript_enabled": ["CHATTY_TRANSCRIPT_ENABLED"],
+        "transcript_path": ["CHATTY_TRANSCRIPT_PATH"],
     }
 
     # Determine source for each config value
@@ -192,7 +270,7 @@ def load_config(
 
         # Check TOML config
         if key in toml_config:
-            sources[key] = "config.toml"
+            sources[key] = toml_source or "config.toml"
             continue
 
         # Use default
@@ -204,7 +282,8 @@ def load_config(
 
     # Only apply TOML values if no env var is set for that key
     for key, value in toml_config.items():
-        if key in defaults and sources.get(key, "").startswith("config.toml"):
+        source = sources.get(key, "")
+        if key in defaults and (source.startswith("chatty.toml") or "config" in source):
             final_values[key] = value
 
     # Apply CLI overrides (highest precedence)
@@ -225,6 +304,14 @@ def format_config_with_sources(config_with_sources: ConfigWithSources) -> str:
     sources = config_with_sources.sources
     lines = []
 
+    # Show which config file was loaded
+    config_path = find_config_path()
+    if config_path:
+        lines.append(f"Config file: {config_path}")
+    else:
+        lines.append("Config file: (none found)")
+    lines.append("")
+
     display_values = {
         "base_url": config.base_url or "(not set)",
         "model": config.model,
@@ -242,6 +329,9 @@ def format_config_with_sources(config_with_sources: ConfigWithSources) -> str:
             else config.system_prompt
         ),
         "timeout_s": str(config.timeout_s),
+        "show_timestamps": str(config.show_timestamps),
+        "transcript_enabled": str(config.transcript_enabled),
+        "transcript_path": config.transcript_path,
     }
 
     for key, value in display_values.items():
