@@ -112,7 +112,31 @@ chatty print-config
 - **Context tracking** — status bar shows token usage (e.g., "12K / 128K")
 - **File loading** — load long queries from files (`Ctrl+O` or `--query-file`)
 - **Streaming** — real-time token display with cancellation support
+- **Transcript logging** — save conversations to JSONL files for review
 - **Offline-friendly** — works without RAG (v0.1), graceful errors with RAG (v0.3+)
+
+## Transcript Logging
+
+Save conversations to JSONL files for later review, auditing, or debugging.
+
+```toml
+# In chatty.toml or ~/.config/chatty/config.toml
+transcript_enabled = true
+transcript_path = "./transcripts"  # or any path
+```
+
+**Supported locations:**
+- `./transcripts` — repo-local (good for development)
+- `~/.config/chatty/transcripts` — user config dir (default)
+- `~/.local/share/chatty/transcripts` — XDG data dir
+
+**Output format:** One JSON object per line:
+```json
+{"timestamp": "2026-01-09T10:32:15.123", "role": "user", "content": "Hello"}
+{"timestamp": "2026-01-09T10:32:18.456", "role": "assistant", "content": "Hi!", "model": "gpt-4.1", "response_time_s": 2.3}
+```
+
+When transcript logging is enabled, chatty shows the transcript file path on startup.
 
 ## Tips
 
@@ -143,6 +167,89 @@ base_url = "http://localhost:1234/v1"
 # ❌ Wrong - missing /v1
 base_url = "http://localhost:1234"
 ```
+
+## Complete Example Config
+
+Create `chatty.toml` in your project directory or `~/.config/chatty/config.toml`:
+
+<details>
+<summary>📄 Click to expand full example</summary>
+
+```toml
+# chatty configuration
+# Config file search order:
+#   1. CHATTY_CONFIG env var (explicit override)
+#   2. ./chatty.toml (repo-local)
+#   3. ~/.config/chatty/config.toml (user default)
+
+# =============================================================================
+# REQUIRED: API Endpoint
+# =============================================================================
+
+# Base URL for OpenAI-compatible API
+base_url = "https://your-endpoint/v1"
+
+# API Key (use ONE of these methods):
+# Option 1: Direct key (OK for personal laptop, not for shared systems)
+api_key = "your-api-key-here"
+
+# Option 2: Key file (recommended for HPC/shared systems)
+# api_key_file = "/home/user/.secrets/chatty-api-key"
+
+# =============================================================================
+# MODEL SETTINGS
+# =============================================================================
+
+# Model name (depends on your endpoint)
+model = "gpt-4.1"
+
+# Temperature (0.0 = deterministic, 1.0+ = creative)
+temperature = 0.2
+
+# =============================================================================
+# BEHAVIOR
+# =============================================================================
+
+# Enable streaming responses (show tokens as they arrive)
+stream = true
+
+# System prompt (sets assistant behavior)
+system_prompt = "You are a helpful assistant."
+
+# Request timeout in seconds
+timeout_s = 60
+
+# =============================================================================
+# TLS / NETWORK (for institutional endpoints)
+# =============================================================================
+
+# Custom CA bundle for institutional endpoints
+# ca_bundle = "/etc/pki/tls/certs/institutional-ca.pem"
+
+# Disable TLS verification (only for controlled dev environments!)
+# verify_tls = false
+
+# HTTP proxy (if required by your network)
+# http_proxy = "http://proxy.internal:8080"
+
+# Hosts that bypass the proxy
+# no_proxy = "localhost,127.0.0.1"
+
+# =============================================================================
+# TRANSCRIPT LOGGING
+# =============================================================================
+
+# Enable JSONL transcript logging (saves all conversations)
+# transcript_enabled = false
+
+# Transcript location options:
+#   "./transcripts"                     # repo-local (good for development)
+#   "~/.config/chatty/transcripts"      # user config dir (default)
+#   "~/.local/share/chatty/transcripts" # XDG data dir (for large archives)
+# transcript_path = "~/.config/chatty/transcripts"
+```
+
+</details>
 
 ## Development
 
