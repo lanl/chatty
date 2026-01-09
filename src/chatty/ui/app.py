@@ -322,18 +322,23 @@ class StatusBar(Static):
     """Widget to display status information in a single line.
 
     Shows: connection status, model name, streaming mode, and token usage.
-    Updates dynamically as state changes.
+    Updates dynamically as state changes. Includes animated spinner during
+    active operations (Thinking, Streaming).
 
     Display Format:
         "Ready | Model: gpt-4.1 | Stream: on | 12K / 128K tokens"
+        "⣾ Thinking... | Model: gpt-4.1 | Stream: on"
 
     Status States:
         - Ready: Idle, waiting for user input
-        - Thinking...: Waiting for LLM response
-        - Streaming: Receiving tokens
+        - Thinking...: Waiting for LLM response (with spinner)
+        - Streaming...: Receiving tokens (with spinner)
         - Error: Last request failed
         - Cancelled: User cancelled generation
     """
+
+    # Braille spinner characters - smooth animation
+    SPINNER_FRAMES = "⣾⣽⣻⢿⡿⣟⣯⣷"
 
     def __init__(
         self,
@@ -354,16 +359,45 @@ class StatusBar(Static):
         self._model = model
         self._streaming = streaming
         self._tokens = ""
+        self._spinner_index = 0
+        self._spinner_timer: object | None = None
         self._rebuild_display()
 
     def _rebuild_display(self) -> None:
         """Rebuild the status bar text from current state."""
-        parts = [self._status, f"Model: {self._model}"]
+        # Add spinner prefix for active states
+        if self._status in ("Thinking...", "Streaming..."):
+            spinner_char = self.SPINNER_FRAMES[self._spinner_index]
+            status_display = f"{spinner_char} {self._status}"
+        else:
+            status_display = self._status
+
+        parts = [status_display, f"Model: {self._model}"]
         stream_str = "on" if self._streaming else "off"
         parts.append(f"Stream: {stream_str}")
         if self._tokens:
             parts.append(self._tokens)
         self.update(" | ".join(parts))
+
+    def _advance_spinner(self) -> None:
+        """Advance spinner to next frame."""
+        self._spinner_index = (self._spinner_index + 1) % len(self.SPINNER_FRAMES)
+        self._rebuild_display()
+
+    def _start_spinner(self) -> None:
+        """Start the spinner animation."""
+        if self._spinner_timer is None:
+            self._spinner_index = 0
+            self._spinner_timer = self.set_interval(0.1, self._advance_spinner)
+
+    def _stop_spinner(self) -> None:
+        """Stop the spinner animation."""
+        if self._spinner_timer is not None:
+            # Remove the timer by calling its stop method
+            timer = self._spinner_timer
+            self._spinner_timer = None
+            if hasattr(timer, "stop"):
+                timer.stop()
 
     def update_status(
         self,
@@ -376,6 +410,7 @@ class StatusBar(Static):
         """Update the status bar display.
 
         Only provided values are updated; others retain their current state.
+        Automatically starts/stops spinner for active states.
 
         Args:
             status: Status text ("Ready", "Thinking...", "Error", etc.)
@@ -384,7 +419,15 @@ class StatusBar(Static):
             tokens: Token usage string (e.g., "12K / 128K tokens")
         """
         if status is not None:
+            old_status = self._status
             self._status = status
+
+            # Start/stop spinner based on status
+            if status in ("Thinking...", "Streaming..."):
+                self._start_spinner()
+            elif old_status in ("Thinking...", "Streaming..."):
+                self._stop_spinner()
+
         if model is not None:
             self._model = model
         if streaming is not None:
