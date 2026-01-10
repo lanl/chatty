@@ -65,6 +65,7 @@ from rich.markdown import Markdown as RichMarkdown
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Vertical, VerticalScroll
+from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
@@ -304,6 +305,169 @@ class SessionBrowserModal(ModalScreen[Path | None]):
     def action_load(self) -> None:
         """Handle Enter key."""
         self._load_selected()
+
+
+class SearchBar(Container):
+    """Inline search bar for finding text in conversation.
+
+    Appears above the input area when Ctrl+F is pressed.
+    Shows match count and allows navigation between matches.
+
+    Attributes:
+        search_term: Current search term.
+        matches: List of (widget_index, role, content_preview) tuples.
+        current_match: Index of currently highlighted match.
+    """
+
+    CSS = """
+    SearchBar {
+        height: auto;
+        padding: 0 1;
+        background: $surface;
+        border-bottom: solid $primary;
+        display: none;
+    }
+
+    SearchBar.visible {
+        display: block;
+    }
+
+    #search-container {
+        width: 100%;
+        height: auto;
+        layout: horizontal;
+    }
+
+    #search-input {
+        width: 1fr;
+        height: 1;
+    }
+
+    #search-status {
+        width: auto;
+        min-width: 12;
+        height: 1;
+        padding: 0 1;
+        content-align: right middle;
+        color: $text-muted;
+    }
+
+    #search-close {
+        width: auto;
+        height: 1;
+        min-width: 3;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "close_search", "Close", priority=True),
+        Binding("enter", "next_match", "Next", priority=True),
+        Binding("shift+enter", "prev_match", "Previous", priority=True),
+    ]
+
+    def __init__(self) -> None:
+        """Initialize the search bar."""
+        super().__init__(id="search-bar")
+        self.search_term: str = ""
+        self.matches: list[tuple[int, str, str]] = []  # (index, role, preview)
+        self.current_match: int = -1
+
+    def compose(self) -> ComposeResult:
+        """Create the search bar layout."""
+        with Container(id="search-container"):
+            yield Input(placeholder="Search...", id="search-input")
+            yield Static("0/0", id="search-status")
+            yield Button("×", variant="default", id="search-close")
+
+    def on_mount(self) -> None:
+        """Focus search input when mounted."""
+        pass  # Focus handled by show() method
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Handle search term changes."""
+        if event.input.id == "search-input":
+            self.search_term = event.value
+            self.post_message(self.SearchRequested(self.search_term))
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle close button click."""
+        if event.button.id == "search-close":
+            self.action_close_search()
+
+    def show(self) -> None:
+        """Show the search bar and focus input."""
+        self.add_class("visible")
+        self.query_one("#search-input", Input).focus()
+
+    def hide(self) -> None:
+        """Hide the search bar and clear state."""
+        self.remove_class("visible")
+        self.search_term = ""
+        self.matches = []
+        self.current_match = -1
+        self.query_one("#search-input", Input).value = ""
+        self._update_status()
+
+    def update_matches(self, matches: list[tuple[int, str, str]]) -> None:
+        """Update the match list and status display.
+
+        Args:
+            matches: List of (widget_index, role, content_preview) tuples.
+        """
+        self.matches = matches
+        if matches:
+            self.current_match = 0
+        else:
+            self.current_match = -1
+        self._update_status()
+
+    def _update_status(self) -> None:
+        """Update the match count display."""
+        status = self.query_one("#search-status", Static)
+        if not self.matches:
+            status.update("0/0")
+        else:
+            status.update(f"{self.current_match + 1}/{len(self.matches)}")
+
+    def action_close_search(self) -> None:
+        """Close the search bar."""
+        self.hide()
+        self.post_message(self.SearchClosed())
+
+    def action_next_match(self) -> None:
+        """Navigate to next match."""
+        if not self.matches:
+            return
+        self.current_match = (self.current_match + 1) % len(self.matches)
+        self._update_status()
+        self.post_message(self.NavigateToMatch(self.matches[self.current_match][0]))
+
+    def action_prev_match(self) -> None:
+        """Navigate to previous match."""
+        if not self.matches:
+            return
+        self.current_match = (self.current_match - 1) % len(self.matches)
+        self._update_status()
+        self.post_message(self.NavigateToMatch(self.matches[self.current_match][0]))
+
+    class SearchRequested(Message):
+        """Event posted when search term changes."""
+
+        def __init__(self, term: str) -> None:
+            super().__init__()
+            self.term = term
+
+    class SearchClosed(Message):
+        """Event posted when search is closed."""
+
+        pass
+
+    class NavigateToMatch(Message):
+        """Event posted when user navigates to a match."""
+
+        def __init__(self, widget_index: int) -> None:
+            super().__init__()
+            self.widget_index = widget_index
 
 
 class ChatInput(TextArea):
@@ -723,6 +887,7 @@ class ChatApp(App[None]):
         Binding("escape", "cancel", "Interrupt"),
         # Power user shortcuts (visible in footer but may be truncated on small terminals)
         Binding("ctrl+r", "regenerate", "Regenerate"),
+        Binding("ctrl+f", "search", "Search", priority=True),
         Binding("ctrl+t", "toggle_stream", "Toggle Stream", show=False),
     ]
 
@@ -760,12 +925,14 @@ class ChatApp(App[None]):
         Yields widgets in top-to-bottom order. The layout is:
         - Header: Shows app title
         - ChatLog: Scrollable area for messages (extends VerticalScroll)
+        - SearchBar: Inline search (hidden by default)
         - Container with ChatInput: User text input area (multi-line)
         - StatusBar: Single-line status display
         - Footer: Shows available keyboard shortcuts
         """
         yield Header()
         yield ChatLog(id="chat-log")
+        yield SearchBar()
         yield Container(
             ChatInput(id="input"),
             id="input-container",
@@ -1347,6 +1514,81 @@ class ChatApp(App[None]):
             return f"Clipboard unavailable. Saved to {filepath}"
         except Exception as e:
             return f"Failed to copy: {e}"
+
+    def action_search(self) -> None:
+        """Open the search bar (Ctrl+F).
+
+        Shows the inline search bar and focuses the search input.
+        """
+        search_bar = self.query_one("#search-bar", SearchBar)
+        search_bar.show()
+
+    def on_search_bar_search_requested(self, event: SearchBar.SearchRequested) -> None:
+        """Handle search term changes from search bar.
+
+        Args:
+            event: Search requested event with the search term.
+        """
+        term = event.term.strip().lower()
+        search_bar = self.query_one("#search-bar", SearchBar)
+
+        if not term:
+            search_bar.update_matches([])
+            return
+
+        # Search through all messages in conversation
+        matches: list[tuple[int, str, str]] = []
+        chat_log = self.query_one("#chat-log", ChatLog)
+        message_widgets = list(chat_log.query(MessageWidget))
+
+        for idx, widget in enumerate(message_widgets):
+            content = widget.message_content.lower()
+            if term in content:
+                # Create preview (first 40 chars around match)
+                pos = content.find(term)
+                start = max(0, pos - 20)
+                end = min(len(widget.message_content), pos + len(term) + 20)
+                preview = widget.message_content[start:end]
+                if start > 0:
+                    preview = "..." + preview
+                if end < len(widget.message_content):
+                    preview = preview + "..."
+
+                matches.append((idx, widget.role, preview))
+
+        search_bar.update_matches(matches)
+
+        # Navigate to first match if any
+        if matches:
+            self._scroll_to_message(matches[0][0])
+
+    def on_search_bar_search_closed(self, _event: SearchBar.SearchClosed) -> None:
+        """Handle search bar close event.
+
+        Returns focus to the input widget.
+        """
+        self.query_one("#input", ChatInput).focus()
+
+    def on_search_bar_navigate_to_match(self, event: SearchBar.NavigateToMatch) -> None:
+        """Handle navigation to a specific match.
+
+        Args:
+            event: Navigate event with widget index.
+        """
+        self._scroll_to_message(event.widget_index)
+
+    def _scroll_to_message(self, widget_index: int) -> None:
+        """Scroll to a specific message by index.
+
+        Args:
+            widget_index: Index of the message widget to scroll to.
+        """
+        chat_log = self.query_one("#chat-log", ChatLog)
+        message_widgets = list(chat_log.query(MessageWidget))
+
+        if 0 <= widget_index < len(message_widgets):
+            widget = message_widgets[widget_index]
+            widget.scroll_visible()
 
     async def on_unmount(self) -> None:
         """Clean up when app is closing."""
