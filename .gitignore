@@ -16,6 +16,12 @@ transcripts/
 #   session_path = "~/.local/share/chatty/sessions"  # XDG data dir
 sessions/
 
+# Copies (clipboard fallback files)
+# Supported locations (set copy_fallback_path in chatty.toml):
+#   copy_fallback_path = "./copies"               # repo-local (default)
+#   copy_fallback_path = "~/.config/chatty/copies"  # user config dir
+copies/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

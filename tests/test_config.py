@@ -342,3 +342,26 @@ def test_load_toml_config_source_chatty_toml(tmp_path: Path) -> None:
         mock_path.return_value = config_file
         _result, source = load_toml_config()
         assert source == "chatty.toml"
+
+
+def test_copy_fallback_path_default() -> None:
+    """Test copy_fallback_path has default value."""
+    config = Config()
+    assert config.copy_fallback_path == "./copies"
+
+
+def test_get_copy_fallback_path_expands_tilde() -> None:
+    """Test get_copy_fallback_path expands ~ to home directory."""
+    config = Config(copy_fallback_path="~/custom/copies")
+    path = config.get_copy_fallback_path()
+
+    assert "~" not in str(path)
+    assert str(path).startswith(str(Path.home()))
+
+
+def test_config_display_includes_copy_fallback_path() -> None:
+    """Test display() includes copy_fallback_path."""
+    config = Config(copy_fallback_path="./my-copies")
+    display = config.display()
+
+    assert display["copy_fallback_path"] == "./my-copies"

@@ -145,6 +145,9 @@ class Config(BaseSettings):
     # Session Persistence
     session_path: str = "./sessions"
 
+    # Copy to Clipboard
+    copy_fallback_path: str = "./copies"
+
     def get_api_key(self) -> str:
         """Load API key from file (preferred) or direct config."""
         if self.api_key_file:
@@ -181,6 +184,7 @@ class Config(BaseSettings):
             "transcript_path": self.transcript_path,
             "rag_provider": self.rag_provider,
             "session_path": self.session_path,
+            "copy_fallback_path": self.copy_fallback_path,
         }
 
     def get_transcript_path(self) -> Path:
@@ -190,6 +194,10 @@ class Config(BaseSettings):
     def get_session_path(self) -> Path:
         """Get the resolved session path with ~ expanded."""
         return Path(self.session_path).expanduser()
+
+    def get_copy_fallback_path(self) -> Path:
+        """Get the resolved copy fallback path with ~ expanded."""
+        return Path(self.copy_fallback_path).expanduser()
 
 
 @dataclass
@@ -243,6 +251,7 @@ def load_config(
         "transcript_path": "~/.config/chatty/transcripts",
         "rag_provider": "none",
         "session_path": "./sessions",
+        "copy_fallback_path": "./copies",
     }
 
     # Map env var names to config keys
@@ -264,6 +273,7 @@ def load_config(
         "transcript_path": ["CHATTY_TRANSCRIPT_PATH"],
         "rag_provider": ["CHATTY_RAG_PROVIDER"],
         "session_path": ["CHATTY_SESSION_PATH"],
+        "copy_fallback_path": ["CHATTY_COPY_FALLBACK_PATH"],
     }
 
     # Determine source for each config value
@@ -350,6 +360,7 @@ def format_config_with_sources(config_with_sources: ConfigWithSources) -> str:
         "transcript_path": config.transcript_path,
         "rag_provider": config.rag_provider,
         "session_path": config.session_path,
+        "copy_fallback_path": config.copy_fallback_path,
     }
 
     for key, value in display_values.items():

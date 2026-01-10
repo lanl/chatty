@@ -31,6 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enter or double-click to load, Escape to cancel
 - Empty state shows helpful hint to save with Ctrl+S
 
+**Copy to Clipboard**
+- `Ctrl+C` copies last assistant response to system clipboard
+- `copy_fallback_path` config for headless HPC (default: `./copies`)
+- `CHATTY_COPY_FALLBACK_PATH` environment variable
+- Falls back to timestamped file when clipboard unavailable
+
 ### Changed
 
 - Chat flow now uses `RAGProvider.augment()` instead of building messages directly

@@ -97,6 +97,7 @@ chatty print-config
 |-----|--------|
 | `Ctrl+E` | Submit query |
 | `Ctrl+Q` | Quit |
+| `Ctrl+C` | Copy last response |
 | `Ctrl+S` | Save session |
 | `Ctrl+L` | Load session |
 | `Ctrl+N` | New session |
@@ -114,6 +115,7 @@ chatty print-config
 - **Context tracking** — status bar shows token usage (e.g., "12K / 128K")
 - **File loading** — load long queries from files (`Ctrl+O` or `--query-file`)
 - **Streaming** — real-time token display with cancellation support
+- **Copy to clipboard** — `Ctrl+C` copies last response (file fallback for HPC)
 - **Session management** — save and resume conversations across runs
 - **Transcript logging** — save conversations to JSONL files for review
 - **Offline-friendly** — works without RAG (v0.1), graceful errors with RAG (v0.3+)
@@ -291,6 +293,15 @@ timeout_s = 60
 #   "~/.config/chatty/sessions"         # user config dir
 #   "~/.local/share/chatty/sessions"    # XDG data dir
 # session_path = "./sessions"
+
+# =============================================================================
+# COPY FALLBACK (for headless HPC)
+# =============================================================================
+
+# Where to save copied content when clipboard is unavailable:
+#   "./copies"                          # repo-local (default)
+#   "~/.config/chatty/copies"           # user config dir
+# copy_fallback_path = "./copies"
 
 # =============================================================================
 # TRANSCRIPT LOGGING
