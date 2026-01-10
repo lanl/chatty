@@ -69,12 +69,12 @@ from textual.worker import Worker
 
 from chatty.client.openai_client import (
     ChattyClientError,
-    Message,
     OpenAIClient,
 )
 from chatty.config import ConfigWithSources, find_config_path, load_config
 from chatty.core.conversation import Conversation
 from chatty.core.transcript import TranscriptLogger
+from chatty.rag import RAGMetadata, RAGProvider, get_provider
 
 
 class FileInputModal(ModalScreen[str | None]):
@@ -588,6 +588,9 @@ class ChatApp(App[None]):
         self.conversation: Conversation | None = None
         self.current_worker: Worker[None] | None = None
         self.transcript: TranscriptLogger = TranscriptLogger(self.config)
+        self.rag_provider: RAGProvider = get_provider(self.config)
+        self.last_rag_metadata: RAGMetadata | None = None  # For future citation display
+        self._pending_user_text: str | None = None  # User message awaiting LLM response
 
     def compose(self) -> ComposeResult:
         """Create the UI layout.
@@ -709,8 +712,9 @@ class ChatApp(App[None]):
         1. Validate input (non-empty)
         2. Add user message to chat log
         3. Clear input for next message
-        4. Start async worker for LLM call
-        5. Worker streams response to chat log
+        4. Store pending user text for RAG provider
+        5. Start async worker for LLM call
+        6. Worker streams response to chat log
         """
         input_widget = self.query_one("#input", ChatInput)
         user_message = input_widget.text.strip()
@@ -726,9 +730,10 @@ class ChatApp(App[None]):
         # Clear input for next message
         input_widget.text = ""
 
-        # Add to conversation state and log to transcript
-        if self.conversation:
-            self.conversation.add_user_message(user_message)
+        # Store pending user text - will be added to conversation after response
+        # This allows RAGProvider.augment() to receive conversation history
+        # separately from the new user message for query rewriting (v0.3+)
+        self._pending_user_text = user_message
         self.transcript.log_message("user", user_message)
 
         # Start async worker for LLM call
@@ -744,13 +749,18 @@ class ChatApp(App[None]):
 
         Handles the complete workflow:
         1. Update status to "Thinking..."
-        2. Call client.chat() with streaming or non-streaming
-        3. Stream tokens to chat log (if streaming)
-        4. Update conversation with complete response
-        5. Update status bar with token count
-        6. Handle errors gracefully
+        2. Call RAGProvider.augment() to get messages (with potential context)
+        3. Call client.chat() with streaming or non-streaming
+        4. Stream tokens to chat log (if streaming)
+        5. Update conversation with user message and assistant response
+        6. Update status bar with token count
+        7. Handle errors gracefully
         """
         if not self.client or not self.conversation:
+            return
+
+        user_text = self._pending_user_text
+        if not user_text:
             return
 
         chat_log = self.query_one("#chat-log", ChatLog)
@@ -759,8 +769,10 @@ class ChatApp(App[None]):
         status_bar.update_status(status="Thinking...")
 
         try:
-            # Get messages for API
-            messages = [Message(m.role, m.content) for m in self.conversation.messages]
+            # Use RAG provider to augment messages with context
+            # NullProvider passes through unchanged; LitkitProvider (v0.3+) adds context
+            messages, rag_metadata = await self.rag_provider.augment(self.conversation, user_text)
+            self.last_rag_metadata = rag_metadata
 
             if self.streaming:
                 # Streaming mode
@@ -781,7 +793,10 @@ class ChatApp(App[None]):
                 # Finish streaming - re-render with markdown
                 msg_widget.finish_streaming()
 
-                # Update conversation with complete response
+                # Update conversation with user message and assistant response
+                # User message is added here (after success) to keep conversation
+                # in sync with what was actually sent to the API
+                self.conversation.add_user_message(user_text)
                 self.conversation.add_assistant_message(response_content)
 
                 # Log to transcript with response time
@@ -802,6 +817,9 @@ class ChatApp(App[None]):
                 response = cast(AssistantMessage, result)
 
                 chat_log.add_message("assistant", response.content)
+
+                # Update conversation with user message and assistant response
+                self.conversation.add_user_message(user_text)
                 self.conversation.add_assistant_message(response.content, response.usage)
 
                 # Log to transcript
@@ -854,14 +872,26 @@ class ChatApp(App[None]):
         if self.conversation.messages[-1].role != "assistant":
             return
 
-        # Remove the last assistant message from conversation
-        self.conversation.messages.pop()
+        # Get the user message that preceded the assistant response
+        # (it's the second-to-last message)
+        if self.conversation.messages[-2].role != "user":
+            return
 
-        # Remove from chat log display
+        user_text = self.conversation.messages[-2].content
+
+        # Remove the last assistant message AND the user message from conversation
+        # (they will be re-added after successful response)
+        self.conversation.messages.pop()  # Remove assistant
+        self.conversation.messages.pop()  # Remove user
+
+        # Remove assistant message from chat log display
         chat_log = self.query_one("#chat-log", ChatLog)
         chat_log.remove_last_message()
 
-        # Re-send (the last user message is still in conversation)
+        # Set pending user text for _send_message
+        self._pending_user_text = user_text
+
+        # Re-send
         self.current_worker = self.run_worker(
             self._send_message,
             exclusive=True,
