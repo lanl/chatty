@@ -715,7 +715,7 @@ class ChatApp(App[None]):
     # Hidden bindings (show=False) are functional but not shown in footer
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),
-        Binding("ctrl+y", "copy", "Copy"),
+        Binding("ctrl+y", "copy", "Copy", priority=True),
         Binding("ctrl+s", "save", "Save Session"),
         Binding("ctrl+l", "browse_sessions", "Load Session"),
         Binding("ctrl+n", "new_session", "New Session"),
