@@ -142,6 +142,9 @@ class Config(BaseSettings):
     # RAG Provider
     rag_provider: str = "none"  # "none" (v0.1-0.2), "litkit" (v0.3+)
 
+    # Session Persistence
+    session_path: str = "~/.config/chatty/sessions"
+
     def get_api_key(self) -> str:
         """Load API key from file (preferred) or direct config."""
         if self.api_key_file:
@@ -177,11 +180,16 @@ class Config(BaseSettings):
             "transcript_enabled": str(self.transcript_enabled),
             "transcript_path": self.transcript_path,
             "rag_provider": self.rag_provider,
+            "session_path": self.session_path,
         }
 
     def get_transcript_path(self) -> Path:
         """Get the resolved transcript path with ~ expanded."""
         return Path(self.transcript_path).expanduser()
+
+    def get_session_path(self) -> Path:
+        """Get the resolved session path with ~ expanded."""
+        return Path(self.session_path).expanduser()
 
 
 @dataclass
@@ -234,6 +242,7 @@ def load_config(
         "transcript_enabled": False,
         "transcript_path": "~/.config/chatty/transcripts",
         "rag_provider": "none",
+        "session_path": "~/.config/chatty/sessions",
     }
 
     # Map env var names to config keys
@@ -254,6 +263,7 @@ def load_config(
         "transcript_enabled": ["CHATTY_TRANSCRIPT_ENABLED"],
         "transcript_path": ["CHATTY_TRANSCRIPT_PATH"],
         "rag_provider": ["CHATTY_RAG_PROVIDER"],
+        "session_path": ["CHATTY_SESSION_PATH"],
     }
 
     # Determine source for each config value
@@ -339,6 +349,7 @@ def format_config_with_sources(config_with_sources: ConfigWithSources) -> str:
         "transcript_enabled": str(config.transcript_enabled),
         "transcript_path": config.transcript_path,
         "rag_provider": config.rag_provider,
+        "session_path": config.session_path,
     }
 
     for key, value in display_values.items():
