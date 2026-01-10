@@ -32,7 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Empty state shows helpful hint to save with Ctrl+S
 
 **Copy to Clipboard**
-- `Ctrl+C` copies last assistant response to system clipboard
+- `Ctrl+Y` copies last assistant response to system clipboard
+- Toast notification confirms copy action
 - `copy_fallback_path` config for headless HPC (default: `./copies`)
 - `CHATTY_COPY_FALLBACK_PATH` environment variable
 - Falls back to timestamped file when clipboard unavailable

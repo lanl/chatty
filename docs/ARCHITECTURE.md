@@ -625,7 +625,7 @@ On HPC login nodes without X11/Wayland, clipboard fails. The fallback:
 |-----|--------|
 | `Ctrl+S` | Save session |
 | `Ctrl+L` | Load session (browser) |
-| `Ctrl+C` | Copy last response |
+| `Ctrl+Y` | Copy last response |
 | `Ctrl+F` | Search conversation |
 | `Ctrl+Z` | Undo last exchange |
 | `Ctrl+K` | Compress context (with preview) |
