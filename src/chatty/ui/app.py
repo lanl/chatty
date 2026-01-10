@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import cast
 
 from rich.markdown import Markdown as RichMarkdown
@@ -77,6 +78,7 @@ from chatty.core.session import (
     Session,
     SessionMetadata,
     generate_session_name,
+    load_session,
     save_session,
 )
 from chatty.core.transcript import TranscriptLogger
@@ -578,16 +580,19 @@ class ChatApp(App[None]):
     def __init__(
         self,
         query_file: str | None = None,
+        session_file: Path | None = None,
         config_with_sources: ConfigWithSources | None = None,
     ) -> None:
         """Initialize the chat application.
 
         Args:
             query_file: Optional path to file containing initial query to load.
+            session_file: Optional path to saved session file to restore.
             config_with_sources: Pre-loaded configuration (loads default if None).
         """
         super().__init__()
         self.query_file = query_file
+        self.session_file = session_file
         self.config_with_sources = config_with_sources or load_config()
         self.config = self.config_with_sources.config
         self.streaming = self.config.stream
@@ -654,8 +659,10 @@ class ChatApp(App[None]):
         # Update status bar with actual model
         self.query_one("#status-bar", StatusBar).update_status(model=self.config.model)
 
-        # Load query from file if provided
-        if self.query_file:
+        # Load session from file if provided (takes precedence over query file)
+        if self.session_file:
+            self._load_session_file(chat_log)
+        elif self.query_file:
             self._load_and_submit_query_file()
 
     def _check_startup_config(self, chat_log: ChatLog) -> None:
@@ -692,6 +699,45 @@ class ChatApp(App[None]):
         # Show warnings
         for warning in warnings:
             chat_log.add_message("error", warning)
+
+    def _load_session_file(self, chat_log: ChatLog) -> None:
+        """Load a saved session from file.
+
+        Args:
+            chat_log: The chat log widget to display messages.
+        """
+        if not self.session_file:
+            return
+
+        try:
+            session = load_session(self.session_file)
+            self._current_session = session
+
+            # Restore conversation state
+            if self.conversation:
+                self.conversation.clear()
+                for msg in session.messages:
+                    if msg.role == "system":
+                        self.conversation.add_system_message(msg.content)
+                    elif msg.role == "user":
+                        self.conversation.add_user_message(msg.content)
+                    elif msg.role == "assistant":
+                        self.conversation.add_assistant_message(msg.content)
+
+            # Restore chat log display (skip system messages)
+            for msg in session.messages:
+                if msg.role != "system":
+                    chat_log.add_message(msg.role, msg.content)
+
+            # Show confirmation
+            chat_log.add_message(
+                "system",
+                f"Loaded session: {session.metadata.name}\n"
+                f"Messages: {session.metadata.message_count}",
+            )
+
+        except Exception as e:
+            chat_log.add_message("error", f"Failed to load session: {e}")
 
     def _load_and_submit_query_file(self) -> None:
         """Load query from file and submit it."""
@@ -1031,6 +1077,7 @@ class ChatApp(App[None]):
 
 def main(
     query_file: str | None = None,
+    session_file: Path | None = None,
     config_with_sources: ConfigWithSources | None = None,
 ) -> None:
     """Run the chat application.
@@ -1039,7 +1086,12 @@ def main(
 
     Args:
         query_file: Optional path to file containing initial query.
+        session_file: Optional path to saved session file to restore.
         config_with_sources: Pre-loaded configuration (loads default if None).
     """
-    app = ChatApp(query_file=query_file, config_with_sources=config_with_sources)
+    app = ChatApp(
+        query_file=query_file,
+        session_file=session_file,
+        config_with_sources=config_with_sources,
+    )
     app.run()

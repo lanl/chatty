@@ -21,6 +21,10 @@ def chat(
         typer.FileText | None,
         typer.Option("--query-file", "-q", help="Load initial query from file"),
     ] = None,
+    session: Annotated[
+        Path | None,
+        typer.Option("--session", help="Load saved session from file"),
+    ] = None,
     base_url: Annotated[
         str | None,
         typer.Option("--base-url", "-u", help="LLM endpoint URL", envvar="OPENAI_BASE_URL"),
@@ -75,10 +79,22 @@ def chat(
     if query_file is not None:
         query_file_path = query_file.name
 
+    # Get session file path if provided
+    session_path: Path | None = None
+    if session is not None:
+        session_path = session.expanduser()
+        if not session_path.exists():
+            typer.echo(f"Error: Session file not found: {session_path}", err=True)
+            raise typer.Exit(1)
+
     # Launch the UI
     from chatty.ui.app import main as run_chat_ui
 
-    run_chat_ui(query_file=query_file_path, config_with_sources=config_with_sources)
+    run_chat_ui(
+        query_file=query_file_path,
+        session_file=session_path,
+        config_with_sources=config_with_sources,
+    )
 
 
 @app.command()
