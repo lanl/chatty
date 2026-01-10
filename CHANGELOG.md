@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+**RAG Provider Integration**
+- `rag_provider` config option (`"none"` default, `"litkit"` in v0.3)
+- `CHATTY_RAG_PROVIDER` environment variable
+- `get_provider()` factory function in `chatty.rag`
+- `UnknownProviderError` for invalid provider names
+- `RAGProvider.augment()` now called in chat flow (NullProvider passthrough)
+- `last_rag_metadata` stored for future citation display
+
+### Changed
+
+- Chat flow now uses `RAGProvider.augment()` instead of building messages directly
+- User messages added to conversation after successful LLM response (enables query rewriting in v0.3)
+- `action_regenerate()` updated to work with deferred message flow
+
+### Developer Notes
+
+- v0.2 acceptance criterion: `RAGProvider.augment()` called on every user message
+- v0.2 acceptance criterion: `NullProvider` produces identical behavior to v0.1
+
 ## [0.1.0] - 2026-01-09
 
 Initial release of chatty — a terminal UI chatbot for OpenAI-compatible endpoints.
