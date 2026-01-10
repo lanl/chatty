@@ -116,9 +116,7 @@ def test_generate_session_name_truncated() -> None:
 
 def test_generate_session_name_first_line_only() -> None:
     """Test session name uses only first line of message."""
-    messages = [
-        Message(role="user", content="First line\nSecond line\nThird line")
-    ]
+    messages = [Message(role="user", content="First line\nSecond line\nThird line")]
 
     name = generate_session_name(messages)
 

@@ -63,9 +63,7 @@ class Session:
             raise ValueError(f"Unsupported session version: {version}")
 
         metadata = SessionMetadata(**data["metadata"])
-        messages = [
-            Message(role=m["role"], content=m["content"]) for m in data["messages"]
-        ]
+        messages = [Message(role=m["role"], content=m["content"]) for m in data["messages"]]
         return cls(
             metadata=metadata,
             system_prompt=data.get("system_prompt", ""),

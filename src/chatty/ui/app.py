@@ -73,6 +73,12 @@ from chatty.client.openai_client import (
 )
 from chatty.config import ConfigWithSources, find_config_path, load_config
 from chatty.core.conversation import Conversation
+from chatty.core.session import (
+    Session,
+    SessionMetadata,
+    generate_session_name,
+    save_session,
+)
 from chatty.core.transcript import TranscriptLogger
 from chatty.rag import RAGMetadata, RAGProvider, get_provider
 
@@ -560,6 +566,7 @@ class ChatApp(App[None]):
     # Hidden bindings (show=False) are functional but not shown in footer
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),
+        Binding("ctrl+s", "save", "Save Session"),
         Binding("ctrl+n", "new_session", "New Session"),
         Binding("ctrl+o", "load_file", "Load File"),
         Binding("escape", "cancel", "Interrupt"),
@@ -591,6 +598,7 @@ class ChatApp(App[None]):
         self.rag_provider: RAGProvider = get_provider(self.config)
         self.last_rag_metadata: RAGMetadata | None = None  # For future citation display
         self._pending_user_text: str | None = None  # User message awaiting LLM response
+        self._current_session: Session | None = None  # For save/load functionality
 
     def compose(self) -> ComposeResult:
         """Create the UI layout.
@@ -937,6 +945,49 @@ class ChatApp(App[None]):
         except Exception as e:
             chat_log.add_message("error", f"Failed to load file: {e}")
 
+    def action_save(self) -> None:
+        """Save the current session to a file (Ctrl+S).
+
+        Creates or updates a session file with the current conversation.
+        Auto-generates a name from the first user message if needed.
+        """
+        if not self.conversation or not self.conversation.messages:
+            chat_log = self.query_one("#chat-log", ChatLog)
+            chat_log.add_message("system", "Nothing to save — conversation is empty.")
+            return
+
+        chat_log = self.query_one("#chat-log", ChatLog)
+
+        # Create or update session
+        if self._current_session is None:
+            # Generate name from first user message
+            name = generate_session_name(self.conversation.messages)
+            metadata = SessionMetadata.create(
+                name=name,
+                model=self.config.model,
+                message_count=len(self.conversation.messages),
+            )
+            self._current_session = Session(
+                metadata=metadata,
+                system_prompt=self.config.system_prompt,
+                messages=list(self.conversation.messages),
+            )
+        else:
+            # Update existing session
+            self._current_session.metadata.message_count = len(self.conversation.messages)
+            self._current_session.messages = list(self.conversation.messages)
+
+        # Save to file
+        try:
+            session_dir = self.config.get_session_path()
+            filepath = save_session(self._current_session, session_dir)
+            chat_log.add_message(
+                "system",
+                f"Session saved: {self._current_session.metadata.name}\n" f"File: {filepath}",
+            )
+        except Exception as e:
+            chat_log.add_message("error", f"Failed to save session: {e}")
+
     def action_new_session(self) -> None:
         """Start a new session, clearing all history.
 
@@ -951,6 +1002,9 @@ class ChatApp(App[None]):
             # Re-add system prompt if configured
             if self.config.system_prompt:
                 self.conversation.add_system_message(self.config.system_prompt)
+
+        # Reset session tracking
+        self._current_session = None
 
         self.query_one("#status-bar", StatusBar).update_status(
             status="Ready",
