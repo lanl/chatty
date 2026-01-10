@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto-generated session names from first user message
 - Session format: JSON with version field for future compatibility
 
+**Session History Browser**
+- `Ctrl+L` opens modal to browse saved sessions
+- OptionList displays session name, date, message count
+- Enter or double-click to load, Escape to cancel
+- Empty state shows helpful hint to save with Ctrl+S
+
 ### Changed
 
 - Chat flow now uses `RAGProvider.augment()` instead of building messages directly
