@@ -818,7 +818,7 @@ class ChatApp(App[None]):
     Screen {
         layout: grid;
         grid-size: 1;
-        grid-rows: 1fr auto auto;
+        grid-rows: 1fr auto auto auto;
     }
 
     #chat-log {
