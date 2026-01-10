@@ -65,7 +65,17 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Footer, Header, Input, Label, Static, TextArea
+from textual.widgets import (
+    Button,
+    Footer,
+    Header,
+    Input,
+    Label,
+    OptionList,
+    Static,
+    TextArea,
+)
+from textual.widgets.option_list import Option
 from textual.worker import Worker
 
 from chatty.client.openai_client import (
@@ -78,6 +88,8 @@ from chatty.core.session import (
     Session,
     SessionMetadata,
     generate_session_name,
+    get_session_filepath,
+    list_sessions,
     load_session,
     save_session,
 )
@@ -157,6 +169,140 @@ class FileInputModal(ModalScreen[str | None]):
     def action_cancel(self) -> None:
         """Handle Escape key."""
         self.dismiss(None)
+
+
+class SessionBrowserModal(ModalScreen[Path | None]):
+    """Modal screen for browsing and selecting saved sessions.
+
+    Displays a list of saved sessions with name, date, and message count.
+    Returns the selected session file path, or None if cancelled.
+    """
+
+    CSS = """
+    SessionBrowserModal {
+        align: center middle;
+    }
+
+    #session-dialog {
+        width: 70;
+        height: 20;
+        padding: 1 2;
+        background: $surface;
+        border: thick $primary;
+    }
+
+    #session-dialog Label {
+        margin-bottom: 1;
+    }
+
+    #session-list {
+        height: 1fr;
+        margin-bottom: 1;
+    }
+
+    #session-buttons {
+        width: 100%;
+        height: auto;
+        align: right middle;
+    }
+
+    #session-buttons Button {
+        margin-left: 1;
+    }
+
+    #empty-message {
+        color: $text-muted;
+        text-align: center;
+        padding: 2;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("enter", "load", "Load Session"),
+    ]
+
+    def __init__(self, session_dir: Path) -> None:
+        """Initialize the session browser.
+
+        Args:
+            session_dir: Directory containing session files.
+        """
+        super().__init__()
+        self.session_dir = session_dir
+        self._sessions: list[SessionMetadata] = []
+
+    def compose(self) -> ComposeResult:
+        """Create the dialog layout."""
+        with Vertical(id="session-dialog"):
+            yield Label("Saved Sessions")
+            yield OptionList(id="session-list")
+            with Container(id="session-buttons"):
+                yield Button("Cancel", variant="default", id="cancel-btn")
+                yield Button("Load", variant="primary", id="load-btn")
+
+    def on_mount(self) -> None:
+        """Load sessions when modal opens."""
+        option_list = self.query_one("#session-list", OptionList)
+        self._sessions = list_sessions(self.session_dir)
+
+        if not self._sessions:
+            # Show empty state message
+            option_list.add_option(Option("No saved sessions found", id="empty", disabled=True))
+            option_list.add_option(
+                Option("Press Ctrl+S to save a session", id="hint", disabled=True)
+            )
+        else:
+            for session in self._sessions:
+                # Format: "Name                    Jan 9   3 msg"
+                # Truncate name to fit
+                name = session.name[:35]
+                if len(session.name) > 35:
+                    name = name[:32] + "..."
+
+                # Extract date from updated_at (ISO format)
+                date_str = session.updated_at[:10]  # YYYY-MM-DD
+
+                label = f"{name:<38} {date_str}  {session.message_count} msg"
+                option_list.add_option(Option(label, id=session.id))
+
+        option_list.focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button clicks."""
+        if event.button.id == "load-btn":
+            self._load_selected()
+        else:
+            self.dismiss(None)
+
+    def on_option_list_option_selected(self, _event: OptionList.OptionSelected) -> None:
+        """Handle double-click or Enter on option."""
+        self._load_selected()
+
+    def _load_selected(self) -> None:
+        """Load the currently selected session."""
+        option_list = self.query_one("#session-list", OptionList)
+        highlighted = option_list.highlighted
+
+        if highlighted is None or not self._sessions:
+            self.dismiss(None)
+            return
+
+        # Get session ID from the highlighted option
+        if highlighted < len(self._sessions):
+            session = self._sessions[highlighted]
+            filepath = get_session_filepath(self.session_dir, session.id)
+            self.dismiss(filepath)
+        else:
+            self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        """Handle Escape key."""
+        self.dismiss(None)
+
+    def action_load(self) -> None:
+        """Handle Enter key."""
+        self._load_selected()
 
 
 class ChatInput(TextArea):
@@ -569,6 +715,7 @@ class ChatApp(App[None]):
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+s", "save", "Save Session"),
+        Binding("ctrl+l", "browse_sessions", "Load Session"),
         Binding("ctrl+n", "new_session", "New Session"),
         Binding("ctrl+o", "load_file", "Load File"),
         Binding("escape", "cancel", "Interrupt"),
@@ -951,6 +1098,68 @@ class ChatApp(App[None]):
             exclusive=True,
             name="regenerate",
         )
+
+    def action_browse_sessions(self) -> None:
+        """Browse and load saved sessions (Ctrl+L).
+
+        Opens a modal dialog showing all saved sessions.
+        User can select a session to load.
+        """
+        session_dir = self.config.get_session_path()
+        self.push_screen(SessionBrowserModal(session_dir), self._handle_session_load)
+
+    def _handle_session_load(self, filepath: Path | None) -> None:
+        """Handle the session file selected from browser.
+
+        Args:
+            filepath: Path to session file, or None if cancelled.
+        """
+        if not filepath:
+            return
+
+        chat_log = self.query_one("#chat-log", ChatLog)
+
+        try:
+            session = load_session(filepath)
+
+            # Clear current state
+            chat_log.clear_messages()
+            if self.conversation:
+                self.conversation.clear()
+
+            self._current_session = session
+
+            # Restore conversation state
+            if self.conversation:
+                for msg in session.messages:
+                    if msg.role == "system":
+                        self.conversation.add_system_message(msg.content)
+                    elif msg.role == "user":
+                        self.conversation.add_user_message(msg.content)
+                    elif msg.role == "assistant":
+                        self.conversation.add_assistant_message(msg.content)
+
+            # Restore chat log display (skip system messages)
+            for msg in session.messages:
+                if msg.role != "system":
+                    chat_log.add_message(msg.role, msg.content)
+
+            # Show confirmation
+            chat_log.add_message(
+                "system",
+                f"Loaded session: {session.metadata.name}\n"
+                f"Messages: {session.metadata.message_count}",
+            )
+
+            # Update status bar with token count
+            if self.conversation:
+                self.query_one("#status-bar", StatusBar).update_status(
+                    status="Ready",
+                    tokens=self.conversation.get_token_display(),
+                )
+
+        except Exception as e:
+            chat_log.add_message("error", f"Failed to load session: {e}")
 
     def action_load_file(self) -> None:
         """Load a query from a file.
