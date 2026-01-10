@@ -721,9 +721,9 @@ class ChatApp(App[None]):
         Binding("ctrl+n", "new_session", "New Session"),
         Binding("ctrl+o", "load_file", "Load File"),
         Binding("escape", "cancel", "Interrupt"),
-        # Hidden but functional (accessible via ^p palette or Keys panel)
-        Binding("ctrl+r", "regenerate", "Regenerate Last Response", show=False),
-        Binding("ctrl+t", "toggle_stream", "Toggle Streaming", show=False),
+        # Power user shortcuts (visible in footer but may be truncated on small terminals)
+        Binding("ctrl+r", "regenerate", "Regenerate"),
+        Binding("ctrl+t", "toggle_stream", "Toggle Stream", show=False),
     ]
 
     def __init__(
@@ -1285,11 +1285,9 @@ class ChatApp(App[None]):
         Copies to system clipboard. If clipboard is unavailable (headless HPC),
         falls back to writing to configured copy_fallback_path.
         """
-        chat_log = self.query_one("#chat-log", ChatLog)
-
         # Find last assistant message
         if not self.conversation or not self.conversation.messages:
-            chat_log.add_message("system", "Nothing to copy — no messages yet.")
+            self.notify("Nothing to copy — no messages yet.", severity="warning")
             return
 
         # Get last assistant message
@@ -1300,12 +1298,15 @@ class ChatApp(App[None]):
                 break
 
         if not last_assistant:
-            chat_log.add_message("system", "No assistant response to copy.")
+            self.notify("No assistant response to copy.", severity="warning")
             return
 
         # Try clipboard first, fall back to file
         result = self._copy_to_clipboard(last_assistant)
-        chat_log.add_message("system", result)
+        if "Clipboard unavailable" in result:
+            self.notify(result, severity="warning", timeout=5)
+        else:
+            self.notify(result, severity="information", timeout=2)
 
     def _copy_to_clipboard(self, text: str) -> str:
         """Copy text to clipboard with fallback to file.
