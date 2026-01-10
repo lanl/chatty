@@ -22,6 +22,12 @@ sessions/
 #   copy_fallback_path = "~/.config/chatty/copies"  # user config dir
 copies/
 
+# Exports (markdown exports)
+# Supported locations (set export_path in chatty.toml):
+#   export_path = "./exports"                     # repo-local (default)
+#   export_path = "~/.config/chatty/exports"      # user config dir
+exports/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
