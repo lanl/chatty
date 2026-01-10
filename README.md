@@ -327,6 +327,18 @@ pre-commit install
 pytest
 ```
 
+## Known Limitations
+
+### Reasoning / Thinking Models
+
+Models that expose chain-of-thought reasoning (DeepSeek R1, QwQ, Apriel Thinker, etc.) will output their internal reasoning directly in the response. Chatty does not filter or hide this content because:
+
+- There is no standard format across providers (some use `<think>` tags, others use markers like `[BEGIN FINAL RESPONSE]`, etc.)
+- Parsing free-form text for thinking markers is brittle and breaks when models update
+- The only robust approach is using structured API responses, which most local/open models don't support
+
+**Workaround:** Use non-reasoning variants of models (e.g., `gpt-4.1` instead of `o3-mini`) if you want cleaner output.
+
 ## License
 
 TBD
