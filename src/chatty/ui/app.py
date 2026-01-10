@@ -931,7 +931,7 @@ class ChatApp(App[None]):
         Binding("escape", "cancel", "Interrupt"),
         # Power user shortcuts (visible in footer but may be truncated on small terminals)
         Binding("ctrl+r", "regenerate", "Regenerate"),
-        Binding("ctrl+m", "pick_model", "Models"),
+        Binding("ctrl+g", "pick_model", "Models"),
         Binding("ctrl+t", "toggle_stream", "Toggle Stream", show=False),
     ]
 
@@ -1559,7 +1559,7 @@ class ChatApp(App[None]):
             return f"Failed to copy: {e}"
 
     def action_pick_model(self) -> None:
-        """Open the model picker (Ctrl+M).
+        """Open the model picker (Ctrl+G).
 
         Fetches available models from endpoint and shows picker.
         Falls back to manual input if /models not supported.
@@ -1578,22 +1578,19 @@ class ChatApp(App[None]):
             models = await self.client.models()
             if models:
                 # Show picker with available models
-                self.call_from_thread(
-                    self.push_screen,
+                self.push_screen(
                     ModelPickerModal(models, self._current_model),
                     self._handle_model_selection,
                 )
             else:
                 # Empty list - show manual input
-                self.call_from_thread(
-                    self.push_screen,
+                self.push_screen(
                     ModelInputModal(self._current_model, "No models returned"),
                     self._handle_model_selection,
                 )
         except ChattyClientError as e:
             # /models not supported - show manual input
-            self.call_from_thread(
-                self.push_screen,
+            self.push_screen(
                 ModelInputModal(self._current_model, str(e)[:50]),
                 self._handle_model_selection,
             )
