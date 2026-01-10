@@ -17,16 +17,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `RAGProvider.augment()` now called in chat flow (NullProvider passthrough)
 - `last_rag_metadata` stored for future citation display
 
+**Session Save/Load**
+- `Ctrl+S` saves current conversation to JSON file
+- `--session` CLI option loads a saved session on startup
+- `session_path` config option (default: `~/.config/chatty/sessions`)
+- `CHATTY_SESSION_PATH` environment variable
+- Auto-generated session names from first user message
+- Session format: JSON with version field for future compatibility
+
 ### Changed
 
 - Chat flow now uses `RAGProvider.augment()` instead of building messages directly
 - User messages added to conversation after successful LLM response (enables query rewriting in v0.3)
 - `action_regenerate()` updated to work with deferred message flow
+- `Ctrl+N` (new session) now resets session tracking
 
 ### Developer Notes
 
 - v0.2 acceptance criterion: `RAGProvider.augment()` called on every user message
 - v0.2 acceptance criterion: `NullProvider` produces identical behavior to v0.1
+- Session module: `SessionMetadata`, `Session`, `save_session()`, `load_session()`, `list_sessions()`
 
 ## [0.1.0] - 2026-01-09
 
