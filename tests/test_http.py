@@ -12,7 +12,8 @@ def test_build_sync_client_default_verify() -> None:
     client = build_sync_client(config)
 
     # Default: verify=True (system CA)
-    assert client._transport._pool._ssl_context is not None
+    # Access internal attributes to verify SSL context is set
+    assert client._transport._pool._ssl_context is not None  # type: ignore[attr-defined]
     client.close()
 
 

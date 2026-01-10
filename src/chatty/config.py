@@ -139,6 +139,9 @@ class Config(BaseSettings):
     transcript_enabled: bool = False
     transcript_path: str = "~/.config/chatty/transcripts"
 
+    # RAG Provider
+    rag_provider: str = "none"  # "none" (v0.1-0.2), "litkit" (v0.3+)
+
     def get_api_key(self) -> str:
         """Load API key from file (preferred) or direct config."""
         if self.api_key_file:
@@ -173,6 +176,7 @@ class Config(BaseSettings):
             "show_timestamps": str(self.show_timestamps),
             "transcript_enabled": str(self.transcript_enabled),
             "transcript_path": self.transcript_path,
+            "rag_provider": self.rag_provider,
         }
 
     def get_transcript_path(self) -> Path:
@@ -229,6 +233,7 @@ def load_config(
         "show_timestamps": False,
         "transcript_enabled": False,
         "transcript_path": "~/.config/chatty/transcripts",
+        "rag_provider": "none",
     }
 
     # Map env var names to config keys
@@ -248,6 +253,7 @@ def load_config(
         "show_timestamps": ["CHATTY_SHOW_TIMESTAMPS"],
         "transcript_enabled": ["CHATTY_TRANSCRIPT_ENABLED"],
         "transcript_path": ["CHATTY_TRANSCRIPT_PATH"],
+        "rag_provider": ["CHATTY_RAG_PROVIDER"],
     }
 
     # Determine source for each config value
@@ -332,6 +338,7 @@ def format_config_with_sources(config_with_sources: ConfigWithSources) -> str:
         "show_timestamps": str(config.show_timestamps),
         "transcript_enabled": str(config.transcript_enabled),
         "transcript_path": config.transcript_path,
+        "rag_provider": config.rag_provider,
     }
 
     for key, value in display_values.items():
