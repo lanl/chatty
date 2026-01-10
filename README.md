@@ -97,6 +97,8 @@ chatty print-config
 |-----|--------|
 | `Ctrl+E` | Submit query |
 | `Ctrl+Q` | Quit |
+| `Ctrl+S` | Save session |
+| `Ctrl+L` | Load session |
 | `Ctrl+N` | New session |
 | `Ctrl+O` | Load file |
 | `Esc` | Interrupt generation |
@@ -112,8 +114,49 @@ chatty print-config
 - **Context tracking** — status bar shows token usage (e.g., "12K / 128K")
 - **File loading** — load long queries from files (`Ctrl+O` or `--query-file`)
 - **Streaming** — real-time token display with cancellation support
+- **Session management** — save and resume conversations across runs
 - **Transcript logging** — save conversations to JSONL files for review
 - **Offline-friendly** — works without RAG (v0.1), graceful errors with RAG (v0.3+)
+
+## Session Management
+
+Save conversations and resume them later. Sessions store the full conversation state including messages and system prompt.
+
+**Keyboard shortcuts:**
+- `Ctrl+S` — Save current session
+- `Ctrl+L` — Browse and load saved sessions
+
+**CLI option:**
+```bash
+chatty chat --session ./sessions/session-abc123.json
+```
+
+**Configuration:**
+```toml
+# In chatty.toml
+session_path = "./sessions"  # default: repo-local
+```
+
+**Environment variable:**
+```bash
+export CHATTY_SESSION_PATH="~/.config/chatty/sessions"
+```
+
+**Supported locations:**
+- `./sessions` — repo-local (default, good for development)
+- `~/.config/chatty/sessions` — user config dir
+- `~/.local/share/chatty/sessions` — XDG data dir
+
+Session names are auto-generated from the first user message. Files are JSON format:
+```json
+{
+  "version": "1.0",
+  "metadata": {"name": "Tell me about Python", "message_count": 4, ...},
+  "messages": [...]
+}
+```
+
+---
 
 ## Transcript Logging
 
@@ -238,6 +281,16 @@ timeout_s = 60
 
 # Hosts that bypass the proxy
 # no_proxy = "localhost,127.0.0.1"
+
+# =============================================================================
+# SESSION PERSISTENCE
+# =============================================================================
+
+# Session location options (Ctrl+S to save, Ctrl+L to load):
+#   "./sessions"                        # repo-local (default)
+#   "~/.config/chatty/sessions"         # user config dir
+#   "~/.local/share/chatty/sessions"    # XDG data dir
+# session_path = "./sessions"
 
 # =============================================================================
 # TRANSCRIPT LOGGING
