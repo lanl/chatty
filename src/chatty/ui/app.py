@@ -172,6 +172,214 @@ class FileInputModal(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class ModelPickerModal(ModalScreen[str | None]):
+    """Modal screen for selecting a model from the endpoint.
+
+    Fetches available models from /models endpoint and displays them.
+    Returns selected model name, or None if cancelled.
+    """
+
+    CSS = """
+    ModelPickerModal {
+        align: center middle;
+    }
+
+    #model-dialog {
+        width: 60;
+        height: 20;
+        padding: 1 2;
+        background: $surface;
+        border: thick $primary;
+    }
+
+    #model-dialog Label {
+        margin-bottom: 1;
+    }
+
+    #model-list {
+        height: 1fr;
+        margin-bottom: 1;
+    }
+
+    #model-buttons {
+        width: 100%;
+        height: auto;
+        align: right middle;
+    }
+
+    #model-buttons Button {
+        margin-left: 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("enter", "select", "Select Model"),
+    ]
+
+    def __init__(self, models: list[str], current_model: str) -> None:
+        """Initialize the model picker.
+
+        Args:
+            models: List of available model names.
+            current_model: Currently selected model (for highlighting).
+        """
+        super().__init__()
+        self._models = models
+        self._current_model = current_model
+
+    def compose(self) -> ComposeResult:
+        """Create the dialog layout."""
+        with Vertical(id="model-dialog"):
+            yield Label("Select Model")
+            yield OptionList(id="model-list")
+            with Container(id="model-buttons"):
+                yield Button("Cancel", variant="default", id="cancel-btn")
+                yield Button("Select", variant="primary", id="select-btn")
+
+    def on_mount(self) -> None:
+        """Populate model list when modal opens."""
+        option_list = self.query_one("#model-list", OptionList)
+
+        for model in self._models:
+            # Mark current model with bullet
+            prefix = "●" if model == self._current_model else " "
+            option_list.add_option(Option(f"{prefix} {model}", id=model))
+
+        option_list.focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button clicks."""
+        if event.button.id == "select-btn":
+            self._select_model()
+        else:
+            self.dismiss(None)
+
+    def on_option_list_option_selected(self, _event: OptionList.OptionSelected) -> None:
+        """Handle double-click or Enter on option."""
+        self._select_model()
+
+    def _select_model(self) -> None:
+        """Select the highlighted model."""
+        option_list = self.query_one("#model-list", OptionList)
+        highlighted = option_list.highlighted
+
+        if highlighted is not None and highlighted < len(self._models):
+            self.dismiss(self._models[highlighted])
+        else:
+            self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        """Handle Escape key."""
+        self.dismiss(None)
+
+    def action_select(self) -> None:
+        """Handle Enter key."""
+        self._select_model()
+
+
+class ModelInputModal(ModalScreen[str | None]):
+    """Modal screen for manually entering a model name.
+
+    Used when /models endpoint is not available.
+    Returns entered model name, or None if cancelled.
+    """
+
+    CSS = """
+    ModelInputModal {
+        align: center middle;
+    }
+
+    #model-input-dialog {
+        width: 60;
+        height: auto;
+        padding: 1 2;
+        background: $surface;
+        border: thick $primary;
+    }
+
+    #model-input-dialog Label {
+        margin-bottom: 1;
+    }
+
+    #model-input-dialog Input {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #model-input-buttons {
+        width: 100%;
+        height: auto;
+        align: right middle;
+    }
+
+    #model-input-buttons Button {
+        margin-left: 1;
+    }
+
+    #model-hint {
+        color: $text-muted;
+        margin-bottom: 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, current_model: str, error_message: str = "") -> None:
+        """Initialize the model input dialog.
+
+        Args:
+            current_model: Current model name (shown as placeholder).
+            error_message: Optional error message to display.
+        """
+        super().__init__()
+        self._current_model = current_model
+        self._error_message = error_message
+
+    def compose(self) -> ComposeResult:
+        """Create the dialog layout."""
+        with Vertical(id="model-input-dialog"):
+            yield Label("Enter Model Name")
+            if self._error_message:
+                yield Label(self._error_message, id="model-hint")
+            else:
+                yield Label(
+                    "Endpoint doesn't support /models listing",
+                    id="model-hint",
+                )
+            yield Input(
+                placeholder=self._current_model,
+                value=self._current_model,
+                id="model-name",
+            )
+            with Container(id="model-input-buttons"):
+                yield Button("Cancel", variant="default", id="cancel-btn")
+                yield Button("Apply", variant="primary", id="apply-btn")
+
+    def on_mount(self) -> None:
+        """Focus the input when modal opens."""
+        self.query_one("#model-name", Input).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button clicks."""
+        if event.button.id == "apply-btn":
+            model = self.query_one("#model-name", Input).value.strip()
+            self.dismiss(model if model else None)
+        else:
+            self.dismiss(None)
+
+    def on_input_submitted(self, _event: Input.Submitted) -> None:
+        """Handle Enter key in input field."""
+        model = self.query_one("#model-name", Input).value.strip()
+        self.dismiss(model if model else None)
+
+    def action_cancel(self) -> None:
+        """Handle Escape key."""
+        self.dismiss(None)
+
+
 class SessionBrowserModal(ModalScreen[Path | None]):
     """Modal screen for browsing and selecting saved sessions.
 
@@ -723,6 +931,7 @@ class ChatApp(App[None]):
         Binding("escape", "cancel", "Interrupt"),
         # Power user shortcuts (visible in footer but may be truncated on small terminals)
         Binding("ctrl+r", "regenerate", "Regenerate"),
+        Binding("ctrl+m", "pick_model", "Models"),
         Binding("ctrl+t", "toggle_stream", "Toggle Stream", show=False),
     ]
 
@@ -753,6 +962,7 @@ class ChatApp(App[None]):
         self.last_rag_metadata: RAGMetadata | None = None  # For future citation display
         self._pending_user_text: str | None = None  # User message awaiting LLM response
         self._current_session: Session | None = None  # For save/load functionality
+        self._current_model: str = self.config.model  # Runtime model (can be changed)
 
     def compose(self) -> ComposeResult:
         """Create the UI layout.
@@ -1347,6 +1557,72 @@ class ChatApp(App[None]):
             return f"Clipboard unavailable. Saved to {filepath}"
         except Exception as e:
             return f"Failed to copy: {e}"
+
+    def action_pick_model(self) -> None:
+        """Open the model picker (Ctrl+M).
+
+        Fetches available models from endpoint and shows picker.
+        Falls back to manual input if /models not supported.
+        """
+        # Run model fetch in worker to avoid blocking UI
+        self.run_worker(self._fetch_and_show_models, exclusive=False, name="fetch_models")  # type: ignore[arg-type]
+
+    async def _fetch_and_show_models(self) -> None:
+        """Fetch models from endpoint and show picker modal."""
+        if not self.client:
+            return
+
+        chat_log = self.query_one("#chat-log", ChatLog)
+
+        try:
+            models = await self.client.models()
+            if models:
+                # Show picker with available models
+                self.call_from_thread(
+                    self.push_screen,
+                    ModelPickerModal(models, self._current_model),
+                    self._handle_model_selection,
+                )
+            else:
+                # Empty list - show manual input
+                self.call_from_thread(
+                    self.push_screen,
+                    ModelInputModal(self._current_model, "No models returned"),
+                    self._handle_model_selection,
+                )
+        except ChattyClientError as e:
+            # /models not supported - show manual input
+            self.call_from_thread(
+                self.push_screen,
+                ModelInputModal(self._current_model, str(e)[:50]),
+                self._handle_model_selection,
+            )
+        except Exception as e:
+            chat_log.add_message("error", f"Failed to fetch models: {e}")
+
+    def _handle_model_selection(self, model: str | None) -> None:
+        """Handle the model selected from picker or input.
+
+        Args:
+            model: Selected model name, or None if cancelled.
+        """
+        if not model or model == self._current_model:
+            return
+
+        # Update runtime model
+        old_model = self._current_model
+        self._current_model = model
+
+        # Also update config.model so client uses new model
+        # This is a runtime-only change; config file is not modified
+        self.config.model = model
+
+        # Update status bar
+        self.query_one("#status-bar", StatusBar).update_status(model=model)
+
+        # Show confirmation
+        chat_log = self.query_one("#chat-log", ChatLog)
+        chat_log.add_message("system", f"Switched model: {old_model} → {model}")
 
     async def on_unmount(self) -> None:
         """Clean up when app is closing."""
