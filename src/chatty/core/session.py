@@ -257,16 +257,9 @@ def save_markdown_export(
     """
     directory.mkdir(parents=True, exist_ok=True)
 
-    # Generate filename
+    # Generate filename (timestamp only - session name goes in header)
     timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-    if session_name:
-        # Sanitize session name for filename
-        safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in session_name)
-        safe_name = safe_name.strip()[:30].rstrip()
-        filename = f"{safe_name}-{timestamp}.md" if safe_name else f"chatty-export-{timestamp}.md"
-    else:
-        filename = f"chatty-export-{timestamp}.md"
-
+    filename = f"chatty-export-{timestamp}.md"
     filepath = directory / filename
 
     content = export_session_markdown(
