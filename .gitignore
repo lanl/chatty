@@ -4,10 +4,17 @@ chatty.toml
 # Transcripts (local conversation logs)
 # Supported locations (set transcript_path in chatty.toml):
 #   transcript_path = "./transcripts"             # repo-local
-#   transcript_path = "~/.config/chatty/transcripts"  # user config dir (default)
+#   transcript_path = "~/.config/chatty/transcripts"  # user config dir
 #   transcript_path = "~/.local/share/chatty/transcripts"  # XDG data dir
 transcripts/
 *.jsonl
+
+# Sessions (saved conversation history)
+# Supported locations (set session_path in chatty.toml):
+#   session_path = "./sessions"                   # repo-local (default)
+#   session_path = "~/.config/chatty/sessions"    # user config dir
+#   session_path = "~/.local/share/chatty/sessions"  # XDG data dir
+sessions/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

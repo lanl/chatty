@@ -278,7 +278,7 @@ def test_config_session_path_default() -> None:
     """Test config has session_path with default value."""
     config = Config()
 
-    assert config.session_path == "~/.config/chatty/sessions"
+    assert config.session_path == "./sessions"
 
 
 def test_config_get_session_path_expands_tilde() -> None:

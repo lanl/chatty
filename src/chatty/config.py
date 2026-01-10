@@ -143,7 +143,7 @@ class Config(BaseSettings):
     rag_provider: str = "none"  # "none" (v0.1-0.2), "litkit" (v0.3+)
 
     # Session Persistence
-    session_path: str = "~/.config/chatty/sessions"
+    session_path: str = "./sessions"
 
     def get_api_key(self) -> str:
         """Load API key from file (preferred) or direct config."""
@@ -242,7 +242,7 @@ def load_config(
         "transcript_enabled": False,
         "transcript_path": "~/.config/chatty/transcripts",
         "rag_provider": "none",
-        "session_path": "~/.config/chatty/sessions",
+        "session_path": "./sessions",
     }
 
     # Map env var names to config keys
