@@ -933,7 +933,7 @@ class ChatApp(App[None]):
         # Power user shortcuts (visible in footer but may be truncated on small terminals)
         Binding("ctrl+r", "regenerate", "Regenerate"),
         Binding("ctrl+g", "pick_model", "Models"),
-        Binding("ctrl+w", "export", "Export"),
+        Binding("ctrl+b", "export", "Export"),
         Binding("ctrl+t", "toggle_stream", "Toggle Stream", show=False),
     ]
 

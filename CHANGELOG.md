@@ -47,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Runtime-only change (config file not modified)
 
 **Export to Markdown**
-- `Ctrl+W` exports conversation to readable Markdown file
+- `Ctrl+B` exports conversation to readable Markdown file
 - `export_path` config option (default: `./exports`)
 - `CHATTY_EXPORT_PATH` environment variable
 - Session name and model included in header
