@@ -92,6 +92,7 @@ from chatty.core.session import (
     get_session_filepath,
     list_sessions,
     load_session,
+    save_markdown_export,
     save_session,
 )
 from chatty.core.transcript import TranscriptLogger
@@ -932,6 +933,7 @@ class ChatApp(App[None]):
         # Power user shortcuts (visible in footer but may be truncated on small terminals)
         Binding("ctrl+r", "regenerate", "Regenerate"),
         Binding("ctrl+g", "pick_model", "Models"),
+        Binding("ctrl+w", "export", "Export"),
         Binding("ctrl+t", "toggle_stream", "Toggle Stream", show=False),
     ]
 
@@ -1620,6 +1622,37 @@ class ChatApp(App[None]):
         # Show confirmation
         chat_log = self.query_one("#chat-log", ChatLog)
         chat_log.add_message("system", f"Switched model: {old_model} → {model}")
+
+    def action_export(self) -> None:
+        """Export the current conversation to Markdown (Ctrl+W).
+
+        Saves the conversation as a readable Markdown file in the
+        configured export_path directory.
+        """
+        if not self.conversation or not self.conversation.messages:
+            self.notify("Nothing to export — conversation is empty.", severity="warning")
+            return
+
+        chat_log = self.query_one("#chat-log", ChatLog)
+
+        # Get session name if available
+        session_name = None
+        if self._current_session:
+            session_name = self._current_session.metadata.name
+        else:
+            session_name = generate_session_name(self.conversation.messages)
+
+        try:
+            export_dir = self.config.get_export_path()
+            filepath = save_markdown_export(
+                self.conversation.messages,
+                export_dir,
+                session_name=session_name,
+                model=self._current_model,
+            )
+            chat_log.add_message("system", f"Exported to: {filepath}")
+        except Exception as e:
+            chat_log.add_message("error", f"Failed to export: {e}")
 
     async def on_unmount(self) -> None:
         """Clean up when app is closing."""

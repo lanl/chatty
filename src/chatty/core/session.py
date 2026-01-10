@@ -180,3 +180,100 @@ def get_session_filepath(directory: Path, session_id: str) -> Path | None:
     if filepath.exists():
         return filepath
     return None
+
+
+def export_session_markdown(
+    messages: list[Message],
+    *,
+    session_name: str | None = None,
+    model: str | None = None,
+) -> str:
+    """Export conversation messages to Markdown format.
+
+    Args:
+        messages: List of messages to export.
+        session_name: Optional session name for the header.
+        model: Optional model name to include in header.
+
+    Returns:
+        Formatted Markdown string.
+    """
+    lines: list[str] = []
+
+    # Header
+    title = session_name or "Chat Session"
+    lines.append(f"# {title}")
+    lines.append("")
+
+    # Metadata
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    lines.append(f"Exported: {timestamp}")
+    if model:
+        lines.append(f"Model: {model}")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    # Messages (skip system messages)
+    for msg in messages:
+        if msg.role == "system":
+            continue
+
+        if msg.role == "user":
+            lines.append(f"**You:** {msg.content}")
+        elif msg.role == "assistant":
+            lines.append(f"**Assistant:** {msg.content}")
+        else:
+            lines.append(f"**{msg.role.title()}:** {msg.content}")
+
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+
+    # Footer
+    lines.append("*Exported from chatty*")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def save_markdown_export(
+    messages: list[Message],
+    directory: Path,
+    *,
+    session_name: str | None = None,
+    model: str | None = None,
+) -> Path:
+    """Export conversation to a Markdown file.
+
+    Args:
+        messages: List of messages to export.
+        directory: Directory to save the export in.
+        session_name: Optional session name (used in header and filename).
+        model: Optional model name to include in header.
+
+    Returns:
+        Path to the saved Markdown file.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+
+    # Generate filename
+    timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+    if session_name:
+        # Sanitize session name for filename
+        safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in session_name)
+        safe_name = safe_name.strip()[:30].rstrip()
+        filename = f"{safe_name}-{timestamp}.md" if safe_name else f"chatty-export-{timestamp}.md"
+    else:
+        filename = f"chatty-export-{timestamp}.md"
+
+    filepath = directory / filename
+
+    content = export_session_markdown(
+        messages,
+        session_name=session_name,
+        model=model,
+    )
+
+    filepath.write_text(content, encoding="utf-8")
+    return filepath

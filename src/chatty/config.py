@@ -148,6 +148,9 @@ class Config(BaseSettings):
     # Copy to Clipboard
     copy_fallback_path: str = "./copies"
 
+    # Markdown Export
+    export_path: str = "./exports"
+
     def get_api_key(self) -> str:
         """Load API key from file (preferred) or direct config."""
         if self.api_key_file:
@@ -185,6 +188,7 @@ class Config(BaseSettings):
             "rag_provider": self.rag_provider,
             "session_path": self.session_path,
             "copy_fallback_path": self.copy_fallback_path,
+            "export_path": self.export_path,
         }
 
     def get_transcript_path(self) -> Path:
@@ -198,6 +202,10 @@ class Config(BaseSettings):
     def get_copy_fallback_path(self) -> Path:
         """Get the resolved copy fallback path with ~ expanded."""
         return Path(self.copy_fallback_path).expanduser()
+
+    def get_export_path(self) -> Path:
+        """Get the resolved export path with ~ expanded."""
+        return Path(self.export_path).expanduser()
 
 
 @dataclass
@@ -252,6 +260,7 @@ def load_config(
         "rag_provider": "none",
         "session_path": "./sessions",
         "copy_fallback_path": "./copies",
+        "export_path": "./exports",
     }
 
     # Map env var names to config keys
@@ -274,6 +283,7 @@ def load_config(
         "rag_provider": ["CHATTY_RAG_PROVIDER"],
         "session_path": ["CHATTY_SESSION_PATH"],
         "copy_fallback_path": ["CHATTY_COPY_FALLBACK_PATH"],
+        "export_path": ["CHATTY_EXPORT_PATH"],
     }
 
     # Determine source for each config value
@@ -361,6 +371,7 @@ def format_config_with_sources(config_with_sources: ConfigWithSources) -> str:
         "rag_provider": config.rag_provider,
         "session_path": config.session_path,
         "copy_fallback_path": config.copy_fallback_path,
+        "export_path": config.export_path,
     }
 
     for key, value in display_values.items():
