@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-01-09
 
 ### Added
 
@@ -38,6 +38,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CHATTY_COPY_FALLBACK_PATH` environment variable
 - Falls back to timestamped file when clipboard unavailable
 
+**Model Picker**
+- `Ctrl+G` opens model picker modal
+- Fetches available models from `/models` endpoint
+- Falls back to manual entry when endpoint unavailable
+- Current model marked with bullet (●) in list
+- Updates status bar when model changes
+- Runtime-only change (config file not modified)
+
 ### Changed
 
 - Chat flow now uses `RAGProvider.augment()` instead of building messages directly
@@ -45,11 +53,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `action_regenerate()` updated to work with deferred message flow
 - `Ctrl+N` (new session) now resets session tracking
 
+### Known Limitations
+
+- **Reasoning/thinking models** — Models that expose chain-of-thought (DeepSeek R1, QwQ, Apriel Thinker) output their reasoning inline. Chatty does not filter this; use non-reasoning variants for cleaner output.
+
 ### Developer Notes
 
 - v0.2 acceptance criterion: `RAGProvider.augment()` called on every user message
 - v0.2 acceptance criterion: `NullProvider` produces identical behavior to v0.1
 - Session module: `SessionMetadata`, `Session`, `save_session()`, `load_session()`, `list_sessions()`
+- Model picker modals: `ModelPickerModal`, `ModelInputModal`
 
 ## [0.1.0] - 2026-01-09
 
@@ -122,4 +135,5 @@ Config file search order:
 - **RAGProvider protocol exists** — `NullProvider` implemented as passthrough; wiring into chat flow deferred to v0.2.
 - **tiktoken is optional** — Token counting degrades gracefully if unavailable.
 
+[0.2.0]: https://github.com/your-org/chatty/releases/tag/v0.2.0
 [0.1.0]: https://github.com/your-org/chatty/releases/tag/v0.1.0
