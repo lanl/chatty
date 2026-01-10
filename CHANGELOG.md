@@ -46,6 +46,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updates status bar when model changes
 - Runtime-only change (config file not modified)
 
+**Export to Markdown**
+- `Ctrl+W` exports conversation to readable Markdown file
+- `export_path` config option (default: `./exports`)
+- `CHATTY_EXPORT_PATH` environment variable
+- Session name and model included in header
+- System messages excluded from export
+
 ### Changed
 
 - Chat flow now uses `RAGProvider.augment()` instead of building messages directly

@@ -102,6 +102,8 @@ chatty print-config
 | `Ctrl+L` | Load session |
 | `Ctrl+N` | New session |
 | `Ctrl+O` | Load file |
+| `Ctrl+G` | Switch model |
+| `Ctrl+W` | Export Markdown |
 | `Esc` | Interrupt generation |
 | `Enter` | Insert newline |
 
@@ -302,6 +304,15 @@ timeout_s = 60
 #   "./copies"                          # repo-local (default)
 #   "~/.config/chatty/copies"           # user config dir
 # copy_fallback_path = "./copies"
+
+# =============================================================================
+# MARKDOWN EXPORT
+# =============================================================================
+
+# Where to save exported Markdown files (Ctrl+W):
+#   "./exports"                         # repo-local (default)
+#   "~/.config/chatty/exports"          # user config dir
+# export_path = "./exports"
 
 # =============================================================================
 # TRANSCRIPT LOGGING
