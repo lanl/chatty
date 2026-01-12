@@ -1,0 +1,70 @@
+/* Chatty application styles
+ *
+ * Layout: Header at top, scrollable chat log, input at bottom, status bar, footer
+ * 
+ * Widget hierarchy:
+ *   Screen (grid layout)
+ *   ├── Header (built-in)
+ *   ├── #chat-log (ChatLog - scrollable message container)
+ *   ├── #input-container (Container with ChatInput)
+ *   ├── #status-bar (StatusBar)
+ *   └── Footer (built-in)
+ */
+
+Screen {
+    layout: grid;
+    grid-size: 1;
+    grid-rows: 1fr auto auto;
+}
+
+#chat-log {
+    height: 100%;
+    padding: 1;
+}
+
+MessageWidget {
+    margin-bottom: 1;
+}
+
+/* User messages: dimmed - your input is secondary focus */
+.user-message {
+    color: $text-muted;
+}
+
+/* Assistant messages: default bright - main content */
+.assistant-message {
+    color: $text;
+}
+
+/* System messages: cyan/blue - informational */
+.system-message {
+    color: $accent;
+}
+
+/* Error messages: red with subtle background - attention needed */
+.error-message {
+    color: $error;
+    background: $error 10%;
+    padding: 1;
+}
+
+#input-container {
+    height: auto;
+    max-height: 10;
+    padding: 1;
+    border-top: solid $primary;
+}
+
+#status-bar {
+    height: 1;
+    background: $surface;
+    color: $text-muted;
+    padding: 0 1;
+}
+
+#input {
+    width: 100%;
+    height: auto;
+    min-height: 3;
+    max-height: 8;
+}

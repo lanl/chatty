@@ -12,14 +12,6 @@ from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-@dataclass
-class ConfigSource:
-    """Tracks the source of a configuration value."""
-
-    value: Any
-    source: str  # "default", "config.toml", "env:VAR_NAME", "cli"
-
-
 def find_config_path() -> Path | None:
     """Find the config file using search order.
 
@@ -216,6 +208,53 @@ class ConfigWithSources:
     sources: dict[str, str] = field(default_factory=dict)
 
 
+# Config field names for iteration (derived from Config class fields)
+_CONFIG_FIELDS = [
+    "base_url",
+    "model",
+    "api_key",
+    "api_key_file",
+    "ca_bundle",
+    "verify_tls",
+    "http_proxy",
+    "no_proxy",
+    "temperature",
+    "stream",
+    "system_prompt",
+    "timeout_s",
+    "show_timestamps",
+    "transcript_enabled",
+    "transcript_path",
+    "rag_provider",
+    "session_path",
+    "copy_fallback_path",
+    "export_path",
+]
+
+# Map env var names to config keys for source attribution
+_ENV_MAPPINGS = {
+    "base_url": ["OPENAI_BASE_URL", "CHATTY_BASE_URL"],
+    "api_key": ["OPENAI_API_KEY", "CHATTY_API_KEY"],
+    "api_key_file": ["CHATTY_API_KEY_FILE"],
+    "model": ["CHATTY_MODEL"],
+    "ca_bundle": ["CHATTY_CA_BUNDLE"],
+    "verify_tls": ["CHATTY_VERIFY_TLS"],
+    "http_proxy": ["HTTPS_PROXY", "CHATTY_HTTP_PROXY"],
+    "no_proxy": ["NO_PROXY", "CHATTY_NO_PROXY"],
+    "temperature": ["CHATTY_TEMPERATURE"],
+    "stream": ["CHATTY_STREAM"],
+    "system_prompt": ["CHATTY_SYSTEM_PROMPT"],
+    "timeout_s": ["CHATTY_TIMEOUT", "CHATTY_TIMEOUT_S"],
+    "show_timestamps": ["CHATTY_SHOW_TIMESTAMPS"],
+    "transcript_enabled": ["CHATTY_TRANSCRIPT_ENABLED"],
+    "transcript_path": ["CHATTY_TRANSCRIPT_PATH"],
+    "rag_provider": ["CHATTY_RAG_PROVIDER"],
+    "session_path": ["CHATTY_SESSION_PATH"],
+    "copy_fallback_path": ["CHATTY_COPY_FALLBACK_PATH"],
+    "export_path": ["CHATTY_EXPORT_PATH"],
+}
+
+
 def load_config(
     *,
     cli_overrides: dict[str, Any] | None = None,
@@ -231,7 +270,7 @@ def load_config(
     1. cli_overrides (passed from CLI flags)
     2. Environment variables
     3. TOML config file
-    4. Defaults
+    4. Defaults (defined in Config class)
 
     Returns:
         ConfigWithSources with the resolved config and source attribution.
@@ -240,54 +279,8 @@ def load_config(
     toml_config, toml_source = load_toml_config()
     cli_overrides = cli_overrides or {}
 
-    # Get defaults from the model
-    defaults = {
-        "base_url": "",
-        "model": "gpt-4.1",
-        "api_key": None,
-        "api_key_file": None,
-        "ca_bundle": None,
-        "verify_tls": True,
-        "http_proxy": None,
-        "no_proxy": "localhost,127.0.0.1",
-        "temperature": 0.2,
-        "stream": True,
-        "system_prompt": "You are a helpful assistant.",
-        "timeout_s": 60,
-        "show_timestamps": False,
-        "transcript_enabled": False,
-        "transcript_path": "~/.config/chatty/transcripts",
-        "rag_provider": "none",
-        "session_path": "./sessions",
-        "copy_fallback_path": "./copies",
-        "export_path": "./exports",
-    }
-
-    # Map env var names to config keys
-    env_mappings = {
-        "base_url": ["OPENAI_BASE_URL", "CHATTY_BASE_URL"],
-        "api_key": ["OPENAI_API_KEY", "CHATTY_API_KEY"],
-        "api_key_file": ["CHATTY_API_KEY_FILE"],
-        "model": ["CHATTY_MODEL"],
-        "ca_bundle": ["CHATTY_CA_BUNDLE"],
-        "verify_tls": ["CHATTY_VERIFY_TLS"],
-        "http_proxy": ["HTTPS_PROXY", "CHATTY_HTTP_PROXY"],
-        "no_proxy": ["NO_PROXY", "CHATTY_NO_PROXY"],
-        "temperature": ["CHATTY_TEMPERATURE"],
-        "stream": ["CHATTY_STREAM"],
-        "system_prompt": ["CHATTY_SYSTEM_PROMPT"],
-        "timeout_s": ["CHATTY_TIMEOUT", "CHATTY_TIMEOUT_S"],
-        "show_timestamps": ["CHATTY_SHOW_TIMESTAMPS"],
-        "transcript_enabled": ["CHATTY_TRANSCRIPT_ENABLED"],
-        "transcript_path": ["CHATTY_TRANSCRIPT_PATH"],
-        "rag_provider": ["CHATTY_RAG_PROVIDER"],
-        "session_path": ["CHATTY_SESSION_PATH"],
-        "copy_fallback_path": ["CHATTY_COPY_FALLBACK_PATH"],
-        "export_path": ["CHATTY_EXPORT_PATH"],
-    }
-
     # Determine source for each config value
-    for key in defaults:
+    for key in _CONFIG_FIELDS:
         # Check CLI first
         if key in cli_overrides:
             sources[key] = "cli"
@@ -295,7 +288,7 @@ def load_config(
 
         # Check environment variables
         env_found = False
-        for env_var in env_mappings.get(key, []):
+        for env_var in _ENV_MAPPINGS.get(key, []):
             if os.environ.get(env_var):
                 sources[key] = f"env:{env_var}"
                 env_found = True
@@ -309,7 +302,7 @@ def load_config(
             sources[key] = toml_source or "config.toml"
             continue
 
-        # Use default
+        # Use default (from Config class)
         sources[key] = "default"
 
     # Build final config values, respecting precedence:
@@ -319,7 +312,7 @@ def load_config(
     # Only apply TOML values if no env var is set for that key
     for key, value in toml_config.items():
         source = sources.get(key, "")
-        if key in defaults and (source.startswith("chatty.toml") or "config" in source):
+        if key in _CONFIG_FIELDS and (source.startswith("chatty.toml") or "config" in source):
             final_values[key] = value
 
     # Apply CLI overrides (highest precedence)
