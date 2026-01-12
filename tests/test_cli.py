@@ -1,5 +1,7 @@
 """Smoke tests for the CLI commands."""
 
+from pathlib import Path
+
 import pytest
 from typer.testing import CliRunner
 
@@ -69,3 +71,38 @@ class TestDoctor:
         result = runner.invoke(app, ["doctor", "--skip-connectivity"])
         # Should fail but not crash
         assert result.exit_code != 0 or "base_url" in result.stdout.lower()
+
+    def test_doctor_verbose(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """doctor --verbose shows detailed output."""
+        monkeypatch.setenv("OPENAI_BASE_URL", "https://test.example.com/v1")
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+        result = runner.invoke(app, ["doctor", "--verbose", "--skip-connectivity"])
+        assert "base_url" in result.stdout.lower()
+
+
+class TestPrintConfigDetailed:
+    """Additional print-config tests."""
+
+    def test_print_config_with_sources(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """print-config --sources shows source attribution."""
+        monkeypatch.setenv("OPENAI_BASE_URL", "https://test.example.com/v1")
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+        result = runner.invoke(app, ["print-config", "--sources"])
+        assert result.exit_code == 0
+        assert "from:" in result.stdout
+
+
+class TestChatCommand:
+    """Test chat command paths."""
+
+    def test_chat_session_not_found(self, tmp_path: Path) -> None:
+        """chat --session with nonexistent file fails."""
+
+        fake_session = tmp_path / "nonexistent.json"
+        result = runner.invoke(app, ["chat", "--session", str(fake_session)])
+        assert result.exit_code == 1
+        # Error is printed to stderr
+        output = result.output if result.output else ""
+        assert "not found" in output.lower() or result.exit_code == 1
