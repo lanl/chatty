@@ -365,3 +365,59 @@ def test_config_display_includes_copy_fallback_path() -> None:
     display = config.display()
 
     assert display["copy_fallback_path"] == "./my-copies"
+
+
+# ============================================================================
+# Validation Tests (v0.2.3e)
+# ============================================================================
+
+
+def test_temperature_valid_range() -> None:
+    """Temperature 0.0, 1.0, 2.0 all accepted."""
+    # Minimum
+    config = Config(temperature=0.0)
+    assert config.temperature == 0.0
+
+    # Middle
+    config = Config(temperature=1.0)
+    assert config.temperature == 1.0
+
+    # Maximum
+    config = Config(temperature=2.0)
+    assert config.temperature == 2.0
+
+
+def test_temperature_too_high() -> None:
+    """Temperature > 2.0 raises ValidationError."""
+    with pytest.raises(ValueError, match="temperature must be between 0.0 and 2.0"):
+        Config(temperature=2.1)
+
+
+def test_temperature_negative() -> None:
+    """Negative temperature raises ValidationError."""
+    with pytest.raises(ValueError, match="temperature must be between 0.0 and 2.0"):
+        Config(temperature=-0.1)
+
+
+def test_timeout_positive() -> None:
+    """Positive timeout values accepted."""
+    config = Config(timeout_s=1)
+    assert config.timeout_s == 1
+
+    config = Config(timeout_s=60)
+    assert config.timeout_s == 60
+
+    config = Config(timeout_s=300)
+    assert config.timeout_s == 300
+
+
+def test_timeout_zero() -> None:
+    """Zero timeout raises ValidationError."""
+    with pytest.raises(ValueError, match="timeout_s must be positive"):
+        Config(timeout_s=0)
+
+
+def test_timeout_negative() -> None:
+    """Negative timeout raises ValidationError."""
+    with pytest.raises(ValueError, match="timeout_s must be positive"):
+        Config(timeout_s=-1)

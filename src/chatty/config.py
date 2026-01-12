@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from pydantic import AliasChoices, Field, SecretStr
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -123,6 +123,22 @@ class Config(BaseSettings):
     stream: bool = True
     system_prompt: str = "You are a helpful assistant."
     timeout_s: int = 60
+
+    @field_validator("temperature")
+    @classmethod
+    def validate_temperature(cls, v: float) -> float:
+        """Validate temperature is in OpenAI API range (0.0-2.0)."""
+        if not 0.0 <= v <= 2.0:
+            raise ValueError("temperature must be between 0.0 and 2.0")
+        return v
+
+    @field_validator("timeout_s")
+    @classmethod
+    def validate_timeout(cls, v: int) -> int:
+        """Validate timeout is positive."""
+        if v <= 0:
+            raise ValueError("timeout_s must be positive")
+        return v
 
     # UI & Display
     show_timestamps: bool = False
