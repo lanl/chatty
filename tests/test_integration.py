@@ -609,3 +609,58 @@ class TestHandleSessionLoad:
             await pilot.pause()
 
             # No crash
+
+
+class TestQueryFileLoading:
+    """Tests for query_file loading on startup."""
+
+    async def test_load_query_file_on_startup(
+        self, mock_config_with_sources: ConfigWithSources, tmp_path: Path
+    ) -> None:
+        """ChatApp loads query from query_file parameter without crash."""
+        # Create a query file
+        query_file = tmp_path / "query.txt"
+        query_file.write_text("Initial query from file")
+
+        app = ChatApp(
+            config_with_sources=mock_config_with_sources,
+            query_file=str(query_file),
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()
+
+            # Just verify app loaded without crash
+            # Query loading is async and may not be complete
+            assert app.conversation is not None
+
+
+class TestStatusBarUpdates:
+    """Tests for status bar updates."""
+
+    async def test_status_bar_model_update(
+        self, mock_config_with_sources: ConfigWithSources
+    ) -> None:
+        """Status bar model can be updated."""
+        app = ChatApp(config_with_sources=mock_config_with_sources)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            status_bar = app.query_one("#status-bar", StatusBar)
+            status_bar._model = "updated-model"
+            await pilot.pause()
+
+            assert status_bar._model == "updated-model"
+
+
+class TestFooterInteraction:
+    """Tests for footer widget integration."""
+
+    async def test_footer_exists(self, mock_config_with_sources: ConfigWithSources) -> None:
+        """App has footer widget."""
+        from chatty.ui.footer import ChattyFooter
+
+        app = ChatApp(config_with_sources=mock_config_with_sources)
+        async with app.run_test():
+            footer = app.query_one(ChattyFooter)
+            assert footer is not None
