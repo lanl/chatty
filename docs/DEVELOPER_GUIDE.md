@@ -185,25 +185,37 @@ Widget action methods like `action_submit()` are async. Calling them directly cr
 
 ## Development Workflow
 
+### Git Workflow: Atomic Commits
+
+For solo development, prefer **atomic commits directly to main** over feature branches:
+
+- **Atomic commits** — Each commit is a complete, working change
+- **Clear messages** — Use conventional commit format (`feat:`, `fix:`, `docs:`, `test:`)
+- **No branches** — Feature branches add overhead without benefit for solo work
+- **Push frequently** — Reduces risk of lost work
+
+When the team grows beyond a single developer, consider adopting feature branches with code review.
+
 ### Making Changes
 
-1. Create a feature branch:
-   ```bash
-   git checkout -b feature/my-feature
-   ```
+1. Make your changes
 
-2. Make your changes
-
-3. Run tests and checks:
+2. Run tests and checks:
    ```bash
    pytest
    ruff check .
    mypy src/chatty
    ```
 
-4. Commit (pre-commit hooks will run automatically):
+3. Commit (pre-commit hooks will run automatically):
    ```bash
-   git commit -m "Add my feature"
+   git add -A
+   git commit -m "feat: add my feature"
+   ```
+
+4. Push to remote:
+   ```bash
+   git push origin main
    ```
 
 ### Running chatty Locally
