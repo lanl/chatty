@@ -9,10 +9,12 @@ from chatty.config import Config
 from chatty.core.session import (
     Session,
     SessionMetadata,
+    export_session_markdown,
     generate_session_name,
     get_session_filepath,
     list_sessions,
     load_session,
+    save_markdown_export,
     save_session,
 )
 
@@ -288,3 +290,108 @@ def test_config_get_session_path_expands_tilde() -> None:
 
     assert "~" not in str(path)
     assert str(path).startswith(str(Path.home()))
+
+
+# ============================================================================
+# Markdown Export Tests (v0.2.3f)
+# ============================================================================
+
+
+def test_export_session_markdown_basic() -> None:
+    """Test basic Markdown export format."""
+    messages = [
+        Message(role="user", content="Hello"),
+        Message(role="assistant", content="Hi there!"),
+    ]
+
+    md = export_session_markdown(messages)
+
+    assert "# Chat Session" in md
+    assert "**You:** Hello" in md
+    assert "**Assistant:** Hi there!" in md
+    assert "*Exported from chatty*" in md
+
+
+def test_export_session_markdown_with_metadata() -> None:
+    """Test export includes session name and model in header."""
+    messages = [
+        Message(role="user", content="Question"),
+        Message(role="assistant", content="Answer"),
+    ]
+
+    md = export_session_markdown(
+        messages,
+        session_name="My Chat Session",
+        model="gpt-4.1",
+    )
+
+    assert "# My Chat Session" in md
+    assert "Model: gpt-4.1" in md
+
+
+def test_export_session_markdown_skips_system() -> None:
+    """Test export skips system messages."""
+    messages = [
+        Message(role="system", content="You are helpful"),
+        Message(role="user", content="Hello"),
+        Message(role="assistant", content="Hi"),
+    ]
+
+    md = export_session_markdown(messages)
+
+    assert "You are helpful" not in md
+    assert "**You:** Hello" in md
+
+
+def test_export_session_markdown_timestamp() -> None:
+    """Test export includes timestamp."""
+    messages = [Message(role="user", content="Test")]
+
+    md = export_session_markdown(messages)
+
+    assert "Exported:" in md
+
+
+def test_save_markdown_export_creates_file(tmp_path: Path) -> None:
+    """Test save_markdown_export creates file."""
+    messages = [
+        Message(role="user", content="Hello"),
+        Message(role="assistant", content="Hi"),
+    ]
+
+    filepath = save_markdown_export(messages, tmp_path)
+
+    assert filepath.exists()
+    assert filepath.suffix == ".md"
+    assert "chatty-export-" in filepath.name
+
+
+def test_save_markdown_export_content(tmp_path: Path) -> None:
+    """Test saved Markdown file has correct content."""
+    messages = [
+        Message(role="user", content="What is Python?"),
+        Message(role="assistant", content="Python is a programming language."),
+    ]
+
+    filepath = save_markdown_export(
+        messages,
+        tmp_path,
+        session_name="Python Question",
+        model="gpt-4.1",
+    )
+
+    content = filepath.read_text()
+    assert "# Python Question" in content
+    assert "Model: gpt-4.1" in content
+    assert "What is Python?" in content
+
+
+def test_save_markdown_export_creates_directory(tmp_path: Path) -> None:
+    """Test save_markdown_export creates directory if needed."""
+    new_dir = tmp_path / "exports" / "nested"
+    assert not new_dir.exists()
+
+    messages = [Message(role="user", content="Test")]
+    save_markdown_export(messages, new_dir)
+
+    assert new_dir.exists()
