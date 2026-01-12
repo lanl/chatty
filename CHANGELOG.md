@@ -5,6 +5,76 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 0.2.3-dev
+
+### Added
+
+**Test Coverage & Validation**
+- `pytest-textual-snapshot` for visual regression tests
+- Widget unit tests (StatusBar, ChatInput, MessageWidget, ChatLog)
+- Footer tests (click detection, width truncation, binding positions)
+- Modal tests (FileInputModal, SessionBrowserModal, ModelPickerModal, ModelInputModal)
+- Integration tests (app launch, actions, conversation flow)
+- Session round-trip tests (save/load/export)
+- Config validation tests (temperature, timeout bounds)
+
+**Config Validation**
+- Pydantic validators for `temperature` (0.0–2.0 range)
+- Pydantic validators for `timeout_s` (positive integer)
+
+### Changed
+
+- Test count: 160 → 246 (+86)
+- Coverage: 41% → 74% (+33%)
+
+---
+
+## [0.2.2] - 2026-01-12
+
+### Added
+
+**Custom Footer Widget**
+- New `ui/footer.py` with `ChattyFooter` widget
+- Clickable keybindings with position tracking
+- Width-aware truncation (fewer bindings on narrow terminals)
+- Priority bindings preserved (Submit, Stop, Quit always visible)
+
+### Changed
+
+**Keyboard Bindings**
+- `Ctrl+E` → `Ctrl+P` for Submit ("P for Prompt")
+- `Ctrl+Y` → `Ctrl+C` for Copy
+- `Ctrl+B` → `Ctrl+E` for Export
+- Command palette (`Ctrl+P`) disabled to avoid conflict
+
+### Removed
+
+- Dependency on Textual's built-in Footer widget
+
+---
+
+## [0.2.1] - 2026-01-12
+
+### Changed
+
+**Code Refactoring**
+- Split `ui/app.py` (~1600 lines) into smaller modules:
+  - `ui/widgets.py` — ChatLog, MessageWidget, StatusBar, ChatInput (357 lines)
+  - `ui/modals.py` — FileInputModal, SessionBrowserModal, ModelPickerModal, ModelInputModal (477 lines)
+  - `ui/app.tcss` — Extracted stylesheet (65 lines)
+  - `ui/app.py` — ChatApp class, bindings, main entry (918 lines)
+
+**Code Cleanup**
+- Removed duplicate defaults in `config.py` (now uses `_CONFIG_FIELDS` list)
+- Removed unused `ConfigSource` dataclass
+- Fixed tiktoken hardcode in `conversation.py` (now uses model attribute with cl100k_base fallback)
+
+### Fixed
+
+- Resolved `# type: ignore` comments (fixed with `thread=True` worker)
+
+---
+
 ## [0.2.0] - 2026-01-09
 
 ### Added
