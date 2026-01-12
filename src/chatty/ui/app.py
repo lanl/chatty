@@ -20,12 +20,12 @@ Widget Hierarchy
     ├── Vertical
     │   └── ChatInput (multi-line text entry)
     ├── StatusBar (model, tokens, connection status)
-    └── Footer (Textual built-in - shows keybindings)
+    └── ChattyFooter (custom footer with controlled keybinding display)
 
 Data Flow
 ---------
     1. User types message in ChatInput widget
-    2. Ctrl+E triggers action_submit()
+    2. Ctrl+P triggers action_submit()
     3. Message added to Conversation state
     4. RAGProvider.augment() called (NullProvider passthrough in v0.1-0.2)
     5. OpenAIClient.chat() called with streaming
@@ -35,19 +35,22 @@ Data Flow
 
 Keyboard Shortcuts
 ------------------
-    Ctrl+Q      : Quit (clean shutdown)
-    Ctrl+E      : Send message
+    Visible in footer:
+    Ctrl+P      : Submit query ("P for Prompt")
     Ctrl+O      : Load query from file
-    Ctrl+N      : New session (clear history)
+    Escape      : Cancel current generation
+    Ctrl+C      : Copy last response
     Ctrl+S      : Save session
     Ctrl+L      : Load/browse sessions
-    Ctrl+Y      : Copy last response
-    Ctrl+G      : Model picker
-    Ctrl+B      : Export to Markdown
+    Ctrl+N      : New session (clear history)
+    Ctrl+Q      : Quit (clean shutdown)
+
+    Hidden (power user):
+    Ctrl+E      : Export to Markdown
     Ctrl+R      : Regenerate last response
     Ctrl+T      : Toggle streaming mode on/off
+    Ctrl+G      : Model picker
     Enter       : Insert newline (multi-line input)
-    Escape      : Cancel current generation
 
 Integration Points
 ------------------
@@ -77,7 +80,7 @@ from typing import TYPE_CHECKING, cast
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container
-from textual.widgets import Footer, Header
+from textual.widgets import Header
 from textual.worker import Worker
 
 from chatty.client.openai_client import ChattyClientError, OpenAIClient
@@ -93,6 +96,7 @@ from chatty.core.session import (
 )
 from chatty.core.transcript import TranscriptLogger
 from chatty.rag import RAGMetadata, RAGProvider, get_provider
+from chatty.ui.footer import ChattyFooter
 from chatty.ui.modals import (
     FileInputModal,
     ModelInputModal,
@@ -138,21 +142,23 @@ class ChatApp(App[None]):
     TITLE = "chatty"
     CSS_PATH = "app.tcss"
 
-    # Keyboard bindings - order determines display in footer
-    # Note: ChatInput's ctrl+e shows first (focused widget), then quit has priority
+    # Disable Textual's command palette (we use Ctrl+P for submit)
+    ENABLE_COMMAND_PALETTE = False
+
+    # Keyboard bindings - ChattyFooter controls display order
     # Hidden bindings (show=False) are functional but not shown in footer
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),
-        Binding("ctrl+y", "copy", "Copy", priority=True),
+        Binding("ctrl+c", "copy", "Copy", priority=True),
         Binding("ctrl+s", "save", "Save Session"),
         Binding("ctrl+l", "browse_sessions", "Load Session"),
         Binding("ctrl+n", "new_session", "New Session"),
         Binding("ctrl+o", "load_file", "Load File"),
         Binding("escape", "cancel", "Interrupt"),
-        # Power user shortcuts (visible in footer but may be truncated on small terminals)
-        Binding("ctrl+r", "regenerate", "Regenerate"),
-        Binding("ctrl+g", "pick_model", "Models"),
-        Binding("ctrl+b", "export", "Export"),
+        # Power user shortcuts (hidden from footer)
+        Binding("ctrl+r", "regenerate", "Regenerate", show=False),
+        Binding("ctrl+g", "pick_model", "Models", show=False),
+        Binding("ctrl+e", "export", "Export", show=False),
         Binding("ctrl+t", "toggle_stream", "Toggle Stream", show=False),
     ]
 
@@ -193,7 +199,7 @@ class ChatApp(App[None]):
         - ChatLog: Scrollable area for messages (extends VerticalScroll)
         - Container with ChatInput: User text input area (multi-line)
         - StatusBar: Single-line status display
-        - Footer: Shows available keyboard shortcuts
+        - ChattyFooter: Custom footer with controlled keybinding display
         """
         yield Header()
         yield ChatLog(id="chat-log")
@@ -202,7 +208,7 @@ class ChatApp(App[None]):
             id="input-container",
         )
         yield StatusBar(id="status-bar", model=self.config.model, streaming=self.streaming)
-        yield Footer()
+        yield ChattyFooter(id="footer")
 
     def on_mount(self) -> None:
         """Handle app mount event.
@@ -336,11 +342,11 @@ class ChatApp(App[None]):
             chat_log.add_message("error", f"Failed to load query file: {e}")
 
     def on_chat_input_submitted(self, _event: ChatInput.Submitted) -> None:
-        """Handle Ctrl+E from ChatInput widget."""
+        """Handle Ctrl+P from ChatInput widget."""
         self.action_submit()
 
     def action_submit(self) -> None:
-        """Submit the current message (Ctrl+E).
+        """Submit the current message (Ctrl+P).
 
         This is the main chat workflow entry point:
         1. Validate input (non-empty)
@@ -714,7 +720,7 @@ class ChatApp(App[None]):
             self.current_worker = None
 
     def action_copy(self) -> None:
-        """Copy the last assistant response (Ctrl+Y).
+        """Copy the last assistant response (Ctrl+C).
 
         Copies to system clipboard. If clipboard is unavailable (headless HPC),
         falls back to writing to configured copy_fallback_path.
@@ -859,7 +865,7 @@ class ChatApp(App[None]):
         chat_log.add_message("system", f"Switched model: {old_model} → {model}")
 
     def action_export(self) -> None:
-        """Export the current conversation to Markdown (Ctrl+B).
+        """Export the current conversation to Markdown (Ctrl+E).
 
         Saves the conversation as a readable Markdown file in the
         configured export_path directory.

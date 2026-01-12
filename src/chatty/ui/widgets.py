@@ -1,7 +1,7 @@
 """Widget components for chatty UI.
 
 This module contains the core UI widgets used by the chat application:
-- ChatInput: Multi-line text entry with Ctrl+E submit
+- ChatInput: Multi-line text entry with Ctrl+P submit
 - MessageWidget: Individual chat message with markdown rendering
 - ChatLog: Scrollable container for messages
 - StatusBar: Status line with spinner, model, and token display
@@ -18,29 +18,29 @@ from textual.widgets import Static, TextArea
 
 
 class ChatInput(TextArea):
-    """Custom TextArea for chat input with Ctrl+E submit.
+    """Custom TextArea for chat input with Ctrl+P submit.
 
     Inherits standard TextArea bindings (cursor movement, copy/paste, etc.)
     for normal text editing. Multi-line input via Enter key.
 
-    Ctrl+E overrides TextArea's "end of line" binding to submit instead.
+    Ctrl+P submits the message ("P for Prompt").
 
     Bindings:
-        Ctrl+E: Submit the current message (posts Submitted event)
+        Ctrl+P: Submit the current message (posts Submitted event)
         Enter: Insert newline (inherited from TextArea)
     """
 
     BINDINGS = [
-        Binding("ctrl+e", "send", "Submit Query"),
+        Binding("ctrl+p", "send", "Submit Query", priority=True),
     ]
 
     class Submitted(TextArea.Changed):
-        """Event posted when Ctrl+E is pressed to submit."""
+        """Event posted when Ctrl+P is pressed to submit."""
 
         pass
 
     def action_send(self) -> None:
-        """Handle Ctrl+E to submit the message."""
+        """Handle Ctrl+P to submit the message."""
         self.post_message(self.Submitted(self))
 
 

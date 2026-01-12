@@ -68,3 +68,11 @@ MessageWidget {
     min-height: 3;
     max-height: 8;
 }
+
+#footer {
+    height: 1;
+    background: $surface;
+    color: $text-muted;
+    padding: 0 1;
+    dock: bottom;
+}
