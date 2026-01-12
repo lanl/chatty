@@ -7,11 +7,19 @@ from chatty.client.openai_client import Message
 
 @dataclass
 class Conversation:
-    """Manages conversation history and token tracking."""
+    """Manages conversation history and token tracking.
+
+    Attributes:
+        messages: List of conversation messages.
+        server_reported_tokens: Token count from last API response (if available).
+        context_window: Maximum context size in tokens.
+        model: Model name for tiktoken encoding (used for token estimation).
+    """
 
     messages: list[Message] = field(default_factory=list)
     server_reported_tokens: int | None = None
     context_window: int = 128000  # Default context window size
+    model: str = "gpt-4"  # Model name for tiktoken encoding
 
     def add_user_message(self, content: str) -> None:
         """Add a user message to the conversation."""
@@ -47,11 +55,18 @@ class Conversation:
             total = f"{self.context_window:,}"
             return f"{used} / {total} tokens"
 
-        # Try tiktoken estimate
+        # Try tiktoken estimate using configured model
         try:
             import tiktoken
 
-            enc = tiktoken.encoding_for_model("gpt-4")
+            try:
+                # Try to get encoding for the specific model
+                enc = tiktoken.encoding_for_model(self.model)
+            except KeyError:
+                # Model not recognized by tiktoken, use cl100k_base (GPT-4 encoding)
+                # This is a reasonable default for most modern models
+                enc = tiktoken.get_encoding("cl100k_base")
+
             total_tokens = sum(len(enc.encode(m.content)) for m in self.messages)
             used = f"{total_tokens:,}"
             total = f"{self.context_window:,}"

@@ -1,5 +1,13 @@
-"""Textual UI for chatty."""
+"""Textual UI for chatty.
 
-from chatty.ui.app import ChatApp
+Module Structure
+----------------
+- app.py: ChatApp class, bindings, and main entry point
+- widgets.py: ChatInput, MessageWidget, ChatLog, StatusBar
+- modals.py: FileInputModal, SessionBrowserModal, ModelPickerModal, ModelInputModal
+- app.tcss: Stylesheet for widget layout and colors
+"""
 
-__all__ = ["ChatApp"]
+from chatty.ui.app import ChatApp, main
+
+__all__ = ["ChatApp", "main"]
