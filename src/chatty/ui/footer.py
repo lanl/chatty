@@ -88,7 +88,11 @@ class ChattyFooter(Static):
             event: The click event with coordinates.
         """
         # Find which binding was clicked based on x coordinate
-        x = event.x
+        # Account for CSS left padding (padding: 0 1 in app.tcss)
+        x = event.x - 1
+        if x < 0:
+            return
+
         for start, end, action in self._binding_positions:
             if start <= x < end:
                 # Trigger the action on the app
