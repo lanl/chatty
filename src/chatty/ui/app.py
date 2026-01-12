@@ -818,22 +818,21 @@ class ChatApp(App[None]):
             models = await self.client.models()
             if models:
                 # Show picker with available models
-                self.call_from_thread(
-                    self.push_screen,
+                # Note: We're in an async worker on the main thread's event loop,
+                # so we can call UI methods directly (no call_from_thread needed)
+                self.push_screen(
                     ModelPickerModal(models, self._current_model),
                     self._handle_model_selection,
                 )
             else:
                 # Empty list - show manual input
-                self.call_from_thread(
-                    self.push_screen,
+                self.push_screen(
                     ModelInputModal(self._current_model, "No models returned"),
                     self._handle_model_selection,
                 )
         except ChattyClientError as e:
             # /models not supported - show manual input
-            self.call_from_thread(
-                self.push_screen,
+            self.push_screen(
                 ModelInputModal(self._current_model, str(e)[:50]),
                 self._handle_model_selection,
             )

@@ -10,6 +10,7 @@ bindings (e.g., showing "Stop" only during generation).
 
 from __future__ import annotations
 
+from textual.events import Click
 from textual.reactive import reactive
 from textual.widgets import Static
 
@@ -19,10 +20,11 @@ class ChattyFooter(Static):
 
     Displays keyboard shortcuts in an explicit order, independent of how
     bindings are defined in the application. Adapts to terminal width by
-    showing fewer bindings on narrow terminals.
+    showing fewer bindings on narrow terminals. Supports clicking on
+    bindings to trigger the associated action.
 
     Attributes:
-        VISIBLE_BINDINGS: List of (key, label) tuples in display order.
+        VISIBLE_BINDINGS: List of (key, label, action) tuples in display order.
         is_generating: Whether LLM generation is in progress.
 
     CSS Classes:
@@ -31,24 +33,21 @@ class ChattyFooter(Static):
     """
 
     # Explicit display order - most important bindings first
+    # Format: (display_key, label, action_name)
     # These are shown left-to-right in the footer
-    VISIBLE_BINDINGS: list[tuple[str, str]] = [
-        ("^P", "Submit"),
-        ("^O", "File"),
-        ("Esc", "Stop"),
-        ("^C", "Copy"),
-        ("^S", "Save"),
-        ("^L", "Load"),
-        ("^N", "New"),
-        ("^Q", "Quit"),
+    VISIBLE_BINDINGS: list[tuple[str, str, str]] = [
+        ("^P", "Submit", "submit"),
+        ("^O", "File", "load_file"),
+        ("Esc", "Stop", "cancel"),
+        ("^C", "Copy", "copy"),
+        ("^S", "Save", "save"),
+        ("^L", "Load", "browse_sessions"),
+        ("^N", "New", "new_session"),
+        ("^Q", "Quit", "quit"),
     ]
 
-    # Minimum bindings to show on very narrow terminals
-    PRIORITY_BINDINGS: list[tuple[str, str]] = [
-        ("^P", "Submit"),
-        ("^Q", "Quit"),
-        ("Esc", "Stop"),
-    ]
+    # Keys that should always be shown, even on narrow terminals
+    PRIORITY_KEYS: set[str] = {"^P", "^Q", "Esc"}
 
     # Reactive property to trigger re-render when generation state changes
     is_generating: reactive[bool] = reactive(False)
@@ -61,6 +60,9 @@ class ChattyFooter(Static):
         """
         super().__init__("", id=id)
         self._cached_width: int = 0
+        # Track positions of bindings for click detection
+        # List of (start_pos, end_pos, action_name)
+        self._binding_positions: list[tuple[int, int, str]] = []
 
     def on_mount(self) -> None:
         """Initialize display on mount."""
@@ -79,6 +81,22 @@ class ChattyFooter(Static):
         """
         self._rebuild_display()
 
+    def on_click(self, event: Click) -> None:
+        """Handle click events to trigger bindings.
+
+        Args:
+            event: The click event with coordinates.
+        """
+        # Find which binding was clicked based on x coordinate
+        x = event.x
+        for start, end, action in self._binding_positions:
+            if start <= x < end:
+                # Trigger the action on the app
+                action_method = getattr(self.app, f"action_{action}", None)
+                if action_method:
+                    action_method()
+                break
+
     def _rebuild_display(self) -> None:
         """Rebuild the footer text based on current width and state."""
         # Get available width
@@ -90,49 +108,68 @@ class ChattyFooter(Static):
         if width < 1:
             width = 80
 
-        # Calculate how many bindings we can fit
-        # Each binding takes ~12 chars: "^P Submit  " (key + space + label + padding)
+        # Select bindings that fit
         bindings_to_show = self._select_bindings_for_width(width)
 
-        # Build the display string
+        # Build the display string and track positions for click handling
         parts = []
-        for key, label in bindings_to_show:
-            # Format: [^P] Submit
-            parts.append(f"[dim]{key}[/dim] {label}")
+        self._binding_positions = []
+        current_pos = 0
+        spacing = "  "  # 2 spaces between bindings
 
-        self.update("  ".join(parts))
+        for key, label, action in bindings_to_show:
+            # Format: [dim]^P[/dim] Submit
+            # The actual rendered length is: key + space + label
+            display_text = f"[dim]{key}[/dim] {label}"
+            # Calculate rendered width (without markup)
+            rendered_width = len(key) + 1 + len(label)
 
-    def _select_bindings_for_width(self, width: int) -> list[tuple[str, str]]:
+            parts.append(display_text)
+
+            # Track position for click detection
+            end_pos = current_pos + rendered_width
+            self._binding_positions.append((current_pos, end_pos, action))
+            current_pos = end_pos + len(spacing)
+
+        self.update(spacing.join(parts))
+
+    def _select_bindings_for_width(self, width: int) -> list[tuple[str, str, str]]:
         """Select which bindings to show based on terminal width.
+
+        Uses actual content width calculation instead of fixed estimate.
 
         Args:
             width: Available width in characters.
 
         Returns:
-            List of (key, label) tuples to display.
+            List of (key, label, action) tuples to display.
         """
-        # Estimate chars per binding: key(3) + space(1) + label(~6) + spacing(2) = ~12
-        CHARS_PER_BINDING = 12
-
-        # How many can we fit?
-        max_bindings = max(3, width // CHARS_PER_BINDING)
-
-        # Start with all visible bindings
         bindings = list(self.VISIBLE_BINDINGS)
+        spacing_width = 2  # "  " between items
 
-        # If we have room for all, use all
-        if len(bindings) <= max_bindings:
+        # Calculate total width needed for all bindings
+        def calc_total_width(items: list[tuple[str, str, str]]) -> int:
+            if not items:
+                return 0
+            content = sum(len(key) + 1 + len(label) for key, label, _ in items)
+            spacing = spacing_width * (len(items) - 1)
+            return content + spacing
+
+        # If all fit, show all
+        if calc_total_width(bindings) <= width:
             return bindings
 
-        # Otherwise, prioritize: always include Submit, Quit, and Stop
-        # Then fill remaining slots from the rest
-        priority_keys = {"^P", "^Q", "Esc"}
-        priority = [b for b in bindings if b[0] in priority_keys]
-        others = [b for b in bindings if b[0] not in priority_keys]
+        # Otherwise, start with priority bindings and add others until we run out of space
+        priority = [b for b in bindings if b[0] in self.PRIORITY_KEYS]
+        others = [b for b in bindings if b[0] not in self.PRIORITY_KEYS]
 
-        # Fill remaining slots
-        remaining_slots = max_bindings - len(priority)
-        result = priority + others[:remaining_slots]
+        result = list(priority)
+        for binding in others:
+            test_result = result + [binding]
+            if calc_total_width(test_result) <= width:
+                result.append(binding)
+            else:
+                break  # No more room
 
         # Sort back to original order
         original_order = {b[0]: i for i, b in enumerate(self.VISIBLE_BINDINGS)}
