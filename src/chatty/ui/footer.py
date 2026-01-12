@@ -95,10 +95,14 @@ class ChattyFooter(Static):
 
         for start, end, action in self._binding_positions:
             if start <= x < end:
-                # Trigger the action on the app
-                action_method = getattr(self.app, f"action_{action}", None)
-                if action_method:
-                    action_method()
+                # Call the action method on the app
+                # For quit, use exit() directly; for others, call action_* method
+                if action == "quit":
+                    self.app.exit()
+                else:
+                    action_method = getattr(self.app, f"action_{action}", None)
+                    if action_method:
+                        action_method()
                 break
 
     def _rebuild_display(self) -> None:
