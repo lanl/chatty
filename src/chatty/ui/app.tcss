@@ -48,6 +48,59 @@ MessageWidget {
     padding: 1;
 }
 
+/* Search highlighting - CSS-only approach since Rich markup
+ * doesn't work inside RichMarkdown. We highlight the whole
+ * message widget with a colored left border. */
+.search-match {
+    border-left: thick $warning;
+    padding-left: 1;
+}
+
+/* Current match gets more prominent highlighting */
+.current-match {
+    border-left: thick $success;
+    background: $success 10%;
+    padding-left: 1;
+}
+
+/* Search bar - fixed below header, hidden by default */
+#search-bar {
+    height: 1;
+    width: 100%;
+    background: $surface;
+    padding: 0 1;
+    display: none;
+    dock: top;
+}
+
+#search-bar.visible {
+    display: block;
+}
+
+#search-bar Input {
+    width: 1fr;
+    height: 1;
+    border: none;
+    background: $surface;
+}
+
+#search-bar Input:focus {
+    border: none;
+}
+
+#search-bar #match-counter {
+    width: auto;
+    min-width: 12;
+    height: 1;
+    text-align: right;
+    color: $text-muted;
+    padding: 0 1;
+}
+
+#search-bar #match-counter.no-matches {
+    color: $error;
+}
+
 #input-container {
     height: auto;
     max-height: 10;

@@ -37,47 +37,11 @@ class SearchBar(Horizontal):
         SearchBar.PrevMatch: Posted when user requests previous match
     """
 
-    DEFAULT_CSS = """
-    SearchBar {
-        height: 1;
-        width: 100%;
-        background: $surface;
-        padding: 0 1;
-        display: none;
-    }
-
-    SearchBar.visible {
-        display: block;
-    }
-
-    SearchBar Input {
-        width: 1fr;
-        height: 1;
-        border: none;
-        background: $surface;
-    }
-
-    SearchBar Input:focus {
-        border: none;
-    }
-
-    SearchBar #match-counter {
-        width: auto;
-        min-width: 12;
-        height: 1;
-        text-align: right;
-        color: $text-muted;
-        padding: 0 1;
-    }
-
-    SearchBar #match-counter.no-matches {
-        color: $error;
-    }
-    """
+    # CSS is in app.tcss - we don't use DEFAULT_CSS to avoid duplication
 
     BINDINGS = [
-        Binding("escape", "close", "Close", show=False),
-        Binding("enter", "next_match", "Next", show=False),
+        Binding("escape", "close", "Close", show=False, priority=True),
+        Binding("enter", "next_match", "Next", show=False, priority=True),
     ]
 
     # Reactive properties
