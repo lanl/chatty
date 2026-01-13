@@ -39,6 +39,7 @@ class ChattyFooter(Static):
         ("^P", "Submit", "submit"),
         ("^O", "File", "load_file"),
         ("Esc", "Stop", "cancel"),
+        ("^F", "Find", "search"),
         ("^C", "Copy", "copy"),
         ("^S", "Save", "save"),
         ("^L", "Load", "browse_sessions"),

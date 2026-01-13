@@ -49,6 +49,10 @@ class FooterTestApp(App[None]):
         """Track new_session action calls."""
         self.action_called = "new_session"
 
+    def action_search(self) -> None:
+        """Track search action calls."""
+        self.action_called = "search"
+
 
 class TestChattyFooter:
     """Tests for ChattyFooter widget."""
@@ -61,7 +65,7 @@ class TestChattyFooter:
             # Should have binding positions tracked
             assert len(footer._binding_positions) > 0
             # Should have all standard bindings visible
-            assert len(footer.VISIBLE_BINDINGS) == 8
+            assert len(footer.VISIBLE_BINDINGS) == 9
 
     async def test_bindings_display_order(self) -> None:
         """Bindings are displayed in defined order."""
@@ -74,6 +78,7 @@ class TestChattyFooter:
                 ("^P", "Submit", "submit"),
                 ("^O", "File", "load_file"),
                 ("Esc", "Stop", "cancel"),
+                ("^F", "Find", "search"),
                 ("^C", "Copy", "copy"),
                 ("^S", "Save", "save"),
                 ("^L", "Load", "browse_sessions"),
