@@ -240,68 +240,6 @@ def check_connectivity(config_with_sources: ConfigWithSources) -> list[Diagnosti
                     },
                     headers=headers,
                 )
-
-                if chat_response.status_code == 401:
-                    results.append(
-                        DiagnosticResult(
-                            passed=False,
-                            message="Authentication failed",
-                            detail="Invalid API key",
-                        )
-                    )
-                    return results
-                elif chat_response.status_code == 403:
-                    results.append(
-                        DiagnosticResult(
-                            passed=False,
-                            message="Authentication failed",
-                            detail="API key does not have access to this endpoint",
-                        )
-                    )
-                    return results
-
-                results.append(
-                    DiagnosticResult(
-                        passed=True,
-                        message="Authentication valid",
-                    )
-                )
-
-                if chat_response.status_code == 404:
-                    results.append(
-                        DiagnosticResult(
-                            passed=False,
-                            message="Endpoint does not support /chat/completions",
-                            detail="Got 404. Check that base_url points to an OpenAI-compatible API.",
-                        )
-                    )
-                    return results
-
-                if chat_response.status_code >= 400:
-                    # Try to get error message from response
-                    try:
-                        error_data = chat_response.json()
-                        error_msg = error_data.get("error", {}).get("message", chat_response.text)
-                    except Exception:
-                        error_msg = chat_response.text[:200]
-
-                    results.append(
-                        DiagnosticResult(
-                            passed=False,
-                            message=f"API error: {chat_response.status_code}",
-                            detail=error_msg,
-                        )
-                    )
-                    return results
-
-                # Success!
-                results.append(
-                    DiagnosticResult(
-                        passed=True,
-                        message="Endpoint supports /chat/completions",
-                    )
-                )
-
             except httpx.TimeoutException:
                 results.append(
                     DiagnosticResult(
@@ -311,6 +249,135 @@ def check_connectivity(config_with_sources: ConfigWithSources) -> list[Diagnosti
                     )
                 )
                 return results
+
+            if chat_response.status_code == 401:
+                results.append(
+                    DiagnosticResult(
+                        passed=False,
+                        message="Authentication failed",
+                        detail="Invalid API key",
+                    )
+                )
+                return results
+            elif chat_response.status_code == 403:
+                results.append(
+                    DiagnosticResult(
+                        passed=False,
+                        message="Authentication failed",
+                        detail="API key does not have access to this endpoint",
+                    )
+                )
+                return results
+
+            results.append(
+                DiagnosticResult(
+                    passed=True,
+                    message="Authentication valid",
+                )
+            )
+
+            if chat_response.status_code == 404:
+                results.append(
+                    DiagnosticResult(
+                        passed=False,
+                        message="Endpoint does not support /chat/completions",
+                        detail="Got 404. Check that base_url points to an OpenAI-compatible API.",
+                    )
+                )
+                return results
+
+            if chat_response.status_code >= 400:
+                # Try to get error message from response
+                try:
+                    error_data = chat_response.json()
+                    error_msg = error_data.get("error", {}).get("message", chat_response.text)
+                except Exception:
+                    error_msg = chat_response.text[:200]
+
+                results.append(
+                    DiagnosticResult(
+                        passed=False,
+                        message=f"API error: {chat_response.status_code}",
+                        detail=error_msg,
+                    )
+                )
+                return results
+
+            # Success!
+            results.append(
+                DiagnosticResult(
+                    passed=True,
+                    message="Endpoint supports /chat/completions",
+                )
+            )
+
+            # Step 4: Check context_window availability if "auto"
+            if config.context_window == "auto":
+                try:
+                    models_response = client.get(
+                        f"{config.base_url}/models",
+                        headers=headers,
+                    )
+                    if models_response.status_code == 200:
+                        models_data = models_response.json()
+                        # Find the configured model
+                        context_length = None
+                        for model_info in models_data.get("data", []):
+                            if model_info.get("id") == config.model:
+                                context_length = model_info.get(
+                                    "context_length",
+                                    model_info.get(
+                                        "max_context_length",
+                                        model_info.get("context_window"),
+                                    ),
+                                )
+                                break
+
+                        if context_length:
+                            results.append(
+                                DiagnosticResult(
+                                    passed=True,
+                                    message=f"context_window: auto → {context_length:,} tokens",
+                                    detail=f"Fetched from /models for {config.model}",
+                                )
+                            )
+                        else:
+                            results.append(
+                                DiagnosticResult(
+                                    passed=False,
+                                    message="context_window: auto (unavailable)",
+                                    detail=(
+                                        f"/models endpoint does not provide context_length "
+                                        f"for model '{config.model}'. "
+                                        "Set context_window to an explicit value in chatty.toml."
+                                    ),
+                                )
+                            )
+                    else:
+                        results.append(
+                            DiagnosticResult(
+                                passed=False,
+                                message="context_window: auto (check failed)",
+                                detail=f"/models returned {models_response.status_code}",
+                            )
+                        )
+                except Exception as e:
+                    results.append(
+                        DiagnosticResult(
+                            passed=False,
+                            message="context_window: auto (check failed)",
+                            detail=str(e),
+                        )
+                    )
+            else:
+                # Explicit value configured
+                results.append(
+                    DiagnosticResult(
+                        passed=True,
+                        message=f"context_window: {config.context_window:,} tokens",
+                        detail="Explicit value configured",
+                    )
+                )
 
     except Exception as e:
         results.append(

@@ -192,7 +192,9 @@ def test_check_config_ca_bundle_not_found() -> None:
 @respx.mock
 def test_check_connectivity_success(valid_config: ConfigWithSources) -> None:
     """Test connectivity check success."""
-    respx.get("https://api.test.com/v1/models").respond(200, json={"data": []})
+    respx.get("https://api.test.com/v1/models").respond(
+        200, json={"data": [{"id": "gpt-4", "context_length": 128000}]}
+    )
     respx.post("https://api.test.com/v1/chat/completions").respond(
         200, json={"choices": [{"message": {"content": "ok"}}]}
     )
@@ -202,6 +204,8 @@ def test_check_connectivity_success(valid_config: ConfigWithSources) -> None:
     assert any("TLS handshake successful" in r.message for r in results)
     assert any("Authentication valid" in r.message for r in results)
     assert any("supports /chat/completions" in r.message for r in results)
+    # context_window check should pass when auto-detection works
+    assert any("context_window: auto →" in r.message for r in results)
 
 
 @respx.mock
@@ -239,7 +243,10 @@ def test_check_connectivity_no_base_url(missing_url_config: ConfigWithSources) -
 def test_run_doctor_all_pass(valid_config: ConfigWithSources) -> None:
     """Test run_doctor with all checks passing."""
     with respx.mock:
-        respx.get("https://api.test.com/v1/models").respond(200, json={"data": []})
+        respx.get("https://api.test.com/v1/models").respond(
+            200,
+            json={"data": [{"id": "gpt-4", "context_length": 128000}]},
+        )
         respx.post("https://api.test.com/v1/chat/completions").respond(
             200, json={"choices": [{"message": {"content": "ok"}}]}
         )
@@ -342,3 +349,50 @@ def test_format_doctor_result_verbose() -> None:
     output = format_doctor_result(result, verbose=True)
 
     assert "from: env:OPENAI_BASE_URL" in output
+
+
+@respx.mock
+def test_check_connectivity_context_window_auto_unavailable(
+    valid_config: ConfigWithSources,
+) -> None:
+    """Test context_window check fails when auto but endpoint doesn't provide it."""
+    # Endpoint returns model without context_length
+    respx.get("https://api.test.com/v1/models").respond(
+        200,
+        json={"data": [{"id": "gpt-4"}]},  # No context_length
+    )
+    respx.post("https://api.test.com/v1/chat/completions").respond(
+        200, json={"choices": [{"message": {"content": "ok"}}]}
+    )
+
+    results = check_connectivity(valid_config)
+
+    # Should have a failed context_window check
+    context_check = next(r for r in results if "context_window" in r.message)
+    assert context_check.passed is False
+    assert "unavailable" in context_check.message
+    assert "does not provide context_length" in (context_check.detail or "")
+
+
+@respx.mock
+def test_check_connectivity_context_window_explicit() -> None:
+    """Test context_window check passes when explicit value is configured."""
+    config = Config(
+        base_url="https://api.test.com/v1",
+        api_key=SecretStr("test-key"),
+        model="gpt-4",
+        context_window=64000,  # Explicit value
+    )
+    config_with_sources = ConfigWithSources(config=config, sources={})
+
+    respx.get("https://api.test.com/v1/models").respond(200, json={"data": []})
+    respx.post("https://api.test.com/v1/chat/completions").respond(
+        200, json={"choices": [{"message": {"content": "ok"}}]}
+    )
+
+    results = check_connectivity(config_with_sources)
+
+    # Should have a passed context_window check
+    context_check = next(r for r in results if "context_window" in r.message)
+    assert context_check.passed is True
+    assert "64,000 tokens" in context_check.message
