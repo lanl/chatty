@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-01-13
+
+### Added
+
+**Context Window Configuration**
+- `context_window` config option: `"auto"` (default) or integer
+- `CHATTY_CONTEXT_WINDOW` environment variable
+- Auto-detect from `/models` endpoint when set to `"auto"`
+- Clear error message if auto-detection fails
+- `chatty.toml.example` — sanitized example config for version control
+
+**New Methods**
+- `OpenAIClient.get_model_context_length()` — fetch context_length from endpoint
+- `Conversation.set_context_window()` — update context window at runtime
+
+### Changed
+
+- Context window now resolved on startup (async worker)
+- Status bar displays actual context limit from endpoint or config
+- Default context_window changed from hardcoded 128K to `"auto"`
+
+---
+
 ## [0.2.4] - 2026-01-13
 
 ### Added
