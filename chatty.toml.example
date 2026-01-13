@@ -25,10 +25,9 @@ api_key = "your-api-key-here"
 model = "gpt-4.1"
 
 # Context window size:
-#   "auto" = fetch from /models endpoint (recommended)
-#   128000 = explicit size in tokens
-# If "auto" and endpoint doesn't provide context_length, chatty will show an error.
-context_window = "auto"
+#   "auto" = fetch from /models endpoint
+#   128000 = explicit size in tokens (default)
+context_window = 128000
 
 # Temperature (0.0 = deterministic, 1.0+ = creative)
 # temperature = 0.2
