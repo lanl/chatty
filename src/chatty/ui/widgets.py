@@ -188,6 +188,19 @@ class MessageWidget(Static):
             return False
         return query.lower() in self.message_content.lower()
 
+    def count_occurrences(self, query: str) -> int:
+        """Count how many times the query appears in the message.
+
+        Args:
+            query: Search query (case-insensitive).
+
+        Returns:
+            Number of occurrences of query in message content.
+        """
+        if not query:
+            return 0
+        return self.message_content.lower().count(query.lower())
+
     def set_highlight(self, query: str, is_current: bool = False) -> None:
         """Set the highlight query for this message.
 
@@ -395,13 +408,29 @@ class ChatLog(VerticalScroll):
 
     @property
     def match_count(self) -> int:
-        """Get the number of search matches."""
+        """Get the number of messages containing matches."""
         return len(self._search_matches)
 
     @property
     def current_match_index(self) -> int:
         """Get the current match index (0-based)."""
         return self._current_match_index
+
+    def total_occurrences(self, query: str) -> int:
+        """Count total occurrences of query across all messages.
+
+        Args:
+            query: Search query string.
+
+        Returns:
+            Total number of times query appears in all messages.
+        """
+        if not query:
+            return 0
+        total = 0
+        for widget in self.query(MessageWidget):
+            total += widget.count_occurrences(query)
+        return total
 
 
 class StatusBar(Static):

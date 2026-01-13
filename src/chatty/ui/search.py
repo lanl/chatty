@@ -45,7 +45,8 @@ class SearchBar(Horizontal):
     # Reactive properties
     search_query: reactive[str] = reactive("", init=False)
     match_index: reactive[int] = reactive(0, init=False)
-    total_matches: reactive[int] = reactive(0, init=False)
+    total_matches: reactive[int] = reactive(0, init=False)  # messages with matches
+    total_occurrences: reactive[int] = reactive(0, init=False)  # total occurrences
 
     class Closed(Message):
         """Posted when the search bar is closed."""
@@ -97,18 +98,32 @@ class SearchBar(Horizontal):
         """React to total matches changes."""
         self._update_counter()
 
+    def watch_total_occurrences(self) -> None:
+        """React to total occurrences changes."""
+        self._update_counter()
+
     def _update_counter(self) -> None:
-        """Update the match counter display."""
+        """Update the match counter display.
+
+        Format: "N matches (M msgs)" where N is total occurrences,
+        M is number of messages containing matches.
+        Navigation index shows current message being viewed.
+        """
         counter = self.query_one("#match-counter", Static)
         if self.total_matches == 0:
             if self.search_query:
                 counter.update("No matches")
                 counter.add_class("no-matches")
             else:
-                counter.update("0/0")
+                counter.update("")
                 counter.remove_class("no-matches")
         else:
-            counter.update(f"{self.match_index + 1}/{self.total_matches}")
+            # Show occurrences and message count
+            # e.g., "8 matches (3 msgs) [2/3]"
+            counter.update(
+                f"{self.total_occurrences} matches ({self.total_matches} msgs) "
+                f"[{self.match_index + 1}/{self.total_matches}]"
+            )
             counter.remove_class("no-matches")
 
     def action_close(self) -> None:
@@ -140,19 +155,24 @@ class SearchBar(Horizontal):
         self.search_query = ""
         self.match_index = 0
         self.total_matches = 0
+        self.total_occurrences = 0
         # Clear input
         search_input = self.query_one("#search-input", Input)
         search_input.value = ""
 
-    def set_matches(self, total: int, current: int = 0) -> None:
+    def set_matches(
+        self, total_messages: int, current: int = 0, total_occurrences: int = 0
+    ) -> None:
         """Update match count and current index.
 
         Args:
-            total: Total number of matches found.
-            current: Current match index (0-based).
+            total_messages: Number of messages containing matches.
+            current: Current message index (0-based).
+            total_occurrences: Total number of term occurrences.
         """
-        self.total_matches = total
-        self.match_index = current if total > 0 else 0
+        self.total_matches = total_messages
+        self.total_occurrences = total_occurrences if total_occurrences else total_messages
+        self.match_index = current if total_messages > 0 else 0
 
     @property
     def is_visible(self) -> bool:

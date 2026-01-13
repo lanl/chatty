@@ -744,7 +744,8 @@ class ChatApp(App[None]):
             # Search already open → advance to next match
             chat_log = self.query_one("#chat-log", ChatLog)
             chat_log.next_match()
-            search_bar.set_matches(chat_log.match_count, chat_log.current_match_index)
+            occurrences = chat_log.total_occurrences(search_bar.search_query)
+            search_bar.set_matches(chat_log.match_count, chat_log.current_match_index, occurrences)
         else:
             # Search not open → open it
             search_bar.show()
@@ -755,7 +756,8 @@ class ChatApp(App[None]):
         search_bar = self.query_one("#search-bar", SearchBar)
 
         matches = chat_log.search(event.query)
-        search_bar.set_matches(len(matches), 0)
+        occurrences = chat_log.total_occurrences(event.query)
+        search_bar.set_matches(len(matches), 0, occurrences)
 
     def on_search_bar_next_match(self, _event: SearchBar.NextMatch) -> None:
         """Handle next match request."""
@@ -763,7 +765,8 @@ class ChatApp(App[None]):
         search_bar = self.query_one("#search-bar", SearchBar)
 
         chat_log.next_match()
-        search_bar.set_matches(chat_log.match_count, chat_log.current_match_index)
+        occurrences = chat_log.total_occurrences(search_bar.search_query)
+        search_bar.set_matches(chat_log.match_count, chat_log.current_match_index, occurrences)
 
     def on_search_bar_closed(self, _event: SearchBar.Closed) -> None:
         """Handle search bar close."""
