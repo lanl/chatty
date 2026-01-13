@@ -99,24 +99,28 @@ class MessageWidget(Static):
         - After streaming complete (assistant): Markdown with syntax highlighting
         - User/system/error: Plain text with bold prefix
 
-        Search highlighting uses CSS classes only - Rich markup doesn't work
-        inside RichMarkdown, so we rely on .search-match and .current-match
-        CSS classes to visually highlight matching messages.
+        Search highlighting:
+        - User/system/error messages: Word-level highlighting with Rich markup
+        - Assistant messages: CSS-only (border/background) because Rich markup
+          doesn't work inside RichMarkdown
         """
         prefix = self.ROLE_PREFIXES.get(self.role, self.role)
         content = self.message_content
 
         if self.role == "assistant" and not self.is_streaming and self.message_content:
             # Assistant messages get markdown rendering when not streaming
+            # No word-level highlighting - use CSS classes instead
             markdown_content = f"**{prefix}:**\n\n{content}"
             self.update(RichMarkdown(markdown_content))
         else:
             # User, system, error messages and streaming assistant use plain text
-            self.update(f"**{prefix}:** {content}")
+            # Apply word-level highlighting for search if active
+            display_content = content
+            if self.highlight_query and self.contains_query(self.highlight_query):
+                display_content = self._apply_highlight(content, self.highlight_query)
+            self.update(f"**{prefix}:** {display_content}")
 
         # Update CSS classes for search highlighting
-        # Note: We use CSS-only highlighting (border/background) because
-        # Rich Console markup ([reverse]) doesn't work inside RichMarkdown
         if self.highlight_query and self.contains_query(self.highlight_query):
             self.add_class("search-match")
         else:
@@ -126,6 +130,45 @@ class MessageWidget(Static):
             self.add_class("current-match")
         else:
             self.remove_class("current-match")
+
+    def _apply_highlight(self, text: str, query: str) -> str:
+        """Apply Rich markup highlighting to text containing the query.
+
+        Uses [reverse] markup to highlight matches.
+        Only used for plain text messages (user, system, error).
+
+        Args:
+            text: The text to search in.
+            query: The query to highlight.
+
+        Returns:
+            Text with Rich markup for highlighting.
+        """
+        if not query:
+            return text
+
+        # Case-insensitive search
+        query_lower = query.lower()
+        text_lower = text.lower()
+
+        # Find all match positions
+        result = []
+        last_end = 0
+        start = text_lower.find(query_lower)
+
+        while start != -1:
+            # Add text before match
+            result.append(text[last_end:start])
+            # Add highlighted match (use original case)
+            match_text = text[start : start + len(query)]
+            result.append(f"[reverse]{match_text}[/reverse]")
+            last_end = start + len(query)
+            start = text_lower.find(query_lower, last_end)
+
+        # Add remaining text
+        result.append(text[last_end:])
+
+        return "".join(result)
 
     def contains_query(self, query: str) -> bool:
         """Check if message contains the search query.
