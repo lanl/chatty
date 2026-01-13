@@ -258,6 +258,9 @@ api_key = "your-api-key-here"
 # Model name (depends on your endpoint)
 model = "gpt-4.1"
 
+# Context window size (tokens)
+context_window = 128000
+
 # Temperature (0.0 = deterministic, 1.0+ = creative)
 temperature = 0.2
 
