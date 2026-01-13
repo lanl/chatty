@@ -222,6 +222,7 @@ class ChatApp(App[None]):
         - Check for missing configuration (show warnings)
         - Create OpenAI client
         - Initialize conversation state
+        - Resolve context window (from config or endpoint)
         - Start transcript logging if enabled
         - Add system prompt if configured
         - Load session or query file if provided
@@ -234,7 +235,10 @@ class ChatApp(App[None]):
 
         # Initialize client and conversation
         self.client = OpenAIClient(self.config)
-        self.conversation = Conversation()
+        self.conversation = Conversation(model=self.config.model)
+
+        # Resolve context window (may require async call to endpoint)
+        self._resolve_context_window()
 
         # Start transcript logging
         transcript_file = self.transcript.start_session()
@@ -254,6 +258,75 @@ class ChatApp(App[None]):
             self._load_session_file(chat_log)
         elif self.query_file:
             self._load_and_submit_query_file()
+
+    def _resolve_context_window(self) -> None:
+        """Resolve context window from config or endpoint.
+
+        Priority:
+        1. If config.context_window is an integer, use it directly
+        2. If config.context_window is "auto", fetch from /models endpoint
+        3. If "auto" and endpoint doesn't provide it, show error
+
+        This method starts an async worker to handle endpoint calls.
+        """
+        if isinstance(self.config.context_window, int):
+            # Explicit value configured - use it
+            if self.conversation:
+                self.conversation.set_context_window(self.config.context_window)
+        else:
+            # "auto" - need to fetch from endpoint
+            # Textual's run_worker type hints are overly restrictive
+            self.run_worker(
+                self._fetch_context_window,  # type: ignore[arg-type]
+                exclusive=False,
+                name="fetch_context_window",
+            )
+
+    async def _fetch_context_window(self) -> None:
+        """Fetch context window from /models endpoint.
+
+        Called when context_window = "auto". Fetches model metadata
+        and extracts context_length. Shows error if not available.
+        """
+        if not self.client or not self.conversation:
+            return
+
+        chat_log = self.query_one("#chat-log", ChatLog)
+
+        try:
+            context_length = await self.client.get_model_context_length(self.config.model)
+            if context_length is not None:
+                self.conversation.set_context_window(context_length)
+                # Update status bar to reflect actual context window
+                self.query_one("#status-bar", StatusBar).update_status(
+                    tokens=self.conversation.get_token_display()
+                )
+            else:
+                # Endpoint didn't provide context_length
+                chat_log.add_message(
+                    "error",
+                    f"⚠ context_window = 'auto' but /models endpoint did not "
+                    f"return context_length for model '{self.config.model}'.\n\n"
+                    "To fix, set context_window explicitly in chatty.toml:\n"
+                    "  context_window = 128000  # or your model's limit\n\n"
+                    "Using fallback value: 128,000 tokens",
+                )
+        except ChattyClientError as e:
+            # Endpoint not accessible
+            chat_log.add_message(
+                "error",
+                f"⚠ context_window = 'auto' but failed to fetch from endpoint:\n"
+                f"  {e}\n\n"
+                "To fix, set context_window explicitly in chatty.toml:\n"
+                "  context_window = 128000  # or your model's limit\n\n"
+                "Using fallback value: 128,000 tokens",
+            )
+        except Exception as e:
+            chat_log.add_message(
+                "error",
+                f"⚠ Failed to determine context window: {e}\n\n"
+                "Using fallback value: 128,000 tokens",
+            )
 
     def _check_startup_config(self, chat_log: ChatLog) -> None:
         """Check configuration at startup and show warnings for issues.

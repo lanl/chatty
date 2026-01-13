@@ -118,11 +118,35 @@ class Config(BaseSettings):
     http_proxy: str | None = None
     no_proxy: str = "localhost,127.0.0.1"
 
+    # Context Window
+    # "auto" = fetch from /models endpoint
+    # integer = explicit size in tokens
+    context_window: str | int = "auto"
+
     # Behavior
     temperature: float = 0.2
     stream: bool = True
     system_prompt: str = "You are a helpful assistant."
     timeout_s: int = 60
+
+    @field_validator("context_window")
+    @classmethod
+    def validate_context_window(cls, v: str | int) -> str | int:
+        """Validate context_window is 'auto' or a positive integer."""
+        if isinstance(v, str):
+            if v.lower() != "auto":
+                # Try to parse as integer
+                try:
+                    v = int(v)
+                except ValueError:
+                    raise ValueError(
+                        "context_window must be 'auto' or a positive integer"
+                    ) from None
+            else:
+                return "auto"
+        if isinstance(v, int) and v <= 0:
+            raise ValueError("context_window must be a positive integer")
+        return v
 
     @field_validator("temperature")
     @classmethod
@@ -187,6 +211,7 @@ class Config(BaseSettings):
             "ca_bundle": self.ca_bundle or "system",
             "verify_tls": str(self.verify_tls),
             "http_proxy": self.http_proxy or "(not set)",
+            "context_window": str(self.context_window),
             "temperature": str(self.temperature),
             "stream": str(self.stream),
             "timeout_s": str(self.timeout_s),
@@ -234,6 +259,7 @@ _CONFIG_FIELDS = [
     "verify_tls",
     "http_proxy",
     "no_proxy",
+    "context_window",
     "temperature",
     "stream",
     "system_prompt",
@@ -257,6 +283,7 @@ _ENV_MAPPINGS = {
     "verify_tls": ["CHATTY_VERIFY_TLS"],
     "http_proxy": ["HTTPS_PROXY", "CHATTY_HTTP_PROXY"],
     "no_proxy": ["NO_PROXY", "CHATTY_NO_PROXY"],
+    "context_window": ["CHATTY_CONTEXT_WINDOW"],
     "temperature": ["CHATTY_TEMPERATURE"],
     "stream": ["CHATTY_STREAM"],
     "system_prompt": ["CHATTY_SYSTEM_PROMPT"],
@@ -366,6 +393,7 @@ def format_config_with_sources(config_with_sources: ConfigWithSources) -> str:
         "verify_tls": str(config.verify_tls),
         "http_proxy": config.http_proxy or "(not set)",
         "no_proxy": config.no_proxy,
+        "context_window": str(config.context_window),
         "temperature": str(config.temperature),
         "stream": str(config.stream),
         "system_prompt": (

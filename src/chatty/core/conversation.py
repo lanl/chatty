@@ -12,14 +12,24 @@ class Conversation:
     Attributes:
         messages: List of conversation messages.
         server_reported_tokens: Token count from last API response (if available).
-        context_window: Maximum context size in tokens.
+        context_window: Maximum context size in tokens (should be set by ChatApp).
         model: Model name for tiktoken encoding (used for token estimation).
     """
 
     messages: list[Message] = field(default_factory=list)
     server_reported_tokens: int | None = None
-    context_window: int = 128000  # Default context window size
+    context_window: int = 128000  # Fallback; ChatApp should set from config/endpoint
     model: str = "gpt-4"  # Model name for tiktoken encoding
+
+    def set_context_window(self, size: int) -> None:
+        """Update the context window size.
+
+        Called when context_window is resolved from config or endpoint.
+
+        Args:
+            size: Context window size in tokens.
+        """
+        self.context_window = size
 
     def add_user_message(self, content: str) -> None:
         """Add a user message to the conversation."""

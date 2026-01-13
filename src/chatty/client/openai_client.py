@@ -397,6 +397,43 @@ class OpenAIClient:
 
         return [model["id"] for model in data.get("data", [])]
 
+    async def get_model_context_length(self, model: str) -> int | None:
+        """Get context length for a specific model.
+
+        Fetches model metadata from /models endpoint and extracts
+        the context_length field if available.
+
+        Args:
+            model: Model ID to look up.
+
+        Returns:
+            Context length in tokens, or None if not available.
+
+        Raises:
+            ChattyClientError: If the request fails.
+        """
+        url = f"{self.config.base_url}/models"
+        headers = self._get_headers()
+
+        response = await self._request_with_retry("GET", url, headers=headers)
+        data = response.json()
+
+        for model_data in data.get("data", []):
+            if model_data.get("id") == model:
+                # Try common field names for context length
+                # OpenAI/LM Studio use "context_length"
+                # Some endpoints use "max_context_length" or "context_window"
+                context_length = model_data.get(
+                    "context_length",
+                    model_data.get("max_context_length", model_data.get("context_window")),
+                )
+                if context_length is not None:
+                    return int(context_length)
+                return None
+
+        # Model not found in list
+        return None
+
     async def close(self) -> None:
         """Close the HTTP client."""
         if self._client:
