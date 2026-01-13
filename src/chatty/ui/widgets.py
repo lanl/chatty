@@ -96,29 +96,34 @@ class MessageWidget(Static):
 
         Rendering strategy:
         - During streaming: Raw text for performance
-        - After streaming complete (assistant): Markdown with syntax highlighting
-        - User/system/error: Plain text with bold prefix
+        - After streaming complete (assistant, no search): Markdown with syntax highlighting
+        - During search: Plain text for all messages (enables word-level highlighting)
+        - User/system/error: Always plain text with bold prefix
 
         Search highlighting:
-        - User/system/error messages: Word-level highlighting with Rich markup
-        - Assistant messages: CSS-only (border/background) because Rich markup
-          doesn't work inside RichMarkdown
+        - All messages during search: Word-level highlighting with Rich markup
+        - When search is cleared, assistant messages return to markdown rendering
         """
         prefix = self.ROLE_PREFIXES.get(self.role, self.role)
         content = self.message_content
 
-        if self.role == "assistant" and not self.is_streaming and self.message_content:
-            # Assistant messages get markdown rendering when not streaming
-            # No word-level highlighting - use CSS classes instead
-            markdown_content = f"**{prefix}:**\n\n{content}"
-            self.update(RichMarkdown(markdown_content))
-        else:
-            # User, system, error messages and streaming assistant use plain text
-            # Apply word-level highlighting for search if active
+        # Use plain text during search to enable word highlighting, or for non-assistant roles
+        use_plain_text = (
+            self.role != "assistant"
+            or self.is_streaming
+            or self.highlight_query  # Search active → use plain text
+        )
+
+        if use_plain_text:
+            # Plain text rendering with word-level search highlighting
             display_content = content
             if self.highlight_query and self.contains_query(self.highlight_query):
                 display_content = self._apply_highlight(content, self.highlight_query)
             self.update(f"**{prefix}:** {display_content}")
+        else:
+            # Assistant messages get markdown rendering when not streaming and not searching
+            markdown_content = f"**{prefix}:**\n\n{content}"
+            self.update(RichMarkdown(markdown_content))
 
         # Update CSS classes for search highlighting
         if self.highlight_query and self.contains_query(self.highlight_query):
