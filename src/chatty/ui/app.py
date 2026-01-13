@@ -103,6 +103,7 @@ from chatty.ui.modals import (
     ModelPickerModal,
     SessionBrowserModal,
 )
+from chatty.ui.search import SearchBar
 from chatty.ui.widgets import ChatInput, ChatLog, StatusBar
 
 if TYPE_CHECKING:
@@ -155,6 +156,7 @@ class ChatApp(App[None]):
         Binding("ctrl+n", "new_session", "New Session"),
         Binding("ctrl+o", "load_file", "Load File"),
         Binding("escape", "cancel", "Interrupt"),
+        Binding("ctrl+f", "search", "Search", show=False),
         # Power user shortcuts (hidden from footer)
         Binding("ctrl+r", "regenerate", "Regenerate", show=False),
         Binding("ctrl+g", "pick_model", "Models", show=False),
@@ -196,12 +198,14 @@ class ChatApp(App[None]):
 
         Yields widgets in top-to-bottom order. The layout is:
         - Header: Shows app title
+        - SearchBar: Inline search bar (hidden by default)
         - ChatLog: Scrollable area for messages (extends VerticalScroll)
         - Container with ChatInput: User text input area (multi-line)
         - StatusBar: Single-line status display
         - ChattyFooter: Custom footer with controlled keybinding display
         """
         yield Header()
+        yield SearchBar(id="search-bar")
         yield ChatLog(id="chat-log")
         yield Container(
             ChatInput(id="input"),
@@ -713,11 +717,59 @@ class ChatApp(App[None]):
 
         Cancels any in-flight LLM request by cancelling the async task.
         Partial responses may remain visible in the chat log.
+        Also closes search bar if open.
         """
+        # Close search bar if visible
+        search_bar = self.query_one("#search-bar", SearchBar)
+        if search_bar.is_visible:
+            search_bar.hide()
+            self._close_search()
+            return
+
+        # Otherwise cancel generation
         if self.current_worker and self.current_worker.is_running:
             self.current_worker.cancel()
             self.query_one("#status-bar", StatusBar).update_status(status="Cancelled")
             self.current_worker = None
+
+    def action_search(self) -> None:
+        """Toggle the search bar (Ctrl+F).
+
+        Opens or closes the inline search bar for finding text
+        in the conversation history.
+        """
+        search_bar = self.query_one("#search-bar", SearchBar)
+        if search_bar.is_visible:
+            search_bar.hide()
+            self._close_search()
+        else:
+            search_bar.show()
+
+    def on_search_bar_query_changed(self, event: SearchBar.QueryChanged) -> None:
+        """Handle search query changes."""
+        chat_log = self.query_one("#chat-log", ChatLog)
+        search_bar = self.query_one("#search-bar", SearchBar)
+
+        matches = chat_log.search(event.query)
+        search_bar.set_matches(len(matches), 0)
+
+    def on_search_bar_next_match(self, _event: SearchBar.NextMatch) -> None:
+        """Handle next match request."""
+        chat_log = self.query_one("#chat-log", ChatLog)
+        search_bar = self.query_one("#search-bar", SearchBar)
+
+        chat_log.next_match()
+        search_bar.set_matches(chat_log.match_count, chat_log.current_match_index)
+
+    def on_search_bar_closed(self, _event: SearchBar.Closed) -> None:
+        """Handle search bar close."""
+        self._close_search()
+
+    def _close_search(self) -> None:
+        """Clear search state and return focus to input."""
+        chat_log = self.query_one("#chat-log", ChatLog)
+        chat_log.clear_search()
+        self.query_one("#input", ChatInput).focus()
 
     def action_copy(self) -> None:
         """Copy the last assistant response (Ctrl+C).

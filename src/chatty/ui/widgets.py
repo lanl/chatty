@@ -57,12 +57,16 @@ class MessageWidget(Static):
         role: The message role (user, assistant, system, error).
         message_content: The message text content.
         is_streaming: Whether the message is currently being streamed.
+        highlight_query: Current search query for highlighting.
+        is_current_match: Whether this widget contains the current search match.
 
     CSS Classes:
         .user-message: Applied to user messages (dimmed styling)
         .assistant-message: Applied to assistant messages (default bright)
         .system-message: Applied to system messages (accent color)
         .error-message: Applied to error messages (red with background)
+        .search-match: Applied when message contains a search match
+        .current-match: Applied when message is the current search match
     """
 
     ROLE_PREFIXES = {
@@ -83,6 +87,8 @@ class MessageWidget(Static):
         self.role = role
         self.message_content: str = content
         self.is_streaming: bool = False
+        self.highlight_query: str = ""
+        self.is_current_match: bool = False
         self._update_display()
 
     def _update_display(self) -> None:
@@ -92,17 +98,102 @@ class MessageWidget(Static):
         - During streaming: Raw text for performance
         - After streaming complete (assistant): Markdown with syntax highlighting
         - User/system/error: Plain text with bold prefix
+        - When highlight_query is set: Apply highlight markup
         """
         prefix = self.ROLE_PREFIXES.get(self.role, self.role)
+        content = self.message_content
+
+        # Apply highlighting if we have a search query
+        if self.highlight_query and content:
+            content = self._apply_highlight(content, self.highlight_query)
 
         if self.role == "assistant" and not self.is_streaming and self.message_content:
             # Assistant messages get markdown rendering when not streaming
-            # Include prefix in the markdown content
-            markdown_content = f"**{prefix}:**\n\n{self.message_content}"
+            # Note: Highlighting is less effective with markdown, but still shows
+            markdown_content = f"**{prefix}:**\n\n{content}"
             self.update(RichMarkdown(markdown_content))
         else:
             # User, system, error messages and streaming assistant use plain text
-            self.update(f"**{prefix}:** {self.message_content}")
+            self.update(f"**{prefix}:** {content}")
+
+        # Update CSS classes for search highlighting
+        if self.highlight_query and self.contains_query(self.highlight_query):
+            self.add_class("search-match")
+        else:
+            self.remove_class("search-match")
+
+        if self.is_current_match:
+            self.add_class("current-match")
+        else:
+            self.remove_class("current-match")
+
+    def _apply_highlight(self, text: str, query: str) -> str:
+        """Apply highlight markup to text containing the query.
+
+        Uses Rich markup to highlight matches with reverse video.
+
+        Args:
+            text: The text to search in.
+            query: The query to highlight.
+
+        Returns:
+            Text with Rich markup for highlighting.
+        """
+        if not query:
+            return text
+
+        # Case-insensitive search
+        query_lower = query.lower()
+        text_lower = text.lower()
+
+        # Find all match positions
+        result = []
+        last_end = 0
+        start = text_lower.find(query_lower)
+
+        while start != -1:
+            # Add text before match
+            result.append(text[last_end:start])
+            # Add highlighted match (use original case)
+            match_text = text[start : start + len(query)]
+            result.append(f"[reverse]{match_text}[/reverse]")
+            last_end = start + len(query)
+            start = text_lower.find(query_lower, last_end)
+
+        # Add remaining text
+        result.append(text[last_end:])
+
+        return "".join(result)
+
+    def contains_query(self, query: str) -> bool:
+        """Check if message contains the search query.
+
+        Args:
+            query: Search query (case-insensitive).
+
+        Returns:
+            True if message contains query.
+        """
+        if not query:
+            return False
+        return query.lower() in self.message_content.lower()
+
+    def set_highlight(self, query: str, is_current: bool = False) -> None:
+        """Set the highlight query for this message.
+
+        Args:
+            query: Search query to highlight (empty to clear).
+            is_current: Whether this is the current match.
+        """
+        self.highlight_query = query
+        self.is_current_match = is_current
+        self._update_display()
+
+    def clear_highlight(self) -> None:
+        """Clear search highlighting."""
+        self.highlight_query = ""
+        self.is_current_match = False
+        self._update_display()
 
     def append_content(self, text: str) -> None:
         """Append text to the message content (for streaming).
@@ -142,6 +233,9 @@ class ChatLog(VerticalScroll):
         append_to_last: Append content to the last message.
         clear_messages: Remove all messages.
         remove_last_message: Remove the last message (for regeneration).
+        search: Search for text in messages.
+        clear_search: Clear search highlighting.
+        highlight_match: Highlight a specific match.
     """
 
     def __init__(self, id: str | None = None) -> None:  # noqa: A002
@@ -151,6 +245,8 @@ class ChatLog(VerticalScroll):
             id: Optional DOM identifier for CSS styling.
         """
         super().__init__(id=id)
+        self._search_matches: list[MessageWidget] = []
+        self._current_match_index: int = 0
 
     def add_message(self, role: str, content: str = "") -> MessageWidget:
         """Add a new message to the chat log.
@@ -197,6 +293,105 @@ class ChatLog(VerticalScroll):
         last = self.get_last_message()
         if last:
             last.remove()
+
+    def search(self, query: str) -> list[MessageWidget]:
+        """Search for text in all messages.
+
+        Finds all messages containing the query (case-insensitive)
+        and applies highlighting.
+
+        Args:
+            query: Search query string.
+
+        Returns:
+            List of MessageWidgets that contain matches.
+        """
+        self._search_matches = []
+
+        if not query:
+            self.clear_search()
+            return []
+
+        # Find all matching messages
+        for widget in self.query(MessageWidget):
+            if widget.contains_query(query):
+                widget.set_highlight(query, is_current=False)
+                self._search_matches.append(widget)
+            else:
+                widget.clear_highlight()
+
+        # Highlight first match as current
+        if self._search_matches:
+            self._current_match_index = 0
+            self._search_matches[0].set_highlight(query, is_current=True)
+
+        return self._search_matches
+
+    def clear_search(self) -> None:
+        """Clear all search highlighting."""
+        for widget in self.query(MessageWidget):
+            widget.clear_highlight()
+        self._search_matches = []
+        self._current_match_index = 0
+
+    def highlight_match(self, index: int) -> MessageWidget | None:
+        """Highlight a specific match and scroll to it.
+
+        Args:
+            index: Index of the match to highlight (0-based).
+
+        Returns:
+            The highlighted MessageWidget, or None if invalid index.
+        """
+        if not self._search_matches or index < 0 or index >= len(self._search_matches):
+            return None
+
+        # Get query from current matches
+        query = self._search_matches[0].highlight_query if self._search_matches else ""
+
+        # Update highlighting
+        for i, widget in enumerate(self._search_matches):
+            widget.set_highlight(query, is_current=(i == index))
+
+        self._current_match_index = index
+        target = self._search_matches[index]
+
+        # Scroll to the matched widget
+        self.scroll_to_widget(target, animate=False)
+
+        return target
+
+    def next_match(self) -> MessageWidget | None:
+        """Go to next search match.
+
+        Returns:
+            The next matched MessageWidget, or None if no matches.
+        """
+        if not self._search_matches:
+            return None
+        next_index = (self._current_match_index + 1) % len(self._search_matches)
+        return self.highlight_match(next_index)
+
+    def prev_match(self) -> MessageWidget | None:
+        """Go to previous search match.
+
+        Returns:
+            The previous matched MessageWidget, or None if no matches.
+        """
+        if not self._search_matches:
+            return None
+        prev_index = (self._current_match_index - 1) % len(self._search_matches)
+        return self.highlight_match(prev_index)
+
+    @property
+    def match_count(self) -> int:
+        """Get the number of search matches."""
+        return len(self._search_matches)
+
+    @property
+    def current_match_index(self) -> int:
+        """Get the current match index (0-based)."""
+        return self._current_match_index
 
 
 class StatusBar(Static):
