@@ -733,16 +733,20 @@ class ChatApp(App[None]):
             self.current_worker = None
 
     def action_search(self) -> None:
-        """Toggle the search bar (Ctrl+F).
+        """Search: open search bar or advance to next match (Ctrl+F).
 
-        Opens or closes the inline search bar for finding text
-        in the conversation history.
+        - First Ctrl+F: Opens the search bar
+        - Subsequent Ctrl+F: Advances to the next match
+        - Esc: Closes the search bar
         """
         search_bar = self.query_one("#search-bar", SearchBar)
         if search_bar.is_visible:
-            search_bar.hide()
-            self._close_search()
+            # Search already open → advance to next match
+            chat_log = self.query_one("#chat-log", ChatLog)
+            chat_log.next_match()
+            search_bar.set_matches(chat_log.match_count, chat_log.current_match_index)
         else:
+            # Search not open → open it
             search_bar.show()
 
     def on_search_bar_query_changed(self, event: SearchBar.QueryChanged) -> None:

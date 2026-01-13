@@ -17,16 +17,15 @@ from textual.widgets import Input, Static
 class SearchBar(Horizontal):
     """Inline search bar with input field and match counter.
 
-    The search bar appears below the status bar when activated with Ctrl+F.
+    The search bar appears below the header when activated with Ctrl+F.
     It provides case-insensitive search through the chat log.
 
     Bindings:
         Escape: Close the search bar
-        Enter: Jump to next match
-        Shift+Enter: Jump to previous match (handled by parent)
+        Ctrl+F: Next match (handled by app.py)
 
     Attributes:
-        query: The current search query (reactive)
+        search_query: The current search query (reactive)
         match_index: Current match index (0-based)
         total_matches: Total number of matches found
 
@@ -34,14 +33,13 @@ class SearchBar(Horizontal):
         SearchBar.Closed: Posted when search bar is closed
         SearchBar.QueryChanged: Posted when search query changes
         SearchBar.NextMatch: Posted when user requests next match
-        SearchBar.PrevMatch: Posted when user requests previous match
     """
 
     # CSS is in app.tcss - we don't use DEFAULT_CSS to avoid duplication
+    # Ctrl+F (in app.py) handles "next match"; Escape closes search
 
     BINDINGS = [
         Binding("escape", "close", "Close", show=False, priority=True),
-        Binding("enter", "next_match", "Next", show=False, priority=True),
     ]
 
     # Reactive properties
@@ -73,7 +71,7 @@ class SearchBar(Horizontal):
 
     def compose(self) -> ComposeResult:
         """Create child widgets."""
-        yield Input(placeholder="Search... (Enter=next, Esc=close)", id="search-input")
+        yield Input(placeholder="Search... (^F=next, Esc=close)", id="search-input")
         yield Static("0/0", id="match-counter")
 
     def on_mount(self) -> None:

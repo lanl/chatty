@@ -80,21 +80,36 @@ class TestSearchBarWidget:
             await pilot.pause()
             assert not search_bar.is_visible
 
-    async def test_search_bar_toggle(self, mock_config_with_sources: ConfigWithSources) -> None:
-        """Ctrl+F toggles search bar visibility."""
+    async def test_ctrl_f_advances_when_open(
+        self, mock_config_with_sources: ConfigWithSources
+    ) -> None:
+        """Ctrl+F advances to next match when search is already open."""
         app = ChatApp(config_with_sources=mock_config_with_sources)
         async with app.run_test() as pilot:
             search_bar = app.query_one("#search-bar", SearchBar)
+            chat_log = app.query_one("#chat-log", ChatLog)
 
-            # Toggle on
+            # Add messages with matches
+            chat_log.add_message("user", "Hello 1")
+            chat_log.add_message("user", "Hello 2")
+            await pilot.pause()
+
+            # Open search
             app.action_search()
             await pilot.pause()
             assert search_bar.is_visible
 
-            # Toggle off
+            # Search for something
+            matches = chat_log.search("hello")
+            search_bar.set_matches(len(matches), 0)
+            await pilot.pause()
+            assert chat_log.current_match_index == 0
+
+            # Second Ctrl+F should advance to next match, not close
             app.action_search()
             await pilot.pause()
-            assert not search_bar.is_visible
+            assert search_bar.is_visible  # Still visible
+            assert chat_log.current_match_index == 1  # Advanced to next
 
     async def test_match_counter_initial(self, mock_config_with_sources: ConfigWithSources) -> None:
         """Match counter shows 0/0 initially."""
