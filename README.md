@@ -97,7 +97,8 @@ chatty print-config
 |-----|--------|
 | `Ctrl+P` | Submit query |
 | `Ctrl+O` | Load file |
-| `Esc` | Interrupt generation |
+| `Esc` | Interrupt / Close search |
+| `Ctrl+F` | Find (search in chat) |
 | `Ctrl+C` | Copy last response |
 | `Ctrl+S` | Save session |
 | `Ctrl+L` | Load session |
@@ -111,10 +112,13 @@ chatty print-config
 - `Ctrl+T` — Toggle streaming mode
 - `Ctrl+G` — Switch model
 
+**Search mode:** `Ctrl+F` opens search. Press again to jump to next match. `Esc` to close.
+
 ## Features
 
 - **Markdown rendering** with syntax-highlighted code blocks
 - **Context tracking** — status bar shows token usage (e.g., "12K / 128K")
+- **Search in chat** — `Ctrl+F` to find text in conversation history with word highlighting
 - **File loading** — load long queries from files (`Ctrl+O` or `--query-file`)
 - **Streaming** — real-time token display with cancellation support
 - **Copy to clipboard** — `Ctrl+C` copies last response (file fallback for HPC)

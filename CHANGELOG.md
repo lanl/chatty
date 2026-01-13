@@ -9,19 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-**Search Conversation**
+**Search Conversation (`Ctrl+F`)**
 - `Ctrl+F` opens inline search bar
+- `Ctrl+F` again advances to next match (while search is open)
 - Case-insensitive search through chat history
+- Word-level highlighting for matching terms
 - Match counter ("3/12 matches")
-- Enter to navigate to next match
-- Escape closes search and clears highlights
+- `Esc` closes search and clears highlights
 - Auto-scroll to matched message
+- During search: assistant messages temporarily render as plain text (enables word highlighting)
 - `ui/search.py` — new SearchBar widget with input and match counter
 
 **MessageWidget Highlights**
 - `contains_query()` method for searching
 - `set_highlight()` / `clear_highlight()` for search highlighting
 - `.search-match` and `.current-match` CSS classes
+- `_apply_highlight()` adds `[reverse]` markup for word-level highlighting
 
 **ChatLog Search**
 - `search()` method finds matching messages
@@ -31,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Test count: 261 → 281 (+20)
+- `^F Find` now visible in footer
 
 ---
 
