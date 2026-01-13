@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-01-13
+
+### Added
+
+**Search Conversation**
+- `Ctrl+F` opens inline search bar
+- Case-insensitive search through chat history
+- Match counter ("3/12 matches")
+- Enter to navigate to next match
+- Escape closes search and clears highlights
+- Auto-scroll to matched message
+- `ui/search.py` — new SearchBar widget with input and match counter
+
+**MessageWidget Highlights**
+- `contains_query()` method for searching
+- `set_highlight()` / `clear_highlight()` for search highlighting
+- `.search-match` and `.current-match` CSS classes
+
+**ChatLog Search**
+- `search()` method finds matching messages
+- `next_match()` / `prev_match()` for navigation
+- `clear_search()` to remove highlights
+
+### Changed
+
+- Test count: 261 → 281 (+20)
+
+---
+
 ## [0.2.3] - 2026-01-12
 
 ### Added
