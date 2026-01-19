@@ -157,6 +157,8 @@ class ChatApp(App[None]):
         Binding("ctrl+o", "load_file", "Load File"),
         Binding("escape", "cancel", "Interrupt"),
         Binding("ctrl+f", "search", "Find", show=False, priority=True),
+        Binding("ctrl+h", "help", "Help"),
+        Binding("f1", "help", "Help", show=False),
         # Power user shortcuts (hidden from footer)
         Binding("ctrl+r", "regenerate", "Regenerate", show=False),
         Binding("ctrl+g", "pick_model", "Models", show=False),
@@ -1025,6 +1027,26 @@ class ChatApp(App[None]):
             chat_log.add_message("system", f"Exported to: {filepath}")
         except Exception as e:
             chat_log.add_message("error", f"Failed to export: {e}")
+
+    def action_help(self) -> None:
+        """Show help modal (Ctrl+H or F1).
+
+        Opens a modal dialog displaying keyboard shortcuts, current
+        configuration, quick tips, and version information.
+        """
+        from chatty.ui.help import HelpModal
+
+        modal = HelpModal()
+        context_window = None
+        if self.conversation:
+            context_window = self.conversation.context_window
+        modal.set_config(
+            model=self._current_model,
+            streaming=self.streaming,
+            context_window=context_window,
+            transcript_enabled=self.config.transcript_enabled,
+        )
+        self.push_screen(modal)
 
     async def on_unmount(self) -> None:
         """Clean up when app is closing."""
