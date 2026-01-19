@@ -56,9 +56,7 @@ class TestHelpModal:
         """Escape key closes the modal."""
         app = HelpTestApp()
         async with app.run_test() as pilot:
-            app.push_screen(
-                HelpModal(), callback=lambda _: setattr(app, "modal_dismissed", True)
-            )
+            app.push_screen(HelpModal(), callback=lambda _: setattr(app, "modal_dismissed", True))
             await pilot.pause()
 
             # Modal should be open
