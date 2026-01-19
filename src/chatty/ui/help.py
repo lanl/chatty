@@ -12,6 +12,8 @@ from textual.containers import VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Label, Static
 
+from chatty import __version__
+
 # Keyboard shortcuts - visible in footer
 VISIBLE_SHORTCUTS: list[tuple[str, str]] = [
     ("^P", "Submit query"),
@@ -179,10 +181,10 @@ class HelpModal(ModalScreen[None]):
         for tip in QUICK_TIPS:
             lines.append(f"  • {tip}")
 
-        # Version section placeholder
+        # Version section
         lines.append("")
         lines.append("[dim]───────────────────────────────────────────────────[/dim]")
-        lines.append("(Version info will be added in Task 5)")
+        lines.append(f"chatty v{__version__}        [dim]Run 'chatty doctor' for diagnostics[/dim]")
 
         return "\n".join(lines)
 
