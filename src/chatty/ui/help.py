@@ -12,6 +12,28 @@ from textual.containers import VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Label, Static
 
+# Keyboard shortcuts - visible in footer
+VISIBLE_SHORTCUTS: list[tuple[str, str]] = [
+    ("^P", "Submit query"),
+    ("^O", "Load query from file"),
+    ("Esc", "Stop generation / Close search"),
+    ("^F", "Search in conversation"),
+    ("^C", "Copy last response"),
+    ("^S", "Save session"),
+    ("^L", "Load saved session"),
+    ("^N", "New session (clear history)"),
+    ("^H", "Show this help"),
+    ("^Q", "Quit chatty"),
+]
+
+# Power user shortcuts - hidden from footer
+POWER_SHORTCUTS: list[tuple[str, str]] = [
+    ("^E", "Export to Markdown"),
+    ("^R", "Regenerate last response"),
+    ("^T", "Toggle streaming mode"),
+    ("^G", "Switch model"),
+]
+
 
 class HelpModal(ModalScreen[None]):
     """Modal screen displaying help information.
@@ -117,23 +139,35 @@ class HelpModal(ModalScreen[None]):
         Returns:
             Formatted help text with Rich markup.
         """
-        # Placeholder content - will be expanded in subsequent tasks
-        lines = [
-            "[dim]── Keyboard Shortcuts ─────────────────────────────[/dim]",
-            "",
-            "(Shortcuts will be added in Task 2)",
-            "",
-            "[dim]── Current Configuration ─────────────────────────[/dim]",
-            "",
-            "(Config display will be added in Task 3)",
-            "",
-            "[dim]── Quick Tips ────────────────────────────────────[/dim]",
-            "",
-            "(Tips will be added in Task 4)",
-            "",
-            "[dim]───────────────────────────────────────────────────[/dim]",
-            "(Version info will be added in Task 5)",
-        ]
+        lines: list[str] = []
+
+        # Keyboard shortcuts section
+        lines.append("[dim]── Keyboard Shortcuts ─────────────────────────────[/dim]")
+        lines.append("")
+        for key, desc in VISIBLE_SHORTCUTS:
+            lines.append(f"  [bold]{key:<5}[/bold] {desc}")
+        lines.append("")
+        lines.append("[dim]Power user shortcuts (hidden from footer):[/dim]")
+        for key, desc in POWER_SHORTCUTS:
+            lines.append(f"  [bold]{key:<5}[/bold] {desc}")
+
+        # Config section placeholder
+        lines.append("")
+        lines.append("[dim]── Current Configuration ─────────────────────────[/dim]")
+        lines.append("")
+        lines.append("(Config display will be added in Task 3)")
+
+        # Tips section placeholder
+        lines.append("")
+        lines.append("[dim]── Quick Tips ────────────────────────────────────[/dim]")
+        lines.append("")
+        lines.append("(Tips will be added in Task 4)")
+
+        # Version section placeholder
+        lines.append("")
+        lines.append("[dim]───────────────────────────────────────────────────[/dim]")
+        lines.append("(Version info will be added in Task 5)")
+
         return "\n".join(lines)
 
     def action_close(self) -> None:
