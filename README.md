@@ -105,7 +105,7 @@ chatty print-config
 | `Ctrl+N` | New session |
 | `Ctrl+Q` | Quit |
 | `Enter` | Insert newline |
-| `Ctrl+H` / `F1` | Help |
+| `F1` | Help |
 
 **Power user shortcuts** (hidden from footer):
 - `Ctrl+E` — Export Markdown
@@ -115,7 +115,7 @@ chatty print-config
 
 **Search mode:** `Ctrl+F` opens search. Press again to jump to next match. `Esc` to close.
 
-**Help:** Press `Ctrl+H` or `F1` to open the in-app help showing all shortcuts, current config, and tips.
+**Help:** Press `F1` to open the in-app help showing all shortcuts, current config, and tips.
 
 ## Features
 

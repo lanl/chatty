@@ -24,7 +24,7 @@ VISIBLE_SHORTCUTS: list[tuple[str, str]] = [
     ("^S", "Save session"),
     ("^L", "Load saved session"),
     ("^N", "New session (clear history)"),
-    ("^H", "Show this help"),
+    ("F1", "Show this help"),
     ("^Q", "Quit chatty"),
 ]
 

@@ -10,18 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 **Help Widget**
-- `Ctrl+H` or `F1` opens in-app help modal
+- `F1` opens in-app help modal
 - Displays all keyboard shortcuts with descriptions
 - Shows current configuration (model, streaming, context window, transcript)
 - Quick tips section for common workflows
 - Version information with diagnostic hint
 - `ui/help.py` — new HelpModal component (210 lines)
-- `^H Help` added to footer (visible before Quit)
+- `F1 Help` added to footer (visible before Quit)
 - 21 new tests in `tests/test_help.py`
 
 ### Changed
 
-- Footer now includes `^H Help` binding before `^Q Quit`
+- Footer now includes `F1 Help` binding before `^Q Quit`
 - Updated `__version__` in `src/chatty/__init__.py` to "0.2.6"
 
 ---

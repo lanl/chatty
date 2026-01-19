@@ -264,6 +264,6 @@ class TestShortcutsConstants:
             assert len(desc) > 0
 
     def test_help_shortcut_in_visible(self) -> None:
-        """^H Help is in VISIBLE_SHORTCUTS."""
+        """F1 Help is in VISIBLE_SHORTCUTS."""
         keys = [k for k, _ in VISIBLE_SHORTCUTS]
-        assert "^H" in keys
+        assert "F1" in keys

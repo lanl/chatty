@@ -83,7 +83,7 @@ class TestChattyFooter:
                 ("^S", "Save", "save"),
                 ("^L", "Load", "browse_sessions"),
                 ("^N", "New", "new_session"),
-                ("^H", "Help", "help"),
+                ("F1", "Help", "help"),
                 ("^Q", "Quit", "quit"),
             ]
             assert expected_order == footer.VISIBLE_BINDINGS
