@@ -34,6 +34,15 @@ POWER_SHORTCUTS: list[tuple[str, str]] = [
     ("^G", "Switch model"),
 ]
 
+# Quick tips for common workflows
+QUICK_TIPS: list[str] = [
+    "Press Esc to cancel generation mid-stream",
+    "Use ^O to load long queries from files",
+    "Sessions auto-name from first message",
+    "Use ^F to search in long conversations",
+    "^R regenerates if response was unsatisfactory",
+]
+
 
 class HelpModal(ModalScreen[None]):
     """Modal screen displaying help information.
@@ -163,11 +172,12 @@ class HelpModal(ModalScreen[None]):
             f"  [dim]Transcript:[/dim] {'Enabled' if self._transcript_enabled else 'Disabled'}"
         )
 
-        # Tips section placeholder
+        # Tips section
         lines.append("")
         lines.append("[dim]── Quick Tips ────────────────────────────────────[/dim]")
         lines.append("")
-        lines.append("(Tips will be added in Task 4)")
+        for tip in QUICK_TIPS:
+            lines.append(f"  • {tip}")
 
         # Version section placeholder
         lines.append("")
