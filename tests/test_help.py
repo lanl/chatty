@@ -192,7 +192,7 @@ class TestHelpModal:
         content = modal._build_help_text()
 
         # Check at least one tip is present
-        assert "Press Esc to cancel generation" in content
+        assert "Press Esc to cancel generation or close dialogs" in content
 
     def test_build_help_text_contains_version(self) -> None:
         """_build_help_text includes version information."""

@@ -38,9 +38,9 @@ POWER_SHORTCUTS: list[tuple[str, str]] = [
 
 # Quick tips for common workflows
 QUICK_TIPS: list[str] = [
-    "Press Esc to cancel generation mid-stream",
+    "Press Esc to cancel generation or close dialogs",
     "Use ^O to load long queries from files",
-    "Sessions auto-name from first message",
+    "Session names come from first user message (first line)",
     "Use ^F to search in long conversations",
     "^R regenerates if response was unsatisfactory",
 ]

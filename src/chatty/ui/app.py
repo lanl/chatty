@@ -157,7 +157,7 @@ class ChatApp(App[None]):
         Binding("ctrl+o", "load_file", "Load File"),
         Binding("escape", "cancel", "Interrupt"),
         Binding("ctrl+f", "search", "Find", show=False, priority=True),
-        Binding("ctrl+h", "help", "Help"),
+        Binding("ctrl+h", "help", "Help", priority=True),
         Binding("f1", "help", "Help", show=False),
         # Power user shortcuts (hidden from footer)
         Binding("ctrl+r", "regenerate", "Regenerate", show=False),
