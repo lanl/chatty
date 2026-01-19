@@ -151,11 +151,17 @@ class HelpModal(ModalScreen[None]):
         for key, desc in POWER_SHORTCUTS:
             lines.append(f"  [bold]{key:<5}[/bold] {desc}")
 
-        # Config section placeholder
+        # Config section
         lines.append("")
         lines.append("[dim]── Current Configuration ─────────────────────────[/dim]")
         lines.append("")
-        lines.append("(Config display will be added in Task 3)")
+        lines.append(f"  [dim]Model:[/dim]      {self._model or 'not set'}")
+        lines.append(f"  [dim]Streaming:[/dim]  {'On' if self._streaming else 'Off'}")
+        context_str = self._format_context_window()
+        lines.append(f"  [dim]Context:[/dim]    {context_str}")
+        lines.append(
+            f"  [dim]Transcript:[/dim] {'Enabled' if self._transcript_enabled else 'Disabled'}"
+        )
 
         # Tips section placeholder
         lines.append("")
@@ -169,6 +175,18 @@ class HelpModal(ModalScreen[None]):
         lines.append("(Version info will be added in Task 5)")
 
         return "\n".join(lines)
+
+    def _format_context_window(self) -> str:
+        """Format context window value for display.
+
+        Returns:
+            Human-readable context window string (e.g., "128K tokens").
+        """
+        if self._context_window is None:
+            return "unknown"
+        if self._context_window >= 1000:
+            return f"{self._context_window // 1000}K tokens"
+        return f"{self._context_window} tokens"
 
     def action_close(self) -> None:
         """Handle Escape key - close the modal."""
