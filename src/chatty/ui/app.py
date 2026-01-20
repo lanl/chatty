@@ -72,9 +72,8 @@ Key Design Decisions
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -82,7 +81,7 @@ from textual.containers import Container
 from textual.widgets import Header
 from textual.worker import Worker
 
-from chatty.client.openai_client import ChattyClientError, OpenAIClient
+from chatty.client.openai_client import OpenAIClient
 from chatty.config import ConfigWithSources, find_config_path, load_config
 from chatty.core.conversation import Conversation
 from chatty.core.session import (
@@ -96,8 +95,6 @@ from chatty.ui.clipboard import copy_to_clipboard
 from chatty.ui.footer import ChattyFooter
 from chatty.ui.modals import (
     FileInputModal,
-    ModelInputModal,
-    ModelPickerModal,
     SessionBrowserModal,
     SessionRenameModal,
 )
@@ -111,6 +108,11 @@ from chatty.ui.session_handlers import (
     save_current_session,
 )
 from chatty.ui.widgets import ChatInput, ChatLog, StatusBar
+from chatty.ui.workers import (
+    fetch_and_show_models,
+    fetch_context_window,
+    send_message,
+)
 
 if TYPE_CHECKING:
     from chatty.rag import RAGMetadata
@@ -291,50 +293,8 @@ class ChatApp(App[None]):
             )
 
     async def _fetch_context_window(self) -> None:
-        """Fetch context window from /models endpoint.
-
-        Called when context_window = "auto". Fetches model metadata
-        and extracts context_length. Shows error if not available.
-        """
-        if not self.client or not self.conversation:
-            return
-
-        chat_log = self.query_one("#chat-log", ChatLog)
-
-        try:
-            context_length = await self.client.get_model_context_length(self.config.model)
-            if context_length is not None:
-                self.conversation.set_context_window(context_length)
-                # Update status bar to reflect actual context window
-                self.query_one("#status-bar", StatusBar).update_status(
-                    tokens=self.conversation.get_token_display()
-                )
-            else:
-                # Endpoint didn't provide context_length
-                chat_log.add_message(
-                    "error",
-                    f"⚠ context_window = 'auto' but /models endpoint did not "
-                    f"return context_length for model '{self.config.model}'.\n\n"
-                    "To fix, set context_window explicitly in chatty.toml:\n"
-                    "  context_window = 128000  # or your model's limit\n\n"
-                    "Using fallback value: 128,000 tokens",
-                )
-        except ChattyClientError as e:
-            # Endpoint not accessible
-            chat_log.add_message(
-                "error",
-                f"⚠ context_window = 'auto' but failed to fetch from endpoint:\n"
-                f"  {e}\n\n"
-                "To fix, set context_window explicitly in chatty.toml:\n"
-                "  context_window = 128000  # or your model's limit\n\n"
-                "Using fallback value: 128,000 tokens",
-            )
-        except Exception as e:
-            chat_log.add_message(
-                "error",
-                f"⚠ Failed to determine context window: {e}\n\n"
-                "Using fallback value: 128,000 tokens",
-            )
+        """Fetch context window from /models endpoint."""
+        await fetch_context_window(self)
 
     def _check_startup_config(self, chat_log: ChatLog) -> None:
         """Check configuration at startup and show warnings for issues.
@@ -422,113 +382,9 @@ class ChatApp(App[None]):
             name="send_message",
         )
 
-    async def _send_message(self) -> None:  # noqa: C901
-        """Worker function for async LLM call.
-
-        Handles the complete workflow:
-        1. Update status to "Thinking..."
-        2. Call RAGProvider.augment() to get messages (with potential context)
-        3. Call client.chat() with streaming or non-streaming
-        4. Stream tokens to chat log (if streaming)
-        5. Update conversation with user message and assistant response
-        6. Update status bar with token count
-        7. Handle errors gracefully
-
-        Note: This method is marked noqa: C901 due to inherent complexity
-        of handling both streaming and non-streaming modes with error handling.
-        """
-        if not self.client or not self.conversation:
-            return
-
-        user_text = self._pending_user_text
-        if not user_text:
-            return
-
-        chat_log = self.query_one("#chat-log", ChatLog)
-        status_bar = self.query_one("#status-bar", StatusBar)
-
-        status_bar.update_status(status="Thinking...")
-
-        try:
-            # Use RAG provider to augment messages with context
-            # NullProvider passes through unchanged; LitkitProvider adds context
-            messages, rag_metadata = await self.rag_provider.augment(self.conversation, user_text)
-            self.last_rag_metadata = rag_metadata
-
-            if self.streaming:
-                # Streaming mode
-                status_bar.update_status(status="Streaming...")
-
-                # Add empty assistant message for streaming (marked as streaming)
-                msg_widget = chat_log.add_message("assistant", "")
-                msg_widget.is_streaming = True
-                response_content = ""
-
-                result = await self.client.chat(messages, stream=True)
-                stream = cast(AsyncIterator[str], result)
-
-                async for token in stream:
-                    chat_log.append_to_last(token)
-                    response_content += token
-
-                # Finish streaming - re-render with markdown
-                msg_widget.finish_streaming()
-
-                # Update conversation with user message and assistant response
-                # User message is added here (after success) to keep conversation
-                # in sync with what was actually sent to the API
-                self.conversation.add_user_message(user_text)
-                self.conversation.add_assistant_message(response_content)
-
-                # Log to transcript with response time
-                response_time = status_bar.last_response_time
-                self.transcript.log_message(
-                    "assistant",
-                    response_content,
-                    model=self.config.model,
-                    response_time_s=response_time,
-                    tokens=self.conversation.server_reported_tokens,
-                )
-
-            else:
-                # Non-streaming mode - message renders with markdown immediately
-                from chatty.client.openai_client import AssistantMessage
-
-                result = await self.client.chat(messages, stream=False)
-                response = cast(AssistantMessage, result)
-
-                chat_log.add_message("assistant", response.content)
-
-                # Update conversation with user message and assistant response
-                self.conversation.add_user_message(user_text)
-                self.conversation.add_assistant_message(response.content, response.usage)
-
-                # Log to transcript
-                self.transcript.log_message(
-                    "assistant",
-                    response.content,
-                    model=self.config.model,
-                    tokens=response.usage.get("total_tokens") if response.usage else None,
-                )
-
-            # Update status with token count
-            status_bar.update_status(
-                status="Ready",
-                tokens=self.conversation.get_token_display(),
-            )
-
-        except ChattyClientError as e:
-            chat_log.add_message("error", str(e))
-            status_bar.update_status(status="Error")
-            self.transcript.log_message("error", str(e))
-
-        except Exception as e:
-            chat_log.add_message("error", f"Unexpected error: {e}")
-            status_bar.update_status(status="Error")
-            self.transcript.log_message("error", f"Unexpected error: {e}")
-
-        finally:
-            self.current_worker = None
+    async def _send_message(self) -> None:
+        """Worker function for async LLM call."""
+        await send_message(self)
 
     def action_toggle_stream(self) -> None:
         """Toggle streaming mode on/off (Ctrl+T).
@@ -798,35 +654,7 @@ class ChatApp(App[None]):
 
     async def _fetch_and_show_models(self) -> None:
         """Fetch models from endpoint and show picker modal."""
-        if not self.client:
-            return
-
-        chat_log = self.query_one("#chat-log", ChatLog)
-
-        try:
-            models = await self.client.models()
-            if models:
-                # Show picker with available models
-                # Note: We're in an async worker on the main thread's event loop,
-                # so we can call UI methods directly (no call_from_thread needed)
-                self.push_screen(
-                    ModelPickerModal(models, self._current_model),
-                    self._handle_model_selection,
-                )
-            else:
-                # Empty list - show manual input
-                self.push_screen(
-                    ModelInputModal(self._current_model, "No models returned"),
-                    self._handle_model_selection,
-                )
-        except ChattyClientError as e:
-            # /models not supported - show manual input
-            self.push_screen(
-                ModelInputModal(self._current_model, str(e)[:50]),
-                self._handle_model_selection,
-            )
-        except Exception as e:
-            chat_log.add_message("error", f"Failed to fetch models: {e}")
+        await fetch_and_show_models(self)
 
     def _handle_model_selection(self, model: str | None) -> None:
         """Handle the model selected from picker or input.

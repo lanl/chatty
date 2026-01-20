@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from chatty.ui.app import ChatApp
 
 
-def load_session_file(app: "ChatApp") -> None:
+def load_session_file(app: ChatApp) -> None:
     """Load a saved session from file.
 
     Called during app startup when session_file is provided.
@@ -76,7 +76,7 @@ def load_session_file(app: "ChatApp") -> None:
         chat_log.add_message("error", f"Failed to load session: {e}")
 
 
-def load_and_submit_query_file(app: "ChatApp") -> None:
+def load_and_submit_query_file(app: ChatApp) -> None:
     """Load query from file and submit it.
 
     Called during app startup when query_file is provided.
@@ -102,7 +102,7 @@ def load_and_submit_query_file(app: "ChatApp") -> None:
         chat_log.add_message("error", f"Failed to load query file: {e}")
 
 
-def handle_session_load(app: "ChatApp", filepath: Path | None) -> None:
+def handle_session_load(app: ChatApp, filepath: Path | None) -> None:
     """Handle the session file selected from browser.
 
     Args:
@@ -159,7 +159,7 @@ def handle_session_load(app: "ChatApp", filepath: Path | None) -> None:
         chat_log.add_message("error", f"Failed to load session: {e}")
 
 
-def handle_first_save(app: "ChatApp", name: str | None) -> None:
+def handle_first_save(app: ChatApp, name: str | None) -> None:
     """Handle the name returned from first-save modal.
 
     Args:
@@ -184,7 +184,7 @@ def handle_first_save(app: "ChatApp", name: str | None) -> None:
     save_current_session(app)
 
 
-def save_current_session(app: "ChatApp") -> None:
+def save_current_session(app: ChatApp) -> None:
     """Save the current session to disk.
 
     Args:
@@ -198,9 +198,7 @@ def save_current_session(app: "ChatApp") -> None:
     chat_log = app.query_one("#chat-log", ChatLog)
 
     # Update session with current conversation state
-    app._current_session.metadata.message_count = len(
-        app.conversation.messages
-    )
+    app._current_session.metadata.message_count = len(app.conversation.messages)
     app._current_session.messages = list(app.conversation.messages)
 
     # Save to file
@@ -209,14 +207,13 @@ def save_current_session(app: "ChatApp") -> None:
         filepath = save_session(app._current_session, session_dir)
         chat_log.add_message(
             "system",
-            f"Session saved: {app._current_session.metadata.name}\n"
-            f"File: {filepath}",
+            f"Session saved: {app._current_session.metadata.name}\n" f"File: {filepath}",
         )
     except Exception as e:
         chat_log.add_message("error", f"Failed to save session: {e}")
 
 
-def handle_file_path(app: "ChatApp", path: str | None) -> None:
+def handle_file_path(app: ChatApp, path: str | None) -> None:
     """Handle the file path returned from the modal.
 
     Args:

@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.13] - 2026-01-19
+
+### Changed
+
+**Workers Extraction**
+- Extracted async worker logic to `ui/workers.py` (236 lines)
+- `app.py` reduced from 932 to 760 lines (-172 lines)
+
+### Extracted Functions
+
+| Function | Description |
+|----------|-------------|
+| `fetch_context_window()` | Fetch context window from /models endpoint |
+| `fetch_and_show_models()` | Fetch models and show picker modal |
+| `send_message()` | Main LLM call with streaming support |
+
+### Developer Notes
+
+- Completes the original v0.2.11 extraction goals
+- Uses `TYPE_CHECKING` guards to avoid circular imports
+- Functions receive `ChatApp` instance to access state
+- Coverage maintained at 80%
+- All 351 tests pass
+
+---
+
 ## [0.2.12] - 2026-01-19
 
 ### Changed
