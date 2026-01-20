@@ -877,9 +877,8 @@ class ChatApp(App[None]):
             # Store summary for later use
             self._pending_summary = summary
 
-            # Show preview modal (must be called from main thread)
-            self.call_from_thread(
-                self.push_screen,
+            # Show preview modal (async workers run on main thread, so call directly)
+            self.push_screen(
                 CompressionPreviewModal(
                     summary=summary,
                     original_tokens=original_tokens,
@@ -890,16 +889,9 @@ class ChatApp(App[None]):
             )
 
         except Exception as e:
-            self.call_from_thread(
-                self.notify,
-                f"Compression failed: {e}",
-                severity="error",
-            )
+            self.notify(f"Compression failed: {e}", severity="error")
         finally:
-            self.call_from_thread(
-                status_bar.update_status,
-                status="Ready",
-            )
+            status_bar.update_status(status="Ready")
 
     def _handle_compression_choice(self, apply: bool | None) -> None:
         """Handle compression preview modal result.
