@@ -148,6 +148,9 @@ def handle_session_load(app: ChatApp, filepath: Path | None) -> None:
             f"Messages: {session.metadata.message_count}",
         )
 
+        # Clear dirty flag - loaded session is "saved"
+        app._session_dirty = False
+
         # Update status bar with token count
         if app.conversation:
             app.query_one("#status-bar", StatusBar).update_status(
@@ -205,6 +208,7 @@ def save_current_session(app: ChatApp) -> None:
     try:
         session_dir = app.config.get_session_path()
         filepath = save_session(app._current_session, session_dir)
+        app._session_dirty = False  # Clear dirty flag after successful save
         chat_log.add_message(
             "system",
             f"Session saved: {app._current_session.metadata.name}\n" f"File: {filepath}",

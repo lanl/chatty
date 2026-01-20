@@ -18,6 +18,7 @@ from chatty.ui.modals import (
     SessionBrowserModal,
     SessionDeleteConfirmModal,
     SessionRenameModal,
+    UnsavedChangesModal,
 )
 
 # ============================================================================
@@ -878,3 +879,108 @@ class TestModelPickerModalActions:
             # Verify current model is tracked
             assert modal._current_model == "gpt-4"
             assert modal._models == models
+
+
+# ============================================================================
+# UnsavedChangesModal Tests (v0.2.15)
+# ============================================================================
+
+
+class UnsavedChangesTestApp(App[None]):
+    """App for testing UnsavedChangesModal."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.result: str | None | object = "not_called"
+
+    def compose(self) -> ComposeResult:
+        yield Label("Test App")
+
+
+class TestUnsavedChangesModal:
+    """Tests for UnsavedChangesModal."""
+
+    async def test_modal_renders(self) -> None:
+        """UnsavedChangesModal renders correctly."""
+        app = UnsavedChangesTestApp()
+        async with app.run_test() as pilot:
+            modal = UnsavedChangesModal()
+            app.push_screen(modal)
+            await pilot.pause()
+
+            # Should have the modal visible
+            assert len(app.screen_stack) == 2
+
+    async def test_cancel_button_returns_none(self) -> None:
+        """Cancel button returns None."""
+        app = UnsavedChangesTestApp()
+        async with app.run_test() as pilot:
+            app.push_screen(
+                UnsavedChangesModal(),
+                callback=lambda r: setattr(app, "result", r),
+            )
+            await pilot.pause()
+
+            await pilot.click("#cancel-btn")
+            await pilot.pause()
+
+            assert app.result is None
+
+    async def test_escape_returns_none(self) -> None:
+        """Escape key returns None."""
+        app = UnsavedChangesTestApp()
+        async with app.run_test() as pilot:
+            app.push_screen(
+                UnsavedChangesModal(),
+                callback=lambda r: setattr(app, "result", r),
+            )
+            await pilot.pause()
+
+            await pilot.press("escape")
+            await pilot.pause()
+
+            assert app.result is None
+
+    async def test_load_anyway_returns_load(self) -> None:
+        """Load Anyway button returns 'load'."""
+        app = UnsavedChangesTestApp()
+        async with app.run_test() as pilot:
+            app.push_screen(
+                UnsavedChangesModal(),
+                callback=lambda r: setattr(app, "result", r),
+            )
+            await pilot.pause()
+
+            await pilot.click("#load-btn")
+            await pilot.pause()
+
+            assert app.result == "load"
+
+    async def test_save_and_load_returns_save_and_load(self) -> None:
+        """Save & Load button returns 'save_and_load'."""
+        app = UnsavedChangesTestApp()
+        async with app.run_test() as pilot:
+            app.push_screen(
+                UnsavedChangesModal(),
+                callback=lambda r: setattr(app, "result", r),
+            )
+            await pilot.pause()
+
+            await pilot.click("#save-load-btn")
+            await pilot.pause()
+
+            assert app.result == "save_and_load"
+
+    async def test_cancel_focused_by_default(self) -> None:
+        """Cancel button is focused by default (safer UX)."""
+        app = UnsavedChangesTestApp()
+        async with app.run_test() as pilot:
+            modal = UnsavedChangesModal()
+            app.push_screen(modal)
+            await pilot.pause()
+
+            # Cancel button should have focus
+            from textual.widgets import Button
+
+            cancel_btn = modal.query_one("#cancel-btn", Button)
+            assert cancel_btn.has_focus

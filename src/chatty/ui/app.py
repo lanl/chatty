@@ -97,6 +97,7 @@ from chatty.ui.modals import (
     FileInputModal,
     SessionBrowserModal,
     SessionRenameModal,
+    UnsavedChangesModal,
 )
 from chatty.ui.search import SearchBar
 from chatty.ui.session_handlers import (
@@ -202,6 +203,7 @@ class ChatApp(App[None]):
         self._pending_user_text: str | None = None  # User message awaiting LLM response
         self._current_session: Session | None = None  # For save/load functionality
         self._current_model: str = self.config.model  # Runtime model (can be changed)
+        self._session_dirty: bool = False  # Track unsaved changes
 
     def compose(self) -> ComposeResult:
         """Create the UI layout.
@@ -439,10 +441,60 @@ class ChatApp(App[None]):
         """Browse and load saved sessions (Ctrl+L).
 
         Opens a modal dialog showing all saved sessions.
-        User can select a session to load.
+        User can select a session to load. If there are unsaved
+        changes, shows a warning dialog first.
         """
+        if self._session_dirty:
+            # Show warning first
+            self.push_screen(
+                UnsavedChangesModal(),
+                self._handle_unsaved_warning,
+            )
+        else:
+            # No unsaved changes, proceed directly
+            self._show_session_browser()
+
+    def _handle_unsaved_warning(self, choice: str | None) -> None:
+        """Handle user choice from unsaved changes modal.
+
+        Args:
+            choice: "save_and_load", "load", or None (cancelled).
+        """
+        if choice == "save_and_load":
+            # If no current session, prompt for name first
+            if not self._current_session:
+                self.push_screen(
+                    SessionRenameModal(
+                        generate_session_name(self.conversation.messages)
+                        if self.conversation
+                        else "Untitled"
+                    ),
+                    self._save_then_show_browser,
+                )
+            else:
+                save_current_session(self)
+                self._show_session_browser()
+        elif choice == "load":
+            self._show_session_browser()
+        # else: None = cancelled, do nothing
+
+    def _save_then_show_browser(self, name: str | None) -> None:
+        """Save with given name, then show browser.
+
+        Args:
+            name: Session name from rename modal, or None if cancelled.
+        """
+        if name:
+            handle_first_save(self, name)
+        self._show_session_browser()
+
+    def _show_session_browser(self) -> None:
+        """Open the session browser modal."""
         session_dir = self.config.get_session_path()
-        self.push_screen(SessionBrowserModal(session_dir), self._handle_session_load)
+        self.push_screen(
+            SessionBrowserModal(session_dir),
+            self._handle_session_load,
+        )
 
     def _handle_session_load(self, filepath: Path | None) -> None:
         """Handle the session file selected from browser.
@@ -519,6 +571,7 @@ class ChatApp(App[None]):
 
         # Reset session tracking
         self._current_session = None
+        self._session_dirty = False
 
         self.query_one("#status-bar", StatusBar).update_status(
             status="Ready",

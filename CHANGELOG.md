@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.15] - 2026-01-19
+
+### Added
+
+**Unsaved Session Warning**
+- `UnsavedChangesModal` warns when loading would discard unsaved changes
+- `_session_dirty` flag tracks whether current session has unsaved work
+- Three choices: "Save & Load", "Load Anyway", "Cancel"
+- Cancel button focused by default (safer UX)
+- Modal only shown when there are actual unsaved changes
+- 6 new tests for `UnsavedChangesModal`
+- 5 new tests for dirty flag tracking
+
+### Changed
+
+- `action_browse_sessions()` now checks dirty flag before showing browser
+- `action_new_session()` clears dirty flag when starting fresh
+- `save_current_session()` clears dirty flag after successful save
+- `handle_session_load()` clears dirty flag after loading session
+- `send_message()` sets dirty flag after successful LLM response
+
+### Developer Notes
+
+- 421 total tests (was 410)
+- Dirty flag state transitions documented in v0.2.15-plan.md
+- All acceptance criteria met
+
+---
+
 ## [0.2.14] - 2026-01-19
 
 ### Added

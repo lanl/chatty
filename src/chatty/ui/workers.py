@@ -205,6 +205,9 @@ async def send_message(app: ChatApp) -> None:  # noqa: C901
                 tokens=(response.usage.get("total_tokens") if response.usage else None),
             )
 
+        # Mark session as dirty (has unsaved changes)
+        app._session_dirty = True
+
         # Update status with token count
         status_bar.update_status(
             status="Ready",

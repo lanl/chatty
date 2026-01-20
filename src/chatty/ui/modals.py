@@ -677,6 +677,93 @@ class ModelPickerModal(ModalScreen[str | None]):
         self._select_model()
 
 
+class UnsavedChangesModal(ModalScreen[str | None]):
+    """Modal screen warning about unsaved changes.
+
+    Displayed when user tries to load a session while having
+    unsaved changes in the current conversation.
+
+    Returns:
+        "save_and_load": Save current session, then load new
+        "load": Load without saving (discard current)
+        None: Cancel operation
+
+    Usage:
+        app.push_screen(UnsavedChangesModal(), callback)
+        # callback receives "save_and_load", "load", or None
+
+    Bindings:
+        Escape: Cancel and dismiss
+    """
+
+    CSS = """
+    UnsavedChangesModal {
+        align: center middle;
+    }
+
+    #unsaved-dialog {
+        width: 50;
+        height: auto;
+        padding: 1 2;
+        background: $surface;
+        border: thick $warning;
+    }
+
+    #unsaved-title {
+        text-style: bold;
+    }
+
+    #unsaved-message {
+        margin-bottom: 1;
+    }
+
+    #unsaved-buttons {
+        width: 100%;
+        height: auto;
+        align: center middle;
+        margin-top: 1;
+    }
+
+    #unsaved-buttons Button {
+        margin-left: 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        """Create the dialog layout."""
+        with Vertical(id="unsaved-dialog"):
+            yield Label("Unsaved Changes", id="unsaved-title")
+            yield Label(
+                "You have unsaved changes that will be lost " "if you load a different session.",
+                id="unsaved-message",
+            )
+            with Container(id="unsaved-buttons"):
+                yield Button("Cancel", variant="default", id="cancel-btn")
+                yield Button("Load Anyway", variant="warning", id="load-btn")
+                yield Button("Save & Load", variant="primary", id="save-load-btn")
+
+    def on_mount(self) -> None:
+        """Focus the cancel button by default (safer UX)."""
+        self.query_one("#cancel-btn", Button).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button clicks."""
+        if event.button.id == "save-load-btn":
+            self.dismiss("save_and_load")
+        elif event.button.id == "load-btn":
+            self.dismiss("load")
+        else:
+            self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        """Handle Escape key."""
+        self.dismiss(None)
+
+
 class ModelInputModal(ModalScreen[str | None]):
     """Modal screen for manually entering a model name.
 

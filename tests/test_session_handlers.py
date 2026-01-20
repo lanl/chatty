@@ -436,10 +436,76 @@ class TestHandleFilePath:
         """Shows generic error for unexpected exceptions."""
         # Use mock_open to simulate a generic exception
         with patch("builtins.open", mock_open()) as m:
-            m.side_effect = IOError("Disk full")
+            m.side_effect = OSError("Disk full")
             handle_file_path(mock_app, "/some/file.txt")
 
         chat_log = mock_app.query_one("#chat-log")
         error_calls = [c for c in chat_log.add_message.call_args_list if c[0][0] == "error"]
         assert len(error_calls) == 1
         assert "failed to load" in error_calls[0][0][1].lower()
+
+
+# ============================================================================
+# Session Dirty Flag Tests (v0.2.15)
+# ============================================================================
+
+
+class TestSessionDirtyFlag:
+    """Tests for session dirty flag tracking."""
+
+    def test_dirty_flag_cleared_on_save(self, mock_app, sample_session, tmp_path):
+        """Dirty flag is cleared after successful save."""
+        mock_app._current_session = sample_session
+        mock_app.conversation.messages = sample_session.messages
+        mock_app.config.get_session_path.return_value = tmp_path
+        mock_app._session_dirty = True
+
+        save_current_session(mock_app)
+
+        # Verify dirty flag was cleared
+        assert mock_app._session_dirty is False
+
+    def test_dirty_flag_cleared_on_load(self, mock_app, sample_session, tmp_path):
+        """Dirty flag is cleared after loading session."""
+        from chatty.core.session import save_session
+
+        filepath = save_session(sample_session, tmp_path)
+        mock_app._session_dirty = True
+
+        handle_session_load(mock_app, filepath)
+
+        # Verify dirty flag was cleared
+        assert mock_app._session_dirty is False
+
+    def test_dirty_flag_not_cleared_on_save_error(self, mock_app, sample_session):
+        """Dirty flag remains set when save fails."""
+        mock_app._current_session = sample_session
+        mock_app.conversation.messages = sample_session.messages
+        mock_app._session_dirty = True
+        # Invalid path that can't be created
+        mock_app.config.get_session_path.return_value = Path("/nonexistent/path")
+
+        save_current_session(mock_app)
+
+        # Dirty flag should still be set (save failed)
+        assert mock_app._session_dirty is True
+
+    def test_dirty_flag_not_cleared_on_load_error(self, mock_app, tmp_path):
+        """Dirty flag remains set when load fails."""
+        invalid_file = tmp_path / "invalid.json"
+        invalid_file.write_text("not json")
+        mock_app._session_dirty = True
+
+        handle_session_load(mock_app, invalid_file)
+
+        # Dirty flag should still be set (load failed)
+        assert mock_app._session_dirty is True
+
+    def test_dirty_flag_not_changed_on_cancel(self, mock_app):
+        """Dirty flag unchanged when load cancelled."""
+        mock_app._session_dirty = True
+
+        handle_session_load(mock_app, None)  # Cancelled
+
+        # Dirty flag should still be set
+        assert mock_app._session_dirty is True

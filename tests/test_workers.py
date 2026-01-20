@@ -8,7 +8,7 @@ Tests the async worker functions extracted from ChatApp:
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -181,9 +181,7 @@ class TestFetchAndShowModels:
     @pytest.mark.asyncio
     async def test_fetch_models_client_error(self, mock_app):
         """Shows manual input modal on ChattyClientError."""
-        mock_app.client.models = AsyncMock(
-            side_effect=ChattyClientError("/models not supported")
-        )
+        mock_app.client.models = AsyncMock(side_effect=ChattyClientError("/models not supported"))
 
         await fetch_and_show_models(mock_app)
 
@@ -197,9 +195,7 @@ class TestFetchAndShowModels:
     @pytest.mark.asyncio
     async def test_fetch_models_generic_error(self, mock_app):
         """Shows error message on unexpected exception."""
-        mock_app.client.models = AsyncMock(
-            side_effect=RuntimeError("Network timeout")
-        )
+        mock_app.client.models = AsyncMock(side_effect=RuntimeError("Network timeout"))
 
         await fetch_and_show_models(mock_app)
 
@@ -302,9 +298,7 @@ class TestSendMessage:
         # Verify message was added
         chat_log.add_message.assert_called()
         # Find the assistant message call
-        assistant_calls = [
-            c for c in chat_log.add_message.call_args_list if c[0][0] == "assistant"
-        ]
+        assistant_calls = [c for c in chat_log.add_message.call_args_list if c[0][0] == "assistant"]
         assert len(assistant_calls) == 1
 
         # Verify conversation was updated
@@ -318,16 +312,12 @@ class TestSendMessage:
         mock_app.rag_provider.augment = AsyncMock(
             return_value=([{"role": "user", "content": "Hello"}], None)
         )
-        mock_app.client.chat = AsyncMock(
-            side_effect=ChattyClientError("API error")
-        )
+        mock_app.client.chat = AsyncMock(side_effect=ChattyClientError("API error"))
 
         await send_message(mock_app)
 
         chat_log = mock_app.query_one("#chat-log")
-        error_calls = [
-            c for c in chat_log.add_message.call_args_list if c[0][0] == "error"
-        ]
+        error_calls = [c for c in chat_log.add_message.call_args_list if c[0][0] == "error"]
         assert len(error_calls) == 1
 
         # Status bar should show error
@@ -344,16 +334,12 @@ class TestSendMessage:
         mock_app.rag_provider.augment = AsyncMock(
             return_value=([{"role": "user", "content": "Hello"}], None)
         )
-        mock_app.client.chat = AsyncMock(
-            side_effect=RuntimeError("Unexpected error")
-        )
+        mock_app.client.chat = AsyncMock(side_effect=RuntimeError("Unexpected error"))
 
         await send_message(mock_app)
 
         chat_log = mock_app.query_one("#chat-log")
-        error_calls = [
-            c for c in chat_log.add_message.call_args_list if c[0][0] == "error"
-        ]
+        error_calls = [c for c in chat_log.add_message.call_args_list if c[0][0] == "error"]
         assert len(error_calls) == 1
         assert "unexpected" in error_calls[0][0][1].lower()
 
@@ -380,9 +366,7 @@ class TestSendMessage:
         mock_app.rag_provider.augment = AsyncMock(
             return_value=([{"role": "user", "content": "Hello"}], None)
         )
-        mock_app.client.chat = AsyncMock(
-            side_effect=ChattyClientError("Failed")
-        )
+        mock_app.client.chat = AsyncMock(side_effect=ChattyClientError("Failed"))
 
         await send_message(mock_app)
 
