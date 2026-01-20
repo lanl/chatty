@@ -43,7 +43,7 @@ A separate build UI may be developed in a future project.
 │  │ (message history) │  │ (v0.3+)           │                   │
 │  └───────────────────┘  └───────────────────┘                   │
 │  ┌───────────────────────────────────────────────────────────┐  │
-│  │ RAGProvider (NullProvider v0.1 | LitkitProvider v0.3)     │  │
+│  │ RAGProvider (NullProvider v0.1 | LitkitProvider v0.4)     │  │
 │  └───────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
                                  │
@@ -360,7 +360,7 @@ def get_token_display(self) -> str:
 - Context compression deferred to v0.2 (with guardrails: preview, undo, never auto-compress)
 - API response `usage` field is preferred over tiktoken estimates (models tokenize differently)
 
-### `chatty/core/query_rewriter.py` (v0.3+)
+### `chatty/core/query_rewriter.py` (v0.4.2+)
 
 LLM-based query rewriting for RAG.
 
@@ -486,7 +486,7 @@ class NullProvider:
         return messages, RAGMetadata(sources=[])
 ```
 
-### `chatty/rag/litkit_provider.py` (v0.3+)
+### `chatty/rag/litkit_provider.py` (v0.4+)
 
 litkit integration for corpus-grounded responses.
 
@@ -511,7 +511,7 @@ ConfigError: "litkit package not installed. Run `uv add litkit` or set `rag_prov
 
 All errors appear inline as styled message cards—never silent fallback to non-RAG mode.
 
-**Inspect Mode (v0.3):**
+**Inspect Mode (v0.4.3):**
 Operators can preview retrieved context before LLM generation:
 - `Ctrl+I` toggles inspect mode — queries run retrieval only, no LLM call
 - Retrieved context display shows document title, relevance score, snippet
@@ -630,7 +630,7 @@ On HPC login nodes without X11/Wayland, clipboard fails. The fallback:
 | `Ctrl+Z` | Undo last exchange |
 | `Ctrl+K` | Compress context (with preview) |
 
-**Keyboard Bindings (v0.3):**
+**Keyboard Bindings (v0.4.3):**
 | Key | Action |
 |-----|--------|
 | `Ctrl+I` | Toggle inspect mode (retrieval only) |
@@ -739,7 +739,7 @@ Source attribution helps debug "works on laptop, fails in container" issues by r
 7. Optional: Write to transcript JSONL
 ```
 
-### RAG-Augmented Flow (v0.3)
+### RAG-Augmented Flow (v0.4)
 
 ```
 1. User types message in Input widget
@@ -975,7 +975,7 @@ Coverage reports are generated but not enforced as a gate—quality over metrics
 
 ## Deployment
 
-### Charliecloud Container (HPC)
+### Charliecloud Container (HPC, v0.5+)
 
 chatty + litkit are bundled in a single Charliecloud container for HPC deployment.
 

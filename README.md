@@ -127,7 +127,9 @@ chatty print-config
 - **Copy to clipboard** — `Ctrl+C` copies last response (file fallback for HPC)
 - **Session management** — save and resume conversations across runs
 - **Transcript logging** — save conversations to JSONL files for review
-- **Offline-friendly** — works without RAG (v0.1), graceful errors with RAG (v0.3+)
+- **Context compression** — `Ctrl+J` compresses long conversations, `Ctrl+Y` undoes
+- **RAG support** — query pre-built scientific literature corpora via litkit (v0.4+)
+- **Offline-friendly** — works without RAG, graceful errors with RAG
 
 ## Session Management
 
@@ -193,6 +195,97 @@ transcript_path = "./transcripts"  # or any path
 ```
 
 When transcript logging is enabled, chatty shows the transcript file path on startup.
+
+---
+
+## RAG Mode (Retrieval-Augmented Generation)
+
+chatty can query a pre-built scientific literature corpus to ground LLM responses in source documents. This feature is **optional** and requires:
+
+1. **litkit** — The retrieval engine (separate package)
+2. **A pre-built vector store** — FAISS indices + SQLite database
+
+> **Important:** chatty only **queries** existing indices. Building indices is done via the `litkit` CLI (see [Building a Vector Store](#building-a-vector-store)).
+
+### Installing RAG Dependencies
+
+```bash
+# Install chatty with RAG dependencies (faiss-cpu, numpy)
+uv add chatty[rag]
+
+# Then install litkit (choose based on your access):
+
+# Option A: Local development (editable install)
+cd ~/Code/litkit && uv pip install -e .
+
+# Option B: Public GitHub (coming soon)
+# uv add litkit
+```
+
+### Configuring RAG
+
+Add to your `chatty.toml`:
+
+```toml
+[rag]
+provider = "litkit"              # Enable RAG (default: "none")
+workspace = "~/litkit/workspace" # Path to pre-built indices (optional, auto-detects)
+top_papers = 500                 # Stage 1: papers to shortlist
+top_chunks = 30                  # Stage 2: chunks for LLM context
+```
+
+Or use environment variables:
+
+```bash
+export CHATTY_RAG_PROVIDER="litkit"
+export CHATTY_RAG_WORKSPACE="~/litkit/workspace"
+```
+
+### Building a Vector Store
+
+chatty requires a pre-built vector store. Build one using litkit:
+
+```bash
+# 1. Prepare your papers (JATS/NXML XML in tar archives)
+mkdir -p ~/litkit/workspace/tar_shards
+cp your-papers.tar ~/litkit/workspace/tar_shards/
+
+# 2. Build the index (Mac/workstation)
+cd ~/Code/litkit
+source .venv/bin/activate
+litkit --build-only --faiss-writer \
+       --tar-dir workspace/tar_shards \
+       --papers-index flat \
+       --chunks-index flat
+
+# 3. Verify the build
+ls ~/litkit/workspace/indices/
+# Should show: papers.faiss, chunks.faiss
+ls ~/litkit/workspace/sqlite/
+# Should show: litkit.sqlite3
+```
+
+For detailed litkit documentation, see the litkit repository:
+- `LITKIT_MAC_GUIDE.md` — Mac/workstation setup
+- `LITKIT_CLUSTER_GUIDE.md` — HPC cluster deployment
+
+### Using RAG
+
+Once configured, chatty automatically retrieves relevant documents for each query:
+
+```bash
+chatty chat
+# Type: "What are the mechanisms of HIV infection?"
+# chatty retrieves relevant papers → injects context → LLM responds with citations
+```
+
+**RAG Keyboard Shortcuts (v0.4+):**
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+I` | Toggle inspect mode (preview context before LLM) |
+
+---
 
 ## Tips
 

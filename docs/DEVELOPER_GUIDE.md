@@ -466,6 +466,151 @@ chatty doctor  # Check configuration
 - `requirements.lock` is generated from `uv.lock` and includes exact hashes
 - Some packages may download as source tarballs if no wheel exists for your platform
 
+---
+
+## RAG Development (litkit Integration)
+
+chatty integrates with litkit for RAG functionality. Here's how to develop and test with litkit.
+
+### Setting Up litkit for Development
+
+```bash
+# Clone litkit alongside chatty
+cd ~/Code
+git clone <litkit-repository-url> litkit
+
+# Set up litkit virtualenv
+cd litkit
+uv venv --python 3.12
+source .venv/bin/activate
+
+# Install litkit dependencies (order matters on Mac)
+uv pip install "torch>=2.6"
+uv pip install "numpy<2"
+uv pip install "faiss-cpu>=1.8,<1.9"
+uv pip install -e . --no-deps
+```
+
+### Installing litkit in chatty's Environment
+
+For development, install litkit as an editable dependency:
+
+```bash
+cd ~/Code/chatty
+source .venv/bin/activate
+
+# Install RAG dependencies first
+uv add faiss-cpu "numpy<2"
+
+# Install litkit from local clone (editable)
+uv pip install -e ~/Code/litkit
+```
+
+### Testing with litkit
+
+Run tests without litkit (default):
+```bash
+pytest  # Works without litkit installed
+```
+
+Run tests with litkit (mock litkit imports):
+```bash
+# Most litkit tests mock the imports
+pytest tests/test_provider.py -v
+```
+
+Integration tests with real litkit (requires indices):
+```bash
+# Set up test workspace with pre-built indices
+export CHATTY_TEST_RAG_WORKSPACE="~/Code/litkit/workspace"
+pytest -m rag_integration
+```
+
+### Mocking litkit in Tests
+
+When testing RAG features, mock litkit imports:
+
+```python
+# tests/test_litkit_provider.py
+import pytest
+from unittest.mock import patch, MagicMock
+
+@pytest.fixture
+def mock_litkit():
+    """Mock litkit module for testing."""
+    with patch.dict('sys.modules', {
+        'litkit': MagicMock(),
+        'litkit.cli': MagicMock(),
+        'litkit.db': MagicMock(),
+    }):
+        # Configure mock returns
+        import sys
+        sys.modules['litkit.cli'].shortlist_papers = MagicMock(return_value=[1, 2, 3])
+        sys.modules['litkit.cli'].search_chunks_constrained = MagicMock(return_value=([10, 20], {}))
+        sys.modules['litkit.cli'].get_chunks = MagicMock(return_value=[
+            {"id": 10, "text": "chunk 1", "paper_title": "Paper A"},
+            {"id": 20, "text": "chunk 2", "paper_title": "Paper B"},
+        ])
+        yield sys.modules['litkit.cli']
+
+def test_litkit_provider_retrieval(mock_litkit):
+    from chatty.rag.litkit_provider import LitkitProvider
+    # ... test code
+```
+
+### RAG Config in Tests
+
+Use a test fixture for RAG configuration:
+
+```python
+@pytest.fixture
+def rag_config(tmp_path):
+    """Config with RAG enabled, pointing to test workspace."""
+    config_content = f"""
+    [rag]
+    provider = "litkit"
+    workspace = "{tmp_path}"
+    top_papers = 10
+    top_chunks = 5
+    """
+    config_file = tmp_path / "chatty.toml"
+    config_file.write_text(config_content)
+    return config_file
+```
+
+### Development Workflow for RAG Features
+
+1. **Make changes to RAG provider:**
+   ```bash
+   # Edit src/chatty/rag/litkit_provider.py
+   ```
+
+2. **Run RAG-specific tests:**
+   ```bash
+   pytest tests/test_litkit_provider.py -v
+   ```
+
+3. **Test with real litkit (optional):**
+   ```bash
+   # Build a small test index
+   cd ~/Code/litkit
+   litkit --build-only --faiss-writer \
+          --tar-dir workspace/tar_shards \
+          --papers-index flat --chunks-index flat
+
+   # Run chatty with RAG
+   cd ~/Code/chatty
+   chatty chat
+   ```
+
+4. **Pre-commit and full tests:**
+   ```bash
+   uv run pre-commit run --all-files
+   uv run pytest
+   ```
+
+---
+
 ## Troubleshooting
 
 ### uv sync fails

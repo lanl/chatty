@@ -92,3 +92,17 @@ copy_fallback_path = "./copies"
 
 # Where to save exported Markdown files (Ctrl+E)
 export_path = "./exports"
+
+# =============================================================================
+# RAG (Retrieval-Augmented Generation) — v0.4+
+# =============================================================================
+
+# RAG provider: "none" (default) or "litkit"
+# rag_provider = "none"
+
+# litkit workspace path (auto-detected if omitted)
+# rag_workspace = "~/litkit/workspace"
+
+# Retrieval parameters
+# rag_top_papers = 500   # Stage 1: papers to shortlist
+# rag_top_chunks = 30    # Stage 2: chunks for LLM context

@@ -33,6 +33,12 @@ dependencies = [
     "pyperclip>=1.11.0",
 ]
 
+[project.optional-dependencies]
+rag = [
+    "faiss-cpu>=1.8,<1.9",
+    "numpy<2",
+]
+
 [project.scripts]
 chatty = "chatty.cli:app"
 
