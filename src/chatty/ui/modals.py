@@ -15,7 +15,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, OptionList
+from textual.widgets import Button, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
 from chatty.core.session import (
@@ -884,7 +884,7 @@ class CompressionPreviewModal(ModalScreen[bool | None]):
 
             yield Label("Summary Preview:", id="summary-label")
             with VerticalScroll(id="summary-container"):
-                yield Label(self._summary, id="summary-text")
+                yield Static(self._summary, id="summary-text")
 
             # Calculate savings percentage
             if self._original_tokens > 0:

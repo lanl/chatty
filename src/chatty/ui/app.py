@@ -175,7 +175,7 @@ class ChatApp(App[None]):
         Binding("ctrl+e", "export", "Export", show=False),
         Binding("ctrl+t", "toggle_stream", "Toggle Stream", show=False),
         Binding("ctrl+j", "compress", "Compress"),
-        Binding("ctrl+y", "undo_compress", "Undo Compress", show=False),
+        Binding("ctrl+y", "undo_compress", "Undo Compress", show=False, priority=True),
     ]
 
     def __init__(
@@ -924,7 +924,7 @@ class ChatApp(App[None]):
         chat_log.clear_messages()
         chat_log.add_message(
             "system",
-            f"Context compressed. Press Ctrl+U to undo.\n\n{summary}",
+            f"Context compressed. Press Ctrl+Y to undo.\n\n{summary}",
         )
 
         # Update status bar
