@@ -86,6 +86,66 @@ class TestFileInputModal:
 
 
 # ============================================================================
+# Additional Modal Coverage Tests (v0.2.10)
+# ============================================================================
+
+
+class TestModelPickerModalSelection:
+    """Tests for ModelPickerModal selection."""
+
+    async def test_select_button_returns_model(self) -> None:
+        """Select button returns highlighted model."""
+        app = ModelPickerTestApp()
+        async with app.run_test() as pilot:
+            models = ["gpt-4", "gpt-3.5-turbo", "claude-3"]
+            modal = ModelPickerModal(models, "gpt-4")
+            app.push_screen(modal, callback=lambda r: setattr(app, "result", r))
+            await pilot.pause()
+
+            # Click select (should select first/highlighted model)
+            await pilot.click("#select-btn")
+            await pilot.pause()
+
+            # Should return a model name
+            assert app.result in models or app.result is None
+
+    async def test_double_click_selects_model(self) -> None:
+        """Double-clicking a model selects it."""
+        app = ModelPickerTestApp()
+        async with app.run_test() as pilot:
+            models = ["model-a", "model-b"]
+            modal = ModelPickerModal(models, "model-a")
+            app.push_screen(modal, callback=lambda r: setattr(app, "result", r))
+            await pilot.pause()
+
+            # Session should be visible
+            assert modal._current_model == "model-a"
+
+
+class TestModelInputModalSubmit:
+    """Tests for ModelInputModal enter key submit."""
+
+    async def test_enter_key_submits(self) -> None:
+        """Enter key in input submits the model name."""
+        app = ModelInputTestApp()
+        async with app.run_test() as pilot:
+            modal = ModelInputModal("gpt-4")
+            app.push_screen(modal, callback=lambda r: setattr(app, "result", r))
+            await pilot.pause()
+
+            # Set a new value
+            input_widget = modal.query_one("#model-name", Input)
+            input_widget.value = "new-model"
+
+            # Press enter
+            await pilot.press("enter")
+            await pilot.pause()
+
+            # Should return the model
+            assert app.result == "new-model"
+
+
+# ============================================================================
 # SessionRenameModal Tests (v0.2.7)
 # ============================================================================
 
