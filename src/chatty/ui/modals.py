@@ -376,17 +376,22 @@ class SessionBrowserModal(ModalScreen[Path | None]):
 
 
 class SessionRenameModal(ModalScreen[str | None]):
-    """Modal screen for renaming a session.
+    """Modal screen for naming or renaming a session.
 
-    Displays an input field with the current session name.
-    Returns the new name, or None if cancelled.
+    Displays an input field with the current/default session name.
+    Returns the name, or None if cancelled.
 
     Usage:
+        # For renaming existing session:
         app.push_screen(SessionRenameModal(current_name), callback)
-        # callback receives str (new name) or None
+        
+        # For first save (new session):
+        app.push_screen(SessionRenameModal(default_name, button_label="Save"), callback)
+        
+        # callback receives str (name) or None
 
     Bindings:
-        Enter: Apply the new name
+        Enter: Apply the name
         Escape: Cancel and dismiss
     """
 
@@ -427,23 +432,27 @@ class SessionRenameModal(ModalScreen[str | None]):
         Binding("escape", "cancel", "Cancel"),
     ]
 
-    def __init__(self, current_name: str) -> None:
-        """Initialize the rename dialog.
+    def __init__(self, current_name: str, button_label: str = "Rename") -> None:
+        """Initialize the name/rename dialog.
 
         Args:
-            current_name: Current session name (shown in input).
+            current_name: Current/default session name (shown in input).
+            button_label: Label for the confirm button ("Rename" or "Save").
         """
         super().__init__()
         self._current_name = current_name
+        self._button_label = button_label
 
     def compose(self) -> ComposeResult:
         """Create the dialog layout."""
+        # Use appropriate title based on context
+        title = "Save Session" if self._button_label == "Save" else "Rename Session"
         with Vertical(id="rename-dialog"):
-            yield Label("Rename Session")
+            yield Label(title)
             yield Input(value=self._current_name, id="session-name", select_on_focus=True)
             with Container(id="rename-buttons"):
                 yield Button("Cancel", variant="default", id="cancel-btn")
-                yield Button("Rename", variant="primary", id="rename-btn")
+                yield Button(self._button_label, variant="primary", id="rename-btn")
 
     def on_mount(self) -> None:
         """Focus the input when modal opens."""

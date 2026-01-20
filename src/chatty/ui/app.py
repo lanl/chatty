@@ -487,7 +487,8 @@ class ChatApp(App[None]):
                     SessionRenameModal(
                         generate_session_name(self.conversation.messages)
                         if self.conversation
-                        else "Untitled"
+                        else "Untitled",
+                        button_label="Save",
                     ),
                     self._save_then_load,
                 )
@@ -549,7 +550,7 @@ class ChatApp(App[None]):
             # First save - prompt for name
             default_name = generate_session_name(self.conversation.messages)
             self.push_screen(
-                SessionRenameModal(default_name),
+                SessionRenameModal(default_name, button_label="Save"),
                 self._handle_first_save,
             )
         else:
