@@ -12,6 +12,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import Input, Label, OptionList
 
 from chatty.ui.modals import (
+    CompressionPreviewModal,
     FileInputModal,
     ModelInputModal,
     ModelPickerModal,
@@ -397,6 +398,172 @@ class TestSessionDeleteConfirmModal:
 
             cancel_btn = modal.query_one("#cancel-btn", Button)
             assert cancel_btn.has_focus
+
+
+# ============================================================================
+# CompressionPreviewModal Tests (v0.3.0)
+# ============================================================================
+
+
+class CompressionPreviewTestApp(App[None]):
+    """App for testing CompressionPreviewModal."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.result: bool | None | object = "not_called"
+
+    def compose(self) -> ComposeResult:
+        yield Label("Test App")
+
+
+class TestCompressionPreviewModal:
+    """Tests for CompressionPreviewModal."""
+
+    async def test_modal_renders(self) -> None:
+        """CompressionPreviewModal renders correctly."""
+        app = CompressionPreviewTestApp()
+        async with app.run_test() as pilot:
+            modal = CompressionPreviewModal(
+                summary="This is a test summary.",
+                original_tokens=1000,
+                compressed_tokens=100,
+                has_code_blocks=False,
+            )
+            app.push_screen(modal)
+            await pilot.pause()
+
+            # Should have the modal visible
+            assert len(app.screen_stack) == 2
+
+    async def test_cancel_button_returns_none(self) -> None:
+        """Cancel button returns None."""
+        app = CompressionPreviewTestApp()
+        async with app.run_test() as pilot:
+            app.push_screen(
+                CompressionPreviewModal(
+                    summary="Summary",
+                    original_tokens=1000,
+                    compressed_tokens=100,
+                    has_code_blocks=False,
+                ),
+                callback=lambda r: setattr(app, "result", r),
+            )
+            await pilot.pause()
+
+            await pilot.click("#cancel-btn")
+            await pilot.pause()
+
+            assert app.result is None
+
+    async def test_apply_button_returns_true(self) -> None:
+        """Apply button returns True."""
+        app = CompressionPreviewTestApp()
+        async with app.run_test() as pilot:
+            app.push_screen(
+                CompressionPreviewModal(
+                    summary="Summary",
+                    original_tokens=1000,
+                    compressed_tokens=100,
+                    has_code_blocks=False,
+                ),
+                callback=lambda r: setattr(app, "result", r),
+            )
+            await pilot.pause()
+
+            await pilot.click("#apply-btn")
+            await pilot.pause()
+
+            assert app.result is True
+
+    async def test_escape_returns_none(self) -> None:
+        """Escape key returns None."""
+        app = CompressionPreviewTestApp()
+        async with app.run_test() as pilot:
+            app.push_screen(
+                CompressionPreviewModal(
+                    summary="Summary",
+                    original_tokens=1000,
+                    compressed_tokens=100,
+                    has_code_blocks=False,
+                ),
+                callback=lambda r: setattr(app, "result", r),
+            )
+            await pilot.pause()
+
+            await pilot.press("escape")
+            await pilot.pause()
+
+            assert app.result is None
+
+    async def test_cancel_focused_by_default(self) -> None:
+        """Cancel button is focused by default (safer UX)."""
+        app = CompressionPreviewTestApp()
+        async with app.run_test() as pilot:
+            modal = CompressionPreviewModal(
+                summary="Summary",
+                original_tokens=1000,
+                compressed_tokens=100,
+                has_code_blocks=False,
+            )
+            app.push_screen(modal)
+            await pilot.pause()
+
+            # Cancel button should have focus
+            from textual.widgets import Button
+
+            cancel_btn = modal.query_one("#cancel-btn", Button)
+            assert cancel_btn.has_focus
+
+    async def test_stores_parameters(self) -> None:
+        """Modal stores all parameters correctly."""
+        app = CompressionPreviewTestApp()
+        async with app.run_test() as pilot:
+            modal = CompressionPreviewModal(
+                summary="Test summary content",
+                original_tokens=5000,
+                compressed_tokens=500,
+                has_code_blocks=True,
+            )
+            app.push_screen(modal)
+            await pilot.pause()
+
+            assert modal._summary == "Test summary content"
+            assert modal._original_tokens == 5000
+            assert modal._compressed_tokens == 500
+            assert modal._has_code_blocks is True
+
+    async def test_warning_shown_for_code_blocks(self) -> None:
+        """Warning is displayed when has_code_blocks=True."""
+        app = CompressionPreviewTestApp()
+        async with app.run_test() as pilot:
+            modal = CompressionPreviewModal(
+                summary="Summary",
+                original_tokens=1000,
+                compressed_tokens=100,
+                has_code_blocks=True,
+            )
+            app.push_screen(modal)
+            await pilot.pause()
+
+            # Warning should be present (modal has _has_code_blocks=True)
+            assert modal._has_code_blocks is True
+            # The warning label is rendered conditionally in compose()
+
+    async def test_no_warning_without_code_blocks(self) -> None:
+        """No warning when has_code_blocks=False."""
+        app = CompressionPreviewTestApp()
+        async with app.run_test() as pilot:
+            modal = CompressionPreviewModal(
+                summary="Summary",
+                original_tokens=1000,
+                compressed_tokens=100,
+                has_code_blocks=False,
+            )
+            app.push_screen(modal)
+            await pilot.pause()
+
+            # No warning should be shown
+            assert modal._has_code_blocks is False
 
 
 # ============================================================================

@@ -34,6 +34,8 @@ POWER_SHORTCUTS: list[tuple[str, str]] = [
     ("^R", "Regenerate last response"),
     ("^T", "Toggle streaming mode"),
     ("^G", "Switch model"),
+    ("^K", "Compress context"),
+    ("^U", "Undo compression"),
 ]
 
 # Quick tips for common workflows

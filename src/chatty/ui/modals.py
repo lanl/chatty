@@ -13,7 +13,7 @@ from pathlib import Path
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Vertical
+from textual.containers import Container, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, OptionList
 from textual.widgets.option_list import Option
@@ -384,10 +384,10 @@ class SessionRenameModal(ModalScreen[str | None]):
     Usage:
         # For renaming existing session:
         app.push_screen(SessionRenameModal(current_name), callback)
-        
+
         # For first save (new session):
         app.push_screen(SessionRenameModal(default_name, button_label="Save"), callback)
-        
+
         # callback receives str (name) or None
 
     Bindings:
@@ -765,6 +765,155 @@ class UnsavedChangesModal(ModalScreen[str | None]):
             self.dismiss("save_and_load")
         elif event.button.id == "load-btn":
             self.dismiss("load")
+        else:
+            self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        """Handle Escape key."""
+        self.dismiss(None)
+
+
+class CompressionPreviewModal(ModalScreen[bool | None]):
+    """Modal showing compression preview before applying.
+
+    Displays the proposed summary, token savings, and optional warning
+    about code blocks. User can apply compression or cancel.
+
+    Returns:
+        True: Apply compression
+        None: Cancel
+
+    Usage:
+        app.push_screen(
+            CompressionPreviewModal(summary, orig_tokens, comp_tokens, has_code),
+            callback,
+        )
+        # callback receives True (apply) or None (cancel)
+
+    Bindings:
+        Enter: Apply compression (if Apply button focused)
+        Escape: Cancel and dismiss
+    """
+
+    CSS = """
+    CompressionPreviewModal {
+        align: center middle;
+    }
+
+    #compression-dialog {
+        width: 70;
+        height: auto;
+        max-height: 80%;
+        padding: 1 2;
+        background: $surface;
+        border: thick $primary;
+    }
+
+    #compression-title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #compression-warning {
+        color: $warning;
+        margin-bottom: 1;
+    }
+
+    #summary-container {
+        height: auto;
+        max-height: 12;
+        border: solid $primary;
+        padding: 1;
+        margin-bottom: 1;
+    }
+
+    #summary-label {
+        color: $text-muted;
+        margin-bottom: 0;
+    }
+
+    #token-savings {
+        margin-bottom: 1;
+    }
+
+    #compression-buttons {
+        width: 100%;
+        height: auto;
+        align: right middle;
+    }
+
+    #compression-buttons Button {
+        margin-left: 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(
+        self,
+        summary: str,
+        original_tokens: int,
+        compressed_tokens: int,
+        has_code_blocks: bool,
+    ) -> None:
+        """Initialize the compression preview dialog.
+
+        Args:
+            summary: The proposed compression summary.
+            original_tokens: Token count before compression.
+            compressed_tokens: Token count after compression.
+            has_code_blocks: Whether conversation contains code blocks.
+        """
+        super().__init__()
+        self._summary = summary
+        self._original_tokens = original_tokens
+        self._compressed_tokens = compressed_tokens
+        self._has_code_blocks = has_code_blocks
+
+    def compose(self) -> ComposeResult:
+        """Create the dialog layout."""
+        with Vertical(id="compression-dialog"):
+            yield Label("Compress Context", id="compression-title")
+
+            if self._has_code_blocks:
+                yield Label(
+                    "⚠ Warning: Conversation contains code blocks that "
+                    "may be lost in compression.",
+                    id="compression-warning",
+                )
+
+            yield Label("Summary Preview:", id="summary-label")
+            with VerticalScroll(id="summary-container"):
+                yield Label(self._summary, id="summary-text")
+
+            # Calculate savings percentage
+            if self._original_tokens > 0:
+                savings_pct = (
+                    (self._original_tokens - self._compressed_tokens) / self._original_tokens * 100
+                )
+                savings_str = (
+                    f"Token savings: {self._original_tokens:,} → "
+                    f"{self._compressed_tokens:,} (save {savings_pct:.0f}%)"
+                )
+            else:
+                savings_str = "Token savings: calculating..."
+
+            yield Label(savings_str, id="token-savings")
+
+            with Container(id="compression-buttons"):
+                yield Button("Cancel", variant="default", id="cancel-btn")
+                yield Button("Apply Compression", variant="primary", id="apply-btn")
+
+    def on_mount(self) -> None:
+        """Focus the cancel button by default (safer UX)."""
+        self.query_one("#cancel-btn", Button).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button clicks."""
+        if event.button.id == "apply-btn":
+            self.dismiss(True)
         else:
             self.dismiss(None)
 

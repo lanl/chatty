@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-01-20
+
+### Added
+
+**Context Compression (`Ctrl+K`)**
+- LLM-based context compression to reduce token usage in long conversations
+- `Ctrl+K` opens preview modal showing proposed summary before applying
+- Preview displays token savings (e.g., "85,000 → 12,000 (save 86%)")
+- Warning shown when code blocks detected that may be lost
+- Cancel button focused by default (safer UX)
+- User can cancel after seeing preview — never compresses automatically
+
+**Undo Compression (`Ctrl+U`)**
+- `Ctrl+U` restores pre-compression conversation state
+- Single undo level (stores one pre-compression state)
+- Undo state is session-specific (cleared on load/new session)
+
+**New Files**
+- `core/compression.py` — Compression utilities (build_compression_prompt, detect_code_blocks, estimate_tokens)
+- `CompressionPreviewModal` in `modals.py` — Preview modal with summary, savings, and warning
+
+**New Tests**
+- `tests/test_compression.py` — 18 tests for compression utilities and integration
+- 8 new tests in `tests/test_modals.py` for CompressionPreviewModal
+
+### Changed
+
+- Help modal (`F1`) now shows `^K Compress context` and `^U Undo compression`
+- `app.py` adds compression state tracking (`_pre_compression_state`, `_compression_available`, `_pending_summary`)
+
+### Developer Notes
+
+- Compression uses non-streaming LLM call (summary is short)
+- Pre-compression state is in-memory only (lost on app exit)
+- All acceptance criteria met
+- Pre-commit hooks pass
+
+---
+
 ## [0.2.15] - 2026-01-19
 
 ### Added

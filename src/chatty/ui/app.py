@@ -81,7 +81,7 @@ from textual.containers import Container
 from textual.widgets import Header
 from textual.worker import Worker
 
-from chatty.client.openai_client import OpenAIClient
+from chatty.client.openai_client import Message, OpenAIClient
 from chatty.config import ConfigWithSources, find_config_path, load_config
 from chatty.core.conversation import Conversation
 from chatty.core.session import (
@@ -94,6 +94,7 @@ from chatty.rag import RAGMetadata, RAGProvider, get_provider
 from chatty.ui.clipboard import copy_to_clipboard
 from chatty.ui.footer import ChattyFooter
 from chatty.ui.modals import (
+    CompressionPreviewModal,
     FileInputModal,
     SessionBrowserModal,
     SessionRenameModal,
@@ -173,6 +174,8 @@ class ChatApp(App[None]):
         Binding("ctrl+g", "pick_model", "Models", show=False),
         Binding("ctrl+e", "export", "Export", show=False),
         Binding("ctrl+t", "toggle_stream", "Toggle Stream", show=False),
+        Binding("ctrl+k", "compress", "Compress", show=False),
+        Binding("ctrl+u", "undo_compress", "Undo Compress", show=False),
     ]
 
     def __init__(
@@ -204,6 +207,12 @@ class ChatApp(App[None]):
         self._current_session: Session | None = None  # For save/load functionality
         self._current_model: str = self.config.model  # Runtime model (can be changed)
         self._session_dirty: bool = False  # Track unsaved changes
+        # Compression state
+        self._pre_compression_state: list[Message] | None = None
+        self._compression_available: bool = False
+        self._pending_summary: str | None = None
+        # Pending load path for unsaved changes flow
+        self._pending_load_path: Path | None = None
 
     def compose(self) -> ComposeResult:
         """Create the UI layout.
@@ -497,10 +506,9 @@ class ChatApp(App[None]):
                 save_current_session(self)
                 if pending_path:
                     handle_session_load(self, pending_path)
-        elif choice == "load":
+        elif choice == "load" and pending_path:
             # Load without saving
-            if pending_path:
-                handle_session_load(self, pending_path)
+            handle_session_load(self, pending_path)
         # else: None = cancelled, do nothing
 
         # Clear pending path (only for immediate actions, not when another modal is pushed)
@@ -798,6 +806,180 @@ class ChatApp(App[None]):
             transcript_enabled=self.config.transcript_enabled,
         )
         self.push_screen(modal)
+
+    def action_compress(self) -> None:
+        """Compress conversation context (Ctrl+K).
+
+        Opens a preview modal showing the proposed summary.
+        User can apply or cancel.
+        """
+        # Check if streaming is in progress
+        if self.current_worker and self.current_worker.is_running:
+            self.notify(
+                "Wait for response to complete before compressing.",
+                severity="warning",
+            )
+            return
+
+        # Check conversation has enough content
+        if not self.conversation or len(self.conversation.messages) < 3:
+            self.notify(
+                "Nothing to compress — conversation too short.",
+                severity="warning",
+            )
+            return
+
+        # Start worker to generate summary
+        self.run_worker(
+            self._generate_compression_preview,  # type: ignore[arg-type]
+            exclusive=True,
+            name="compress",
+        )
+
+    async def _generate_compression_preview(self) -> None:
+        """Generate compression preview and show modal."""
+        from chatty.core.compression import (
+            build_compression_prompt,
+            detect_code_blocks,
+            estimate_messages_tokens,
+            estimate_tokens,
+        )
+
+        if not self.conversation or not self.client:
+            return
+
+        status_bar = self.query_one("#status-bar", StatusBar)
+        status_bar.update_status(status="Compressing...")
+
+        try:
+            # Build compression prompt
+            prompt = build_compression_prompt(self.conversation.messages)
+
+            # Call LLM for summary (non-streaming)
+            response = await self.client.chat(
+                [Message(role="user", content=prompt)],
+                stream=False,
+            )
+
+            # Response is AssistantMessage when stream=False
+            if hasattr(response, "content"):
+                summary = response.content
+            else:
+                raise RuntimeError("Unexpected streaming response")
+
+            # Calculate token stats
+            has_code = detect_code_blocks(self.conversation.messages)
+            original_tokens = estimate_messages_tokens(
+                self.conversation.messages, self._current_model
+            )
+            compressed_tokens = estimate_tokens(summary, self._current_model)
+
+            # Store summary for later use
+            self._pending_summary = summary
+
+            # Show preview modal (must be called from main thread)
+            self.call_from_thread(
+                self.push_screen,
+                CompressionPreviewModal(
+                    summary=summary,
+                    original_tokens=original_tokens,
+                    compressed_tokens=compressed_tokens,
+                    has_code_blocks=has_code,
+                ),
+                self._handle_compression_choice,
+            )
+
+        except Exception as e:
+            self.call_from_thread(
+                self.notify,
+                f"Compression failed: {e}",
+                severity="error",
+            )
+        finally:
+            self.call_from_thread(
+                status_bar.update_status,
+                status="Ready",
+            )
+
+    def _handle_compression_choice(self, apply: bool | None) -> None:
+        """Handle compression preview modal result.
+
+        Args:
+            apply: True to apply compression, None if cancelled.
+        """
+        if not apply:
+            self._pending_summary = None
+            return
+
+        summary = self._pending_summary
+        self._pending_summary = None
+
+        if not summary or not self.conversation:
+            return
+
+        # Store pre-compression state for undo
+        self._pre_compression_state = list(self.conversation.messages)
+        self._compression_available = True
+
+        # Replace conversation with summary
+        self.conversation.clear()
+        if self.config.system_prompt:
+            self.conversation.add_system_message(self.config.system_prompt)
+        self.conversation.add_system_message(f"[Conversation summary]\n{summary}")
+
+        # Update chat log display
+        chat_log = self.query_one("#chat-log", ChatLog)
+        chat_log.clear_messages()
+        chat_log.add_message(
+            "system",
+            f"Context compressed. Press Ctrl+U to undo.\n\n{summary}",
+        )
+
+        # Update status bar
+        self.query_one("#status-bar", StatusBar).update_status(
+            tokens=self.conversation.get_token_display(),
+        )
+
+        # Mark session as dirty
+        self._session_dirty = True
+
+    def action_undo_compress(self) -> None:
+        """Undo last compression (Ctrl+U).
+
+        Restores the conversation to its pre-compression state.
+        Only works if compression was applied in this session.
+        """
+        if not self._compression_available or not self._pre_compression_state:
+            self.notify(
+                "Nothing to undo — no compression applied.",
+                severity="warning",
+            )
+            return
+
+        if not self.conversation:
+            return
+
+        # Restore pre-compression state
+        self.conversation.messages = list(self._pre_compression_state)
+
+        # Clear undo state (single level only)
+        self._pre_compression_state = None
+        self._compression_available = False
+
+        # Rebuild chat log display
+        chat_log = self.query_one("#chat-log", ChatLog)
+        chat_log.clear_messages()
+        for msg in self.conversation.messages:
+            if msg.role != "system":
+                chat_log.add_message(msg.role, msg.content)
+
+        # Update status bar
+        self.query_one("#status-bar", StatusBar).update_status(
+            status="Compression undone",
+            tokens=self.conversation.get_token_display(),
+        )
+
+        chat_log.add_message("system", "Compression undone — original history restored.")
 
     async def on_unmount(self) -> None:
         """Clean up when app is closing."""
