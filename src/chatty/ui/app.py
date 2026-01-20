@@ -482,6 +482,7 @@ class ChatApp(App[None]):
         if choice == "save_and_load":
             # If no current session, prompt for name first
             if not self._current_session:
+                # Don't clear pending_path here - _save_then_load will use it
                 self.push_screen(
                     SessionRenameModal(
                         generate_session_name(self.conversation.messages)
@@ -490,6 +491,7 @@ class ChatApp(App[None]):
                     ),
                     self._save_then_load,
                 )
+                return  # Don't clear pending_path yet
             else:
                 save_current_session(self)
                 if pending_path:
@@ -500,7 +502,7 @@ class ChatApp(App[None]):
                 handle_session_load(self, pending_path)
         # else: None = cancelled, do nothing
 
-        # Clear pending path
+        # Clear pending path (only for immediate actions, not when another modal is pushed)
         self._pending_load_path = None
 
     def _save_then_load(self, name: str | None) -> None:
