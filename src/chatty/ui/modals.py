@@ -20,6 +20,7 @@ from textual.widgets.option_list import Option
 
 from chatty.core.session import (
     SessionMetadata,
+    delete_session,
     get_session_filepath,
     list_sessions,
     rename_session,
@@ -175,6 +176,7 @@ class SessionBrowserModal(ModalScreen[Path | None]):
         Binding("escape", "cancel", "Cancel"),
         Binding("enter", "load", "Load Session"),
         Binding("r", "rename", "Rename"),
+        Binding("d", "delete", "Delete"),
     ]
 
     def __init__(self, session_dir: Path) -> None:
@@ -192,7 +194,10 @@ class SessionBrowserModal(ModalScreen[Path | None]):
         with Vertical(id="session-dialog"):
             yield Label("Saved Sessions")
             yield OptionList(id="session-list")
-            yield Label("[dim]r[/dim] rename  [dim]Enter[/dim] load", id="session-hint")
+            yield Label(
+                "[dim]r[/dim] rename  [dim]d[/dim] delete  [dim]Enter[/dim] load",
+                id="session-hint",
+            )
             with Container(id="session-buttons"):
                 yield Button("Cancel", variant="default", id="cancel-btn")
                 yield Button("Load", variant="primary", id="load-btn")
@@ -328,6 +333,46 @@ class SessionBrowserModal(ModalScreen[Path | None]):
         except Exception as e:
             # Show error - for now just log, could add toast
             self.app.log.error(f"Failed to rename session: {e}")
+
+    def action_delete(self) -> None:
+        """Handle d key - delete selected session."""
+        selected = self._get_highlighted_session()
+        if not selected:
+            return
+
+        session, filepath = selected
+        # Push confirmation modal
+        self.app.push_screen(
+            SessionDeleteConfirmModal(session.name),
+            lambda confirmed: self._handle_delete(filepath, session.id, confirmed),
+        )
+
+    def _handle_delete(self, filepath: Path, session_id: str, confirmed: bool | None) -> None:
+        """Handle the result of delete confirmation modal.
+
+        Args:
+            filepath: Path to the session file.
+            session_id: ID of session being deleted.
+            confirmed: True if user confirmed, None if cancelled.
+        """
+        if not confirmed:
+            return
+
+        try:
+            # Check if this is the currently loaded session
+            if (
+                hasattr(self.app, "_current_session")
+                and self.app._current_session
+                and self.app._current_session.metadata.id == session_id
+            ):
+                # Clear the app's current session
+                self.app._current_session = None
+
+            delete_session(filepath)
+            # Refresh list (no re-selection since item is gone)
+            self._refresh_session_list()
+        except Exception as e:
+            self.app.log.error(f"Failed to delete session: {e}")
 
 
 class SessionRenameModal(ModalScreen[str | None]):
