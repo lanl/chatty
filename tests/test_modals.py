@@ -16,6 +16,7 @@ from chatty.ui.modals import (
     ModelInputModal,
     ModelPickerModal,
     SessionBrowserModal,
+    SessionRenameModal,
 )
 
 # ============================================================================
@@ -81,6 +82,169 @@ class TestFileInputModal:
             await pilot.pause()
 
             assert app.result is None
+
+
+# ============================================================================
+# SessionRenameModal Tests (v0.2.7)
+# ============================================================================
+
+
+class SessionRenameTestApp(App[None]):
+    """App for testing SessionRenameModal."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.result: str | None | object = "not_called"
+
+    def compose(self) -> ComposeResult:
+        yield Label("Test App")
+
+
+class TestSessionRenameModal:
+    """Tests for SessionRenameModal."""
+
+    async def test_modal_renders(self) -> None:
+        """SessionRenameModal renders with current name."""
+        app = SessionRenameTestApp()
+        async with app.run_test() as pilot:
+            modal = SessionRenameModal("Current Name")
+            app.push_screen(modal)
+            await pilot.pause()
+
+            # Should have input with current name as value
+            input_widget = modal.query_one("#session-name", Input)
+            assert input_widget.value == "Current Name"
+
+    async def test_cancel_button_returns_none(self) -> None:
+        """Cancel button returns None."""
+        app = SessionRenameTestApp()
+        async with app.run_test() as pilot:
+            app.push_screen(
+                SessionRenameModal("Test Name"),
+                callback=lambda r: setattr(app, "result", r),
+            )
+            await pilot.pause()
+
+            await pilot.click("#cancel-btn")
+            await pilot.pause()
+
+            assert app.result is None
+
+    async def test_escape_returns_none(self) -> None:
+        """Escape key returns None."""
+        app = SessionRenameTestApp()
+        async with app.run_test() as pilot:
+            app.push_screen(
+                SessionRenameModal("Test Name"),
+                callback=lambda r: setattr(app, "result", r),
+            )
+            await pilot.pause()
+
+            await pilot.press("escape")
+            await pilot.pause()
+
+            assert app.result is None
+
+    async def test_rename_button_returns_new_name(self) -> None:
+        """Rename button returns the entered name."""
+        app = SessionRenameTestApp()
+        async with app.run_test() as pilot:
+            modal = SessionRenameModal("Old Name")
+            app.push_screen(
+                modal,
+                callback=lambda r: setattr(app, "result", r),
+            )
+            await pilot.pause()
+
+            # Change the name
+            input_widget = modal.query_one("#session-name", Input)
+            input_widget.value = "New Name"
+
+            await pilot.click("#rename-btn")
+            await pilot.pause()
+
+            assert app.result == "New Name"
+
+    async def test_enter_key_submits(self) -> None:
+        """Enter key in input submits the name."""
+        app = SessionRenameTestApp()
+        async with app.run_test() as pilot:
+            modal = SessionRenameModal("Old Name")
+            app.push_screen(
+                modal,
+                callback=lambda r: setattr(app, "result", r),
+            )
+            await pilot.pause()
+
+            # Change the name and press enter
+            input_widget = modal.query_one("#session-name", Input)
+            input_widget.value = "Submitted Name"
+
+            # Submit via enter key on input
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.result == "Submitted Name"
+
+    async def test_empty_name_returns_none(self) -> None:
+        """Empty name returns None."""
+        app = SessionRenameTestApp()
+        async with app.run_test() as pilot:
+            modal = SessionRenameModal("Original")
+            app.push_screen(
+                modal,
+                callback=lambda r: setattr(app, "result", r),
+            )
+            await pilot.pause()
+
+            # Clear the input
+            input_widget = modal.query_one("#session-name", Input)
+            input_widget.value = ""
+
+            await pilot.click("#rename-btn")
+            await pilot.pause()
+
+            assert app.result is None
+
+    async def test_whitespace_only_returns_none(self) -> None:
+        """Whitespace-only name returns None."""
+        app = SessionRenameTestApp()
+        async with app.run_test() as pilot:
+            modal = SessionRenameModal("Original")
+            app.push_screen(
+                modal,
+                callback=lambda r: setattr(app, "result", r),
+            )
+            await pilot.pause()
+
+            # Set whitespace only
+            input_widget = modal.query_one("#session-name", Input)
+            input_widget.value = "   "
+
+            await pilot.click("#rename-btn")
+            await pilot.pause()
+
+            assert app.result is None
+
+    async def test_strips_whitespace(self) -> None:
+        """Whitespace is stripped from name."""
+        app = SessionRenameTestApp()
+        async with app.run_test() as pilot:
+            modal = SessionRenameModal("Original")
+            app.push_screen(
+                modal,
+                callback=lambda r: setattr(app, "result", r),
+            )
+            await pilot.pause()
+
+            # Set padded name
+            input_widget = modal.query_one("#session-name", Input)
+            input_widget.value = "  Padded Name  "
+
+            await pilot.click("#rename-btn")
+            await pilot.pause()
+
+            assert app.result == "Padded Name"
 
     async def test_load_button_returns_path(self) -> None:
         """Load button returns entered path."""

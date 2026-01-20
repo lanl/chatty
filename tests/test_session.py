@@ -14,6 +14,7 @@ from chatty.core.session import (
     get_session_filepath,
     list_sessions,
     load_session,
+    rename_session,
     save_markdown_export,
     save_session,
 )
@@ -290,6 +291,105 @@ def test_config_get_session_path_expands_tilde() -> None:
 
     assert "~" not in str(path)
     assert str(path).startswith(str(Path.home()))
+
+
+# ============================================================================
+# Session Rename Tests (v0.2.7)
+# ============================================================================
+
+
+def test_rename_session_basic(tmp_path: Path) -> None:
+    """Test renaming a session updates metadata.name."""
+    metadata = SessionMetadata.create("Original Name", "gpt-4.1", 2)
+    session = Session(
+        metadata=metadata,
+        system_prompt="System",
+        messages=[Message(role="user", content="Hello")],
+    )
+    filepath = save_session(session, tmp_path)
+
+    rename_session(filepath, "New Name")
+
+    loaded = load_session(filepath)
+    assert loaded.metadata.name == "New Name"
+
+
+def test_rename_session_updates_timestamp(tmp_path: Path) -> None:
+    """Test renaming updates updated_at timestamp."""
+    metadata = SessionMetadata.create("Test", "gpt-4.1", 0)
+    metadata.updated_at = "2020-01-01T00:00:00"
+    session = Session(metadata=metadata, system_prompt="", messages=[])
+
+    import json
+
+    filepath = tmp_path / f"session-{metadata.id}.json"
+    with open(filepath, "w") as f:
+        json.dump(session.to_dict(), f)
+
+    rename_session(filepath, "Renamed")
+
+    loaded = load_session(filepath)
+    assert loaded.metadata.updated_at != "2020-01-01T00:00:00"
+
+
+def test_rename_session_preserves_content(tmp_path: Path) -> None:
+    """Test renaming preserves messages and system prompt."""
+    metadata = SessionMetadata.create("Original", "gpt-4.1", 2)
+    messages = [
+        Message(role="user", content="Hello"),
+        Message(role="assistant", content="Hi there!"),
+    ]
+    session = Session(
+        metadata=metadata,
+        system_prompt="Be helpful",
+        messages=messages,
+    )
+    filepath = save_session(session, tmp_path)
+
+    rename_session(filepath, "New Name")
+
+    loaded = load_session(filepath)
+    assert loaded.system_prompt == "Be helpful"
+    assert len(loaded.messages) == 2
+    assert loaded.messages[0].content == "Hello"
+
+
+def test_rename_session_strips_whitespace(tmp_path: Path) -> None:
+    """Test rename strips leading/trailing whitespace."""
+    metadata = SessionMetadata.create("Test", "gpt-4.1", 0)
+    session = Session(metadata=metadata, system_prompt="", messages=[])
+    filepath = save_session(session, tmp_path)
+
+    rename_session(filepath, "  Padded Name  ")
+
+    loaded = load_session(filepath)
+    assert loaded.metadata.name == "Padded Name"
+
+
+def test_rename_session_empty_name_raises(tmp_path: Path) -> None:
+    """Test rename raises ValueError for empty name."""
+    metadata = SessionMetadata.create("Test", "gpt-4.1", 0)
+    session = Session(metadata=metadata, system_prompt="", messages=[])
+    filepath = save_session(session, tmp_path)
+
+    with pytest.raises(ValueError, match="cannot be empty"):
+        rename_session(filepath, "")
+
+
+def test_rename_session_whitespace_only_raises(tmp_path: Path) -> None:
+    """Test rename raises ValueError for whitespace-only name."""
+    metadata = SessionMetadata.create("Test", "gpt-4.1", 0)
+    session = Session(metadata=metadata, system_prompt="", messages=[])
+    filepath = save_session(session, tmp_path)
+
+    with pytest.raises(ValueError, match="cannot be empty"):
+        rename_session(filepath, "   ")
+
+
+def test_rename_session_not_found(tmp_path: Path) -> None:
+    """Test rename raises FileNotFoundError for missing file."""
+    with pytest.raises(FileNotFoundError):
+        rename_session(tmp_path / "nonexistent.json", "New Name")
 
 
 # ============================================================================
