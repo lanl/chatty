@@ -218,6 +218,74 @@ When the team grows beyond a single developer, consider adopting feature branche
    git push origin main
    ```
 
+## Releasing a New Version
+
+When bumping the version number, update these files in order:
+
+### 1. Version Files (Required)
+
+| File | What to Update |
+|------|----------------|
+| `src/chatty/__init__.py` | `__version__ = "X.Y.Z"` |
+| `pyproject.toml` | `version = "X.Y.Z"` in `[project]` section |
+
+Both files must have matching version numbers.
+
+### 2. Documentation (Required)
+
+| File | What to Update |
+|------|----------------|
+| `CHANGELOG.md` | Add new version entry at top with date and changes |
+| `README.md` | Update if new features affect user-facing docs |
+
+### 3. Roadmap (If Applicable)
+
+| File | What to Update |
+|------|----------------|
+| `docs/ROADMAP.md` | Mark milestone as complete (add ✅, update status, check tasks) |
+
+### Version Bump Checklist
+
+```bash
+# 1. Update version in __init__.py
+# src/chatty/__init__.py: __version__ = "0.2.9"
+
+# 2. Update version in pyproject.toml  
+# pyproject.toml: version = "0.2.9"
+
+# 3. Add CHANGELOG entry
+# CHANGELOG.md: ## [0.2.9] - YYYY-MM-DD
+
+# 4. Update README if needed
+
+# 5. Mark ROADMAP milestone complete (if applicable)
+
+# 6. Run pre-commit and tests
+uv run pre-commit run --all-files
+uv run pytest
+
+# 7. Commit all changes together
+git add -A
+git commit -m "v0.2.9: Short description of release"
+```
+
+### CHANGELOG Format
+
+Follow [Keep a Changelog](https://keepachangelog.com/) format:
+
+```markdown
+## [0.2.9] - 2026-01-20
+
+### Added
+- New feature description
+
+### Changed
+- Modified behavior description
+
+### Fixed
+- Bug fix description
+```
+
 ### Running chatty Locally
 
 Run chatty commands using `uv run`:
