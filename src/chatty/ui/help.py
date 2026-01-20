@@ -45,6 +45,7 @@ QUICK_TIPS: list[str] = [
     "Session names come from first user message (first line)",
     "Use ^F to search in long conversations",
     "^R regenerates if response was unsatisfactory",
+    "^J compresses long conversations, ^Y undoes compression",
 ]
 
 
