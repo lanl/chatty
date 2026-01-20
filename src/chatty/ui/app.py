@@ -174,8 +174,8 @@ class ChatApp(App[None]):
         Binding("ctrl+g", "pick_model", "Models", show=False),
         Binding("ctrl+e", "export", "Export", show=False),
         Binding("ctrl+t", "toggle_stream", "Toggle Stream", show=False),
-        Binding("ctrl+k", "compress", "Compress", show=False),
-        Binding("ctrl+u", "undo_compress", "Undo Compress", show=False),
+        Binding("ctrl+j", "compress", "Compress"),
+        Binding("ctrl+y", "undo_compress", "Undo Compress", show=False),
     ]
 
     def __init__(

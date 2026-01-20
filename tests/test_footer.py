@@ -64,8 +64,8 @@ class TestChattyFooter:
             footer = app.query_one("#footer", ChattyFooter)
             # Should have binding positions tracked
             assert len(footer._binding_positions) > 0
-            # Should have all standard bindings visible (including ^H Help)
-            assert len(footer.VISIBLE_BINDINGS) == 10
+            # Should have all standard bindings visible (including ^J Compress)
+            assert len(footer.VISIBLE_BINDINGS) == 11
 
     async def test_bindings_display_order(self) -> None:
         """Bindings are displayed in defined order."""
@@ -73,7 +73,7 @@ class TestChattyFooter:
         async with app.run_test() as _:
             footer = app.query_one("#footer", ChattyFooter)
 
-            # Check the order in VISIBLE_BINDINGS (Help before Quit)
+            # Check the order in VISIBLE_BINDINGS (includes Compress)
             expected_order = [
                 ("^P", "Submit", "submit"),
                 ("^O", "File", "load_file"),
@@ -82,6 +82,7 @@ class TestChattyFooter:
                 ("^C", "Copy", "copy"),
                 ("^S", "Save", "save"),
                 ("^L", "Load", "browse_sessions"),
+                ("^J", "Compress", "compress"),
                 ("^N", "New", "new_session"),
                 ("F1", "Help", "help"),
                 ("^Q", "Quit", "quit"),

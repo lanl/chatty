@@ -9,16 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-**Context Compression (`Ctrl+K`)**
+**Context Compression (`Ctrl+J`)**
 - LLM-based context compression to reduce token usage in long conversations
-- `Ctrl+K` opens preview modal showing proposed summary before applying
+- `Ctrl+J` opens preview modal showing proposed summary before applying
 - Preview displays token savings (e.g., "85,000 → 12,000 (save 86%)")
 - Warning shown when code blocks detected that may be lost
 - Cancel button focused by default (safer UX)
 - User can cancel after seeing preview — never compresses automatically
 
-**Undo Compression (`Ctrl+U`)**
-- `Ctrl+U` restores pre-compression conversation state
+**Undo Compression (`Ctrl+Y`)**
+- `Ctrl+Y` restores pre-compression conversation state
 - Single undo level (stores one pre-compression state)
 - Undo state is session-specific (cleared on load/new session)
 
@@ -32,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Help modal (`F1`) now shows `^K Compress context` and `^U Undo compression`
+- Help modal (`F1`) now shows `^J Compress context` and `^Y Undo compression`
 - `app.py` adds compression state tracking (`_pre_compression_state`, `_compression_available`, `_pending_summary`)
 
 ### Developer Notes

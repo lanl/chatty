@@ -43,6 +43,7 @@ class ChattyFooter(Static):
         ("^C", "Copy", "copy"),
         ("^S", "Save", "save"),
         ("^L", "Load", "browse_sessions"),
+        ("^J", "Compress", "compress"),
         ("^N", "New", "new_session"),
         ("F1", "Help", "help"),
         ("^Q", "Quit", "quit"),

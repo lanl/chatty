@@ -253,7 +253,7 @@ class TestCompressionIntegration:
             assert app._pending_summary is None
 
     async def test_compression_keybindings_registered(self) -> None:
-        """Ctrl+K and Ctrl+U keybindings are registered."""
+        """Ctrl+J and Ctrl+Y keybindings are registered."""
         from textual.binding import Binding
 
         from chatty.config import Config
@@ -271,8 +271,8 @@ class TestCompressionIntegration:
 
         # Check bindings are defined (filter Binding objects only)
         binding_keys = [b.key for b in app.BINDINGS if isinstance(b, Binding)]
-        assert "ctrl+k" in binding_keys
-        assert "ctrl+u" in binding_keys
+        assert "ctrl+j" in binding_keys
+        assert "ctrl+y" in binding_keys
 
     async def test_handle_compression_choice_cancel(self) -> None:
         """Cancel in compression modal clears pending summary."""

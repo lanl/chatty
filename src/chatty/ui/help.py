@@ -23,6 +23,7 @@ VISIBLE_SHORTCUTS: list[tuple[str, str]] = [
     ("^C", "Copy last response"),
     ("^S", "Save session"),
     ("^L", "Load saved session"),
+    ("^J", "Compress context"),
     ("^N", "New session (clear history)"),
     ("F1", "Show this help"),
     ("^Q", "Quit chatty"),
@@ -34,8 +35,7 @@ POWER_SHORTCUTS: list[tuple[str, str]] = [
     ("^R", "Regenerate last response"),
     ("^T", "Toggle streaming mode"),
     ("^G", "Switch model"),
-    ("^K", "Compress context"),
-    ("^U", "Undo compression"),
+    ("^Y", "Undo compression"),
 ]
 
 # Quick tips for common workflows
