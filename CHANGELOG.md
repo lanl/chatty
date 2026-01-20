@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.12] - 2026-01-19
+
+### Changed
+
+**Session Handlers Extraction**
+- Extracted session management logic to `ui/session_handlers.py` (251 lines)
+- `app.py` reduced from 1075 to 932 lines (-143 lines)
+
+### Extracted Functions
+
+| Function | Description |
+|----------|-------------|
+| `load_session_file()` | Load session from file on startup |
+| `load_and_submit_query_file()` | Load query file on startup |
+| `handle_session_load()` | Handle session selected from browser |
+| `handle_first_save()` | Handle first-save modal result |
+| `save_current_session()` | Save current session to disk |
+| `handle_file_path()` | Handle file path modal result |
+
+### Developer Notes
+
+- Uses `TYPE_CHECKING` guards to avoid circular imports
+- Functions receive `ChatApp` instance to access state
+- Coverage maintained at 80%
+- All 351 tests pass
+
+---
+
 ## [0.2.11] - 2026-01-19
 
 ### Changed
