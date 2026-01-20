@@ -350,3 +350,67 @@ class TestSearchIntegration:
 
             # Focus should be back on input
             assert input_widget.has_focus
+
+
+# ============================================================================
+# SearchBar Update Count Tests (v0.2.10)
+# ============================================================================
+
+
+class TestSearchBarUpdateCount:
+    """Tests for SearchBar.set_matches method."""
+
+    async def test_set_matches_with_results(
+        self, mock_config_with_sources: ConfigWithSources
+    ) -> None:
+        """set_matches updates counter with results."""
+        app = ChatApp(config_with_sources=mock_config_with_sources)
+        async with app.run_test() as pilot:
+            search_bar = app.query_one("#search-bar", SearchBar)
+
+            app.action_search()
+            await pilot.pause()
+
+            search_bar.set_matches(5, 2)
+            await pilot.pause()
+
+            assert search_bar.total_matches == 5
+            assert search_bar.match_index == 2
+
+    async def test_set_matches_zero_results(
+        self, mock_config_with_sources: ConfigWithSources
+    ) -> None:
+        """set_matches handles zero results."""
+        app = ChatApp(config_with_sources=mock_config_with_sources)
+        async with app.run_test() as pilot:
+            search_bar = app.query_one("#search-bar", SearchBar)
+
+            app.action_search()
+            await pilot.pause()
+
+            search_bar.set_matches(0, 0)
+            await pilot.pause()
+
+            assert search_bar.total_matches == 0
+
+    def test_count_occurrences(self) -> None:
+        """count_occurrences returns correct count."""
+        widget = MessageWidget("user", "hello hello hello world")
+        assert widget.count_occurrences("hello") == 3
+        assert widget.count_occurrences("world") == 1
+        assert widget.count_occurrences("xyz") == 0
+
+    async def test_total_occurrences_across_messages(
+        self, mock_config_with_sources: ConfigWithSources
+    ) -> None:
+        """ChatLog.total_occurrences counts across all messages."""
+        app = ChatApp(config_with_sources=mock_config_with_sources)
+        async with app.run_test() as pilot:
+            chat_log = app.query_one("#chat-log", ChatLog)
+
+            chat_log.add_message("user", "hello world")
+            chat_log.add_message("assistant", "hello hello")
+            await pilot.pause()
+
+            total = chat_log.total_occurrences("hello")
+            assert total == 3
