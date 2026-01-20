@@ -102,6 +102,7 @@ from chatty.ui.modals import (
     ModelInputModal,
     ModelPickerModal,
     SessionBrowserModal,
+    SessionRenameModal,
 )
 from chatty.ui.search import SearchBar
 from chatty.ui.widgets import ChatInput, ChatLog, StatusBar
@@ -724,34 +725,58 @@ class ChatApp(App[None]):
     def action_save(self) -> None:
         """Save the current session to a file (Ctrl+S).
 
-        Creates or updates a session file with the current conversation.
-        Auto-generates a name from the first user message if needed.
+        On first save, prompts for a session name with an auto-generated default.
+        On subsequent saves, updates the existing session file.
         """
         if not self.conversation or not self.conversation.messages:
             chat_log = self.query_one("#chat-log", ChatLog)
             chat_log.add_message("system", "Nothing to save — conversation is empty.")
             return
 
-        chat_log = self.query_one("#chat-log", ChatLog)
-
-        # Create or update session
         if self._current_session is None:
-            # Generate name from first user message
-            name = generate_session_name(self.conversation.messages)
-            metadata = SessionMetadata.create(
-                name=name,
-                model=self.config.model,
-                message_count=len(self.conversation.messages),
-            )
-            self._current_session = Session(
-                metadata=metadata,
-                system_prompt=self.config.system_prompt,
-                messages=list(self.conversation.messages),
+            # First save - prompt for name
+            default_name = generate_session_name(self.conversation.messages)
+            self.push_screen(
+                SessionRenameModal(default_name),
+                self._handle_first_save,
             )
         else:
-            # Update existing session
-            self._current_session.metadata.message_count = len(self.conversation.messages)
-            self._current_session.messages = list(self.conversation.messages)
+            # Update existing session and save
+            self._save_current_session()
+
+    def _handle_first_save(self, name: str | None) -> None:
+        """Handle the name returned from first-save modal.
+
+        Args:
+            name: Session name entered by user, or None if cancelled.
+        """
+        if not name or not self.conversation:
+            return
+
+        # Create new session with the chosen name
+        metadata = SessionMetadata.create(
+            name=name,
+            model=self.config.model,
+            message_count=len(self.conversation.messages),
+        )
+        self._current_session = Session(
+            metadata=metadata,
+            system_prompt=self.config.system_prompt,
+            messages=list(self.conversation.messages),
+        )
+        # Now save it
+        self._save_current_session()
+
+    def _save_current_session(self) -> None:
+        """Save the current session to disk."""
+        if not self._current_session or not self.conversation:
+            return
+
+        chat_log = self.query_one("#chat-log", ChatLog)
+
+        # Update session with current conversation state
+        self._current_session.metadata.message_count = len(self.conversation.messages)
+        self._current_session.messages = list(self.conversation.messages)
 
         # Save to file
         try:
