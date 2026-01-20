@@ -137,6 +137,7 @@ Save conversations and resume them later. Sessions store the full conversation s
 - `Ctrl+S` — Save current session (prompts for name on first save)
 - `Ctrl+L` — Browse and load saved sessions
 - `r` — Rename selected session (in session browser)
+- `d` — Delete selected session (in session browser, with confirmation)
 
 **CLI option:**
 ```bash

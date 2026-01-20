@@ -16,6 +16,7 @@ from chatty.ui.modals import (
     ModelInputModal,
     ModelPickerModal,
     SessionBrowserModal,
+    SessionDeleteConfirmModal,
     SessionRenameModal,
 )
 
@@ -245,6 +246,105 @@ class TestSessionRenameModal:
             await pilot.pause()
 
             assert app.result == "Padded Name"
+
+
+# ============================================================================
+# SessionDeleteConfirmModal Tests (v0.2.8)
+# ============================================================================
+
+
+class SessionDeleteTestApp(App[None]):
+    """App for testing SessionDeleteConfirmModal."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.result: bool | None | object = "not_called"
+
+    def compose(self) -> ComposeResult:
+        yield Label("Test App")
+
+
+class TestSessionDeleteConfirmModal:
+    """Tests for SessionDeleteConfirmModal."""
+
+    async def test_modal_renders_with_session_name(self) -> None:
+        """SessionDeleteConfirmModal shows session name."""
+        app = SessionDeleteTestApp()
+        async with app.run_test() as pilot:
+            modal = SessionDeleteConfirmModal("My Session")
+            app.push_screen(modal)
+            await pilot.pause()
+
+            # Session name should be stored
+            assert modal._session_name == "My Session"
+
+    async def test_cancel_button_returns_none(self) -> None:
+        """Cancel button returns None."""
+        app = SessionDeleteTestApp()
+        async with app.run_test() as pilot:
+            app.push_screen(
+                SessionDeleteConfirmModal("Test Session"),
+                callback=lambda r: setattr(app, "result", r),
+            )
+            await pilot.pause()
+
+            await pilot.click("#cancel-btn")
+            await pilot.pause()
+
+            assert app.result is None
+
+    async def test_escape_returns_none(self) -> None:
+        """Escape key returns None."""
+        app = SessionDeleteTestApp()
+        async with app.run_test() as pilot:
+            app.push_screen(
+                SessionDeleteConfirmModal("Test Session"),
+                callback=lambda r: setattr(app, "result", r),
+            )
+            await pilot.pause()
+
+            await pilot.press("escape")
+            await pilot.pause()
+
+            assert app.result is None
+
+    async def test_delete_button_returns_true(self) -> None:
+        """Delete button returns True."""
+        app = SessionDeleteTestApp()
+        async with app.run_test() as pilot:
+            app.push_screen(
+                SessionDeleteConfirmModal("Test Session"),
+                callback=lambda r: setattr(app, "result", r),
+            )
+            await pilot.pause()
+
+            await pilot.click("#delete-btn")
+            await pilot.pause()
+
+            assert app.result is True
+
+    async def test_cancel_button_focused_by_default(self) -> None:
+        """Cancel button is focused by default (safer UX)."""
+        app = SessionDeleteTestApp()
+        async with app.run_test() as pilot:
+            modal = SessionDeleteConfirmModal("Test Session")
+            app.push_screen(modal)
+            await pilot.pause()
+
+            # Cancel button should have focus
+            from textual.widgets import Button
+
+            cancel_btn = modal.query_one("#cancel-btn", Button)
+            assert cancel_btn.has_focus
+
+
+# ============================================================================
+# FileInputModal Additional Tests
+# ============================================================================
+
+
+class TestFileInputModalAdditional:
+    """Additional tests for FileInputModal."""
 
     async def test_load_button_returns_path(self) -> None:
         """Load button returns entered path."""

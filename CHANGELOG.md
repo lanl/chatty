@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.8] - 2026-01-19
+
+### Added
+
+**Session Deletion**
+- `d` key in session browser deletes selected session
+- `SessionDeleteConfirmModal` for delete confirmation
+- Delete button in red `variant="error"` for visual warning
+- "This cannot be undone" warning text
+- Cancel button focused by default (safer UX)
+- `delete_session()` function in `session.py`
+- If deleting currently-loaded session, clears app state
+- Hint text updated: `r rename d delete Enter load`
+- 7 new tests for deletion functionality
+
+### Changed
+
+- `pyproject.toml` version updated to 0.2.8
+
+---
+
 ## [0.2.7] - 2026-01-19
 
 ### Added

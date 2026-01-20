@@ -9,6 +9,7 @@ from chatty.config import Config
 from chatty.core.session import (
     Session,
     SessionMetadata,
+    delete_session,
     export_session_markdown,
     generate_session_name,
     get_session_filepath,
@@ -390,6 +391,33 @@ def test_rename_session_not_found(tmp_path: Path) -> None:
     """Test rename raises FileNotFoundError for missing file."""
     with pytest.raises(FileNotFoundError):
         rename_session(tmp_path / "nonexistent.json", "New Name")
+
+
+# ============================================================================
+# Session Deletion Tests (v0.2.8)
+# ============================================================================
+
+
+def test_delete_session_success(tmp_path: Path) -> None:
+    """Test deleting an existing session file."""
+    metadata = SessionMetadata.create("To Delete", "gpt-4.1", 2)
+    session = Session(
+        metadata=metadata,
+        system_prompt="System",
+        messages=[Message(role="user", content="Hello")],
+    )
+    filepath = save_session(session, tmp_path)
+    assert filepath.exists()
+
+    delete_session(filepath)
+
+    assert not filepath.exists()
+
+
+def test_delete_session_not_found(tmp_path: Path) -> None:
+    """Test delete raises FileNotFoundError for missing file."""
+    with pytest.raises(FileNotFoundError):
+        delete_session(tmp_path / "nonexistent.json")
 
 
 # ============================================================================
