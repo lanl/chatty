@@ -11,12 +11,14 @@ Tests the session management functions extracted from ChatApp:
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
-from chatty.core.session import Message, Session, SessionMetadata
+from chatty.client.openai_client import Message
+from chatty.core.session import Session, SessionMetadata
 from chatty.ui.session_handlers import (
     handle_file_path,
     handle_first_save,
@@ -28,7 +30,7 @@ from chatty.ui.session_handlers import (
 
 
 @pytest.fixture
-def mock_app():
+def mock_app() -> Generator[MagicMock, None, None]:
     """Create a mock ChatApp for testing handlers."""
     app = MagicMock()
     app.session_file = None
@@ -48,7 +50,7 @@ def mock_app():
     mock_input = MagicMock()
     mock_status_bar = MagicMock()
 
-    def query_one_side_effect(selector, widget_type=None):
+    def query_one_side_effect(selector: str, _widget_type: type | None = None) -> MagicMock:
         if "chat-log" in selector:
             return mock_chat_log
         if "input" in selector:
@@ -59,18 +61,18 @@ def mock_app():
 
     app.query_one = MagicMock(side_effect=query_one_side_effect)
 
-    return app
+    yield app
 
 
 @pytest.fixture
-def sample_session():
+def sample_session() -> Generator[Session, None, None]:
     """Create a sample session for testing."""
     metadata = SessionMetadata.create(
         name="Test Session",
         model="gpt-4",
         message_count=2,
     )
-    return Session(
+    yield Session(
         metadata=metadata,
         system_prompt="You are helpful.",
         messages=[
@@ -88,14 +90,16 @@ def sample_session():
 class TestLoadSessionFile:
     """Tests for load_session_file function."""
 
-    def test_load_session_file_no_file(self, mock_app):
+    def test_load_session_file_no_file(self, mock_app: MagicMock) -> None:
         """Does nothing when session_file is None."""
         mock_app.session_file = None
         load_session_file(mock_app)
         # Should not call query_one since we exit early
         # No error should occur
 
-    def test_load_session_file_success(self, mock_app, sample_session, tmp_path):
+    def test_load_session_file_success(
+        self, mock_app: MagicMock, sample_session: Session, tmp_path: Path
+    ) -> None:
         """Successfully loads session from file."""
         # Save a session file
         from chatty.core.session import save_session
@@ -111,7 +115,7 @@ class TestLoadSessionFile:
         # Verify conversation was updated
         mock_app.conversation.clear.assert_called_once()
 
-    def test_load_session_file_error(self, mock_app, tmp_path):
+    def test_load_session_file_error(self, mock_app: MagicMock, tmp_path: Path) -> None:
         """Handles error when loading invalid session file."""
         # Create an invalid session file
         invalid_file = tmp_path / "invalid.json"
@@ -127,7 +131,7 @@ class TestLoadSessionFile:
         last_call = chat_log.add_message.call_args_list[-1]
         assert last_call[0][0] == "error"
 
-    def test_load_session_file_restores_messages(self, mock_app, tmp_path):
+    def test_load_session_file_restores_messages(self, mock_app: MagicMock, tmp_path: Path) -> None:
         """Restores all message types correctly."""
         from chatty.core.session import save_session
 
@@ -164,13 +168,13 @@ class TestLoadSessionFile:
 class TestLoadAndSubmitQueryFile:
     """Tests for load_and_submit_query_file function."""
 
-    def test_load_query_file_no_file(self, mock_app):
+    def test_load_query_file_no_file(self, mock_app: MagicMock) -> None:
         """Does nothing when query_file is None."""
         mock_app.query_file = None
         load_and_submit_query_file(mock_app)
         # Should not call any methods
 
-    def test_load_query_file_success(self, mock_app, tmp_path):
+    def test_load_query_file_success(self, mock_app: MagicMock, tmp_path: Path) -> None:
         """Successfully loads and submits query from file."""
         query_file = tmp_path / "query.txt"
         query_file.write_text("What is Python?")
@@ -183,7 +187,7 @@ class TestLoadAndSubmitQueryFile:
         assert input_widget.text == "What is Python?"
         mock_app.action_submit.assert_called_once()
 
-    def test_load_query_file_empty(self, mock_app, tmp_path):
+    def test_load_query_file_empty(self, mock_app: MagicMock, tmp_path: Path) -> None:
         """Does not submit empty query file."""
         query_file = tmp_path / "empty.txt"
         query_file.write_text("   \n  ")  # whitespace only
@@ -194,7 +198,7 @@ class TestLoadAndSubmitQueryFile:
         # Should not call submit since content is empty after strip
         mock_app.action_submit.assert_not_called()
 
-    def test_load_query_file_error(self, mock_app):
+    def test_load_query_file_error(self, mock_app: MagicMock) -> None:
         """Handles error when query file doesn't exist."""
         mock_app.query_file = Path("/nonexistent/query.txt")
 
@@ -215,13 +219,15 @@ class TestLoadAndSubmitQueryFile:
 class TestHandleSessionLoad:
     """Tests for handle_session_load function."""
 
-    def test_handle_session_load_cancelled(self, mock_app):
+    def test_handle_session_load_cancelled(self, mock_app: MagicMock) -> None:
         """Does nothing when filepath is None (cancelled)."""
         handle_session_load(mock_app, None)
         # Should not call any methods
         mock_app.conversation.clear.assert_not_called()
 
-    def test_handle_session_load_success(self, mock_app, sample_session, tmp_path):
+    def test_handle_session_load_success(
+        self, mock_app: MagicMock, sample_session: Session, tmp_path: Path
+    ) -> None:
         """Successfully loads session from browser selection."""
         from chatty.core.session import save_session
 
@@ -236,7 +242,7 @@ class TestHandleSessionLoad:
         chat_log = mock_app.query_one("#chat-log")
         chat_log.clear_messages.assert_called_once()
 
-    def test_handle_session_load_error(self, mock_app, tmp_path):
+    def test_handle_session_load_error(self, mock_app: MagicMock, tmp_path: Path) -> None:
         """Handles error when loading invalid session."""
         invalid_file = tmp_path / "invalid.json"
         invalid_file.write_text("not json")
@@ -249,7 +255,9 @@ class TestHandleSessionLoad:
         error_calls = [c for c in chat_log.add_message.call_args_list if c[0][0] == "error"]
         assert len(error_calls) > 0
 
-    def test_handle_session_load_updates_status_bar(self, mock_app, sample_session, tmp_path):
+    def test_handle_session_load_updates_status_bar(
+        self, mock_app: MagicMock, sample_session: Session, tmp_path: Path
+    ) -> None:
         """Updates status bar after loading session."""
         from chatty.core.session import save_session
 
@@ -270,23 +278,23 @@ class TestHandleSessionLoad:
 class TestHandleFirstSave:
     """Tests for handle_first_save function."""
 
-    def test_handle_first_save_cancelled(self, mock_app):
+    def test_handle_first_save_cancelled(self, mock_app: MagicMock) -> None:
         """Does nothing when name is None (cancelled)."""
         handle_first_save(mock_app, None)
         assert mock_app._current_session is None
 
-    def test_handle_first_save_no_conversation(self, mock_app):
+    def test_handle_first_save_no_conversation(self, mock_app: MagicMock) -> None:
         """Does nothing when conversation is None."""
         mock_app.conversation = None
         handle_first_save(mock_app, "My Session")
         assert mock_app._current_session is None
 
-    def test_handle_first_save_empty_name(self, mock_app):
+    def test_handle_first_save_empty_name(self, mock_app: MagicMock) -> None:
         """Does nothing when name is empty string."""
         handle_first_save(mock_app, "")
         assert mock_app._current_session is None
 
-    def test_handle_first_save_success(self, mock_app, tmp_path):
+    def test_handle_first_save_success(self, mock_app: MagicMock, tmp_path: Path) -> None:
         """Creates session with provided name."""
         mock_app.conversation.messages = [
             Message(role="user", content="Hello"),
@@ -311,20 +319,24 @@ class TestHandleFirstSave:
 class TestSaveCurrentSession:
     """Tests for save_current_session function."""
 
-    def test_save_current_session_no_session(self, mock_app):
+    def test_save_current_session_no_session(self, mock_app: MagicMock) -> None:
         """Does nothing when no current session."""
         mock_app._current_session = None
         save_current_session(mock_app)
         # Should not raise error
 
-    def test_save_current_session_no_conversation(self, mock_app, sample_session):
+    def test_save_current_session_no_conversation(
+        self, mock_app: MagicMock, sample_session: Session
+    ) -> None:
         """Does nothing when no conversation."""
         mock_app._current_session = sample_session
         mock_app.conversation = None
         save_current_session(mock_app)
         # Should not raise error
 
-    def test_save_current_session_success(self, mock_app, sample_session, tmp_path):
+    def test_save_current_session_success(
+        self, mock_app: MagicMock, sample_session: Session, tmp_path: Path
+    ) -> None:
         """Successfully saves session to disk."""
         mock_app._current_session = sample_session
         mock_app.conversation.messages = sample_session.messages
@@ -341,7 +353,7 @@ class TestSaveCurrentSession:
         session_files = list(tmp_path.glob("*.json"))
         assert len(session_files) == 1
 
-    def test_save_current_session_error(self, mock_app, sample_session):
+    def test_save_current_session_error(self, mock_app: MagicMock, sample_session: Session) -> None:
         """Handles error when saving fails."""
         mock_app._current_session = sample_session
         mock_app.conversation.messages = sample_session.messages
@@ -364,12 +376,12 @@ class TestSaveCurrentSession:
 class TestHandleFilePath:
     """Tests for handle_file_path function."""
 
-    def test_handle_file_path_cancelled(self, mock_app):
+    def test_handle_file_path_cancelled(self, mock_app: MagicMock) -> None:
         """Does nothing when path is None (cancelled)."""
         handle_file_path(mock_app, None)
         # Should not call any methods
 
-    def test_handle_file_path_success(self, mock_app, tmp_path):
+    def test_handle_file_path_success(self, mock_app: MagicMock, tmp_path: Path) -> None:
         """Successfully loads file content into input."""
         query_file = tmp_path / "query.txt"
         query_file.write_text("What is AI?")
@@ -381,7 +393,7 @@ class TestHandleFilePath:
         assert input_widget.text == "What is AI?"
         input_widget.focus.assert_called_once()
 
-    def test_handle_file_path_not_found(self, mock_app):
+    def test_handle_file_path_not_found(self, mock_app: MagicMock) -> None:
         """Shows error when file not found."""
         handle_file_path(mock_app, "/nonexistent/file.txt")
 
@@ -390,7 +402,7 @@ class TestHandleFilePath:
         assert len(error_calls) == 1
         assert "not found" in error_calls[0][0][1].lower()
 
-    def test_handle_file_path_permission_error(self, mock_app, tmp_path):
+    def test_handle_file_path_permission_error(self, mock_app: MagicMock, tmp_path: Path) -> None:
         """Shows error when permission denied."""
         # Create a file and make it unreadable
         restricted_file = tmp_path / "restricted.txt"
@@ -408,7 +420,7 @@ class TestHandleFilePath:
             # Restore permissions so tmp_path can be cleaned up
             restricted_file.chmod(0o644)
 
-    def test_handle_file_path_empty_file(self, mock_app, tmp_path):
+    def test_handle_file_path_empty_file(self, mock_app: MagicMock, tmp_path: Path) -> None:
         """Shows error when file is empty."""
         empty_file = tmp_path / "empty.txt"
         empty_file.write_text("")
@@ -420,7 +432,7 @@ class TestHandleFilePath:
         assert len(error_calls) == 1
         assert "empty" in error_calls[0][0][1].lower()
 
-    def test_handle_file_path_whitespace_only(self, mock_app, tmp_path):
+    def test_handle_file_path_whitespace_only(self, mock_app: MagicMock, tmp_path: Path) -> None:
         """Shows error when file contains only whitespace."""
         whitespace_file = tmp_path / "whitespace.txt"
         whitespace_file.write_text("   \n\t  \n")
@@ -432,7 +444,7 @@ class TestHandleFilePath:
         assert len(error_calls) == 1
         assert "empty" in error_calls[0][0][1].lower()
 
-    def test_handle_file_path_generic_error(self, mock_app):
+    def test_handle_file_path_generic_error(self, mock_app: MagicMock) -> None:
         """Shows generic error for unexpected exceptions."""
         # Use mock_open to simulate a generic exception
         with patch("builtins.open", mock_open()) as m:
@@ -453,7 +465,9 @@ class TestHandleFilePath:
 class TestSessionDirtyFlag:
     """Tests for session dirty flag tracking."""
 
-    def test_dirty_flag_cleared_on_save(self, mock_app, sample_session, tmp_path):
+    def test_dirty_flag_cleared_on_save(
+        self, mock_app: MagicMock, sample_session: Session, tmp_path: Path
+    ) -> None:
         """Dirty flag is cleared after successful save."""
         mock_app._current_session = sample_session
         mock_app.conversation.messages = sample_session.messages
@@ -465,7 +479,9 @@ class TestSessionDirtyFlag:
         # Verify dirty flag was cleared
         assert mock_app._session_dirty is False
 
-    def test_dirty_flag_cleared_on_load(self, mock_app, sample_session, tmp_path):
+    def test_dirty_flag_cleared_on_load(
+        self, mock_app: MagicMock, sample_session: Session, tmp_path: Path
+    ) -> None:
         """Dirty flag is cleared after loading session."""
         from chatty.core.session import save_session
 
@@ -477,7 +493,9 @@ class TestSessionDirtyFlag:
         # Verify dirty flag was cleared
         assert mock_app._session_dirty is False
 
-    def test_dirty_flag_not_cleared_on_save_error(self, mock_app, sample_session):
+    def test_dirty_flag_not_cleared_on_save_error(
+        self, mock_app: MagicMock, sample_session: Session
+    ) -> None:
         """Dirty flag remains set when save fails."""
         mock_app._current_session = sample_session
         mock_app.conversation.messages = sample_session.messages
@@ -490,7 +508,9 @@ class TestSessionDirtyFlag:
         # Dirty flag should still be set (save failed)
         assert mock_app._session_dirty is True
 
-    def test_dirty_flag_not_cleared_on_load_error(self, mock_app, tmp_path):
+    def test_dirty_flag_not_cleared_on_load_error(
+        self, mock_app: MagicMock, tmp_path: Path
+    ) -> None:
         """Dirty flag remains set when load fails."""
         invalid_file = tmp_path / "invalid.json"
         invalid_file.write_text("not json")
@@ -501,7 +521,7 @@ class TestSessionDirtyFlag:
         # Dirty flag should still be set (load failed)
         assert mock_app._session_dirty is True
 
-    def test_dirty_flag_not_changed_on_cancel(self, mock_app):
+    def test_dirty_flag_not_changed_on_cancel(self, mock_app: MagicMock) -> None:
         """Dirty flag unchanged when load cancelled."""
         mock_app._session_dirty = True
 

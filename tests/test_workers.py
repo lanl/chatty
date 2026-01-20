@@ -8,6 +8,7 @@ Tests the async worker functions extracted from ChatApp:
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -21,7 +22,7 @@ from chatty.ui.workers import (
 
 
 @pytest.fixture
-def mock_app():
+def mock_app() -> MagicMock:
     """Create a mock ChatApp for testing workers."""
     app = MagicMock()
     app.client = MagicMock()
@@ -44,7 +45,7 @@ def mock_app():
     mock_status_bar = MagicMock()
     mock_status_bar.last_response_time = 1.5
 
-    def query_one_side_effect(selector, widget_type=None):
+    def query_one_side_effect(selector: str, _widget_type: type | None = None) -> MagicMock:
         if "chat-log" in selector:
             return mock_chat_log
         if "status-bar" in selector:
@@ -65,21 +66,21 @@ class TestFetchContextWindow:
     """Tests for fetch_context_window function."""
 
     @pytest.mark.asyncio
-    async def test_fetch_context_window_no_client(self, mock_app):
+    async def test_fetch_context_window_no_client(self, mock_app: MagicMock) -> None:
         """Does nothing when client is None."""
         mock_app.client = None
         await fetch_context_window(mock_app)
         # Should not raise error
 
     @pytest.mark.asyncio
-    async def test_fetch_context_window_no_conversation(self, mock_app):
+    async def test_fetch_context_window_no_conversation(self, mock_app: MagicMock) -> None:
         """Does nothing when conversation is None."""
         mock_app.conversation = None
         await fetch_context_window(mock_app)
         # Should not raise error
 
     @pytest.mark.asyncio
-    async def test_fetch_context_window_success(self, mock_app):
+    async def test_fetch_context_window_success(self, mock_app: MagicMock) -> None:
         """Successfully fetches and sets context window."""
         mock_app.client.get_model_context_length = AsyncMock(return_value=128000)
 
@@ -91,7 +92,7 @@ class TestFetchContextWindow:
         status_bar.update_status.assert_called()
 
     @pytest.mark.asyncio
-    async def test_fetch_context_window_no_context_length(self, mock_app):
+    async def test_fetch_context_window_no_context_length(self, mock_app: MagicMock) -> None:
         """Shows error when endpoint returns None for context_length."""
         mock_app.client.get_model_context_length = AsyncMock(return_value=None)
 
@@ -105,7 +106,7 @@ class TestFetchContextWindow:
         assert "context_window" in call_args[1]
 
     @pytest.mark.asyncio
-    async def test_fetch_context_window_client_error(self, mock_app):
+    async def test_fetch_context_window_client_error(self, mock_app: MagicMock) -> None:
         """Shows error when client raises ChattyClientError."""
         mock_app.client.get_model_context_length = AsyncMock(
             side_effect=ChattyClientError("Connection failed")
@@ -120,7 +121,7 @@ class TestFetchContextWindow:
         assert "failed to fetch" in call_args[1].lower()
 
     @pytest.mark.asyncio
-    async def test_fetch_context_window_generic_error(self, mock_app):
+    async def test_fetch_context_window_generic_error(self, mock_app: MagicMock) -> None:
         """Shows error for unexpected exceptions."""
         mock_app.client.get_model_context_length = AsyncMock(
             side_effect=RuntimeError("Unexpected error")
@@ -144,14 +145,14 @@ class TestFetchAndShowModels:
     """Tests for fetch_and_show_models function."""
 
     @pytest.mark.asyncio
-    async def test_fetch_models_no_client(self, mock_app):
+    async def test_fetch_models_no_client(self, mock_app: MagicMock) -> None:
         """Does nothing when client is None."""
         mock_app.client = None
         await fetch_and_show_models(mock_app)
         # Should not raise error
 
     @pytest.mark.asyncio
-    async def test_fetch_models_success(self, mock_app):
+    async def test_fetch_models_success(self, mock_app: MagicMock) -> None:
         """Successfully fetches models and shows picker."""
         mock_app.client.models = AsyncMock(return_value=["gpt-4", "gpt-3.5-turbo"])
 
@@ -165,7 +166,7 @@ class TestFetchAndShowModels:
         assert isinstance(call_args[0], ModelPickerModal)
 
     @pytest.mark.asyncio
-    async def test_fetch_models_empty_list(self, mock_app):
+    async def test_fetch_models_empty_list(self, mock_app: MagicMock) -> None:
         """Shows manual input modal when models list is empty."""
         mock_app.client.models = AsyncMock(return_value=[])
 
@@ -179,7 +180,7 @@ class TestFetchAndShowModels:
         assert isinstance(call_args[0], ModelInputModal)
 
     @pytest.mark.asyncio
-    async def test_fetch_models_client_error(self, mock_app):
+    async def test_fetch_models_client_error(self, mock_app: MagicMock) -> None:
         """Shows manual input modal on ChattyClientError."""
         mock_app.client.models = AsyncMock(side_effect=ChattyClientError("/models not supported"))
 
@@ -193,7 +194,7 @@ class TestFetchAndShowModels:
         assert isinstance(call_args[0], ModelInputModal)
 
     @pytest.mark.asyncio
-    async def test_fetch_models_generic_error(self, mock_app):
+    async def test_fetch_models_generic_error(self, mock_app: MagicMock) -> None:
         """Shows error message on unexpected exception."""
         mock_app.client.models = AsyncMock(side_effect=RuntimeError("Network timeout"))
 
@@ -215,21 +216,21 @@ class TestSendMessage:
     """Tests for send_message function."""
 
     @pytest.mark.asyncio
-    async def test_send_message_no_client(self, mock_app):
+    async def test_send_message_no_client(self, mock_app: MagicMock) -> None:
         """Does nothing when client is None."""
         mock_app.client = None
         await send_message(mock_app)
         # Should not raise error
 
     @pytest.mark.asyncio
-    async def test_send_message_no_conversation(self, mock_app):
+    async def test_send_message_no_conversation(self, mock_app: MagicMock) -> None:
         """Does nothing when conversation is None."""
         mock_app.conversation = None
         await send_message(mock_app)
         # Should not raise error
 
     @pytest.mark.asyncio
-    async def test_send_message_no_pending_text(self, mock_app):
+    async def test_send_message_no_pending_text(self, mock_app: MagicMock) -> None:
         """Does nothing when no pending text."""
         mock_app._pending_user_text = ""
         await send_message(mock_app)
@@ -237,7 +238,7 @@ class TestSendMessage:
         mock_app.client.chat.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_send_message_streaming_success(self, mock_app):
+    async def test_send_message_streaming_success(self, mock_app: MagicMock) -> None:
         """Successfully sends message in streaming mode."""
         mock_app.streaming = True
         mock_app._pending_user_text = "Hello"
@@ -248,7 +249,7 @@ class TestSendMessage:
         )
 
         # Mock streaming response
-        async def mock_stream():
+        async def mock_stream() -> AsyncIterator[str]:
             for token in ["Hello", " there", "!"]:
                 yield token
 
@@ -274,7 +275,7 @@ class TestSendMessage:
         mock_app.transcript.log_message.assert_called()
 
     @pytest.mark.asyncio
-    async def test_send_message_non_streaming_success(self, mock_app):
+    async def test_send_message_non_streaming_success(self, mock_app: MagicMock) -> None:
         """Successfully sends message in non-streaming mode."""
         mock_app.streaming = False
         mock_app._pending_user_text = "Hello"
@@ -306,7 +307,7 @@ class TestSendMessage:
         mock_app.conversation.add_assistant_message.assert_called()
 
     @pytest.mark.asyncio
-    async def test_send_message_client_error(self, mock_app):
+    async def test_send_message_client_error(self, mock_app: MagicMock) -> None:
         """Shows error on ChattyClientError."""
         mock_app._pending_user_text = "Hello"
         mock_app.rag_provider.augment = AsyncMock(
@@ -328,7 +329,7 @@ class TestSendMessage:
         mock_app.transcript.log_message.assert_called()
 
     @pytest.mark.asyncio
-    async def test_send_message_generic_error(self, mock_app):
+    async def test_send_message_generic_error(self, mock_app: MagicMock) -> None:
         """Shows error on unexpected exception."""
         mock_app._pending_user_text = "Hello"
         mock_app.rag_provider.augment = AsyncMock(
@@ -344,7 +345,7 @@ class TestSendMessage:
         assert "unexpected" in error_calls[0][0][1].lower()
 
     @pytest.mark.asyncio
-    async def test_send_message_clears_worker(self, mock_app):
+    async def test_send_message_clears_worker(self, mock_app: MagicMock) -> None:
         """Worker is cleared after completion."""
         mock_app._pending_user_text = "Hello"
         mock_app.streaming = False
@@ -360,7 +361,7 @@ class TestSendMessage:
         assert mock_app.current_worker is None
 
     @pytest.mark.asyncio
-    async def test_send_message_clears_worker_on_error(self, mock_app):
+    async def test_send_message_clears_worker_on_error(self, mock_app: MagicMock) -> None:
         """Worker is cleared even on error."""
         mock_app._pending_user_text = "Hello"
         mock_app.rag_provider.augment = AsyncMock(
@@ -373,7 +374,7 @@ class TestSendMessage:
         assert mock_app.current_worker is None
 
     @pytest.mark.asyncio
-    async def test_send_message_updates_status_thinking(self, mock_app):
+    async def test_send_message_updates_status_thinking(self, mock_app: MagicMock) -> None:
         """Status bar shows 'Thinking...' during processing."""
         mock_app._pending_user_text = "Hello"
         mock_app.streaming = False
@@ -392,7 +393,7 @@ class TestSendMessage:
         assert first_call[1].get("status") == "Thinking..."
 
     @pytest.mark.asyncio
-    async def test_send_message_stores_rag_metadata(self, mock_app):
+    async def test_send_message_stores_rag_metadata(self, mock_app: MagicMock) -> None:
         """RAG metadata is stored on app."""
         mock_app._pending_user_text = "Hello"
         mock_app.streaming = False
