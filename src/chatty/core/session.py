@@ -204,6 +204,20 @@ def rename_session(filepath: Path, new_name: str) -> None:
     save_session(session, filepath.parent)
 
 
+def delete_session(filepath: Path) -> None:
+    """Delete a session file from disk.
+
+    Args:
+        filepath: Path to the session file to delete.
+
+    Raises:
+        FileNotFoundError: If the session file doesn't exist.
+    """
+    if not filepath.exists():
+        raise FileNotFoundError(f"Session file not found: {filepath}")
+    filepath.unlink()
+
+
 def export_session_markdown(
     messages: list[Message],
     *,

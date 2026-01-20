@@ -423,6 +423,96 @@ class SessionRenameModal(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class SessionDeleteConfirmModal(ModalScreen[bool | None]):
+    """Modal screen for confirming session deletion.
+
+    Displays a confirmation prompt before deleting a session.
+    Returns True if user confirms deletion, None if cancelled.
+
+    Usage:
+        app.push_screen(SessionDeleteConfirmModal(session_name), callback)
+        # callback receives True (confirm) or None (cancel)
+
+    Bindings:
+        Escape: Cancel and dismiss
+    """
+
+    CSS = """
+    SessionDeleteConfirmModal {
+        align: center middle;
+    }
+
+    #delete-dialog {
+        width: 50;
+        height: auto;
+        padding: 1 2;
+        background: $surface;
+        border: thick $error;
+    }
+
+    #delete-dialog Label {
+        margin-bottom: 1;
+    }
+
+    #delete-title {
+        text-style: bold;
+    }
+
+    #delete-warning {
+        color: $text-muted;
+    }
+
+    #delete-buttons {
+        width: 100%;
+        height: auto;
+        align: right middle;
+        margin-top: 1;
+    }
+
+    #delete-buttons Button {
+        margin-left: 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, session_name: str) -> None:
+        """Initialize the delete confirmation dialog.
+
+        Args:
+            session_name: Name of session to delete (shown in prompt).
+        """
+        super().__init__()
+        self._session_name = session_name
+
+    def compose(self) -> ComposeResult:
+        """Create the dialog layout."""
+        with Vertical(id="delete-dialog"):
+            yield Label("Delete Session", id="delete-title")
+            yield Label(f"Delete '{self._session_name}'?")
+            yield Label("This cannot be undone.", id="delete-warning")
+            with Container(id="delete-buttons"):
+                yield Button("Cancel", variant="default", id="cancel-btn")
+                yield Button("Delete", variant="error", id="delete-btn")
+
+    def on_mount(self) -> None:
+        """Focus the cancel button by default (safer)."""
+        self.query_one("#cancel-btn", Button).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button clicks."""
+        if event.button.id == "delete-btn":
+            self.dismiss(True)
+        else:
+            self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        """Handle Escape key."""
+        self.dismiss(None)
+
+
 class ModelPickerModal(ModalScreen[str | None]):
     """Modal screen for selecting a model from the endpoint.
 
