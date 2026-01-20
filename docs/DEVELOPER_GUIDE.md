@@ -322,6 +322,61 @@ Add a development dependency:
 uv add --dev pytest-cov
 ```
 
+## Accessibility Guidelines
+
+chatty is designed to work for colorblind users (~8% of males). Follow these guidelines when adding new UI elements.
+
+### Message Type Prefixes
+
+| Type | Prefix | Icon | Why |
+|------|--------|------|-----|
+| error | `⚠ Error` | U+26A0 | Warning symbol — universal danger indicator |
+| system | `ℹ System` | U+2139 | Information symbol — indicates meta/system info |
+| assistant | `Assistant` | None | Most common; icon would add noise |
+| user | `You` | None | Not ambiguous; dimmed styling sufficient |
+
+### Unicode vs. Emoji
+
+**Use Unicode symbols (U+0000–U+FFFF):**
+- `⚠` (U+26A0) — Warning sign
+- `ℹ` (U+2139) — Information source
+- `●` (U+25CF) — Black circle
+- These render correctly on HPC terminals
+
+**Avoid emoji (U+1F000+):**
+- `🤖` `⚡` `✅` — Require emoji fonts
+- HPC terminals typically don't have emoji support
+- Render as `□` or `?` on minimal systems
+
+### Color + Shape
+
+Never convey information by color alone. Every colored element should have a secondary indicator:
+
+| Element | Color | Shape/Text |
+|---------|-------|------------|
+| Error message | `$error` (red) | `⚠` prefix + background |
+| System message | `$accent` (cyan) | `ℹ` prefix + left border |
+| Search match | `$warning` (yellow) | Left border |
+| Current match | `$success` (green) | Left border + background |
+
+### CSS Pattern
+
+```css
+/* Good: Color + border for shape distinction */
+.system-message {
+    color: $accent;
+    border-left: thick $accent;
+}
+
+/* Good: Color + background for emphasis */
+.error-message {
+    color: $error;
+    background: $error 10%;
+}
+```
+
+---
+
 ## Project Structure
 
 ```

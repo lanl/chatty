@@ -12,6 +12,31 @@ from textual.app import App, ComposeResult
 
 from chatty.ui.widgets import ChatInput, ChatLog, MessageWidget, StatusBar
 
+# ============================================================================
+# MessageWidget ROLE_PREFIXES Tests (v0.2.9 Accessibility)
+# ============================================================================
+
+
+class TestMessageWidgetPrefixes:
+    """Tests for accessible message prefixes."""
+
+    def test_system_message_has_info_icon(self) -> None:
+        """System messages have ℹ icon prefix for colorblind accessibility."""
+        assert MessageWidget.ROLE_PREFIXES["system"] == "ℹ System"
+
+    def test_error_message_has_warning_icon(self) -> None:
+        """Error messages have ⚠ icon prefix."""
+        assert MessageWidget.ROLE_PREFIXES["error"] == "⚠ Error"
+
+    def test_user_message_no_icon(self) -> None:
+        """User messages have no icon (just text label)."""
+        assert MessageWidget.ROLE_PREFIXES["user"] == "You"
+
+    def test_assistant_message_no_icon(self) -> None:
+        """Assistant messages have no icon (just text label)."""
+        assert MessageWidget.ROLE_PREFIXES["assistant"] == "Assistant"
+
+
 if TYPE_CHECKING:
     pass
 

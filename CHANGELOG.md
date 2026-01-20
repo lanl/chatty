@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.9] - 2026-01-19
+
+### Added
+
+**Color Accessibility**
+- System messages now have `ℹ` icon prefix (U+2139)
+- System messages have left border for shape distinction
+- Colorblind users can distinguish message types without relying on color
+- Uses Unicode symbols (not emoji) for HPC terminal compatibility
+
+### Changed
+
+- System messages: `System` → `ℹ System`
+- `pyproject.toml` and `__init__.py` version updated to 0.2.9
+
+### Developer Notes
+
+- Added 4 tests for ROLE_PREFIXES in `test_widgets.py`
+- CSS: `.system-message` now has `border-left: thick $accent`
+
+---
+
 ## [0.2.8] - 2026-01-19
 
 ### Added

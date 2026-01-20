@@ -72,7 +72,7 @@ class MessageWidget(Static):
     ROLE_PREFIXES = {
         "user": "You",
         "assistant": "Assistant",
-        "system": "System",
+        "system": "ℹ System",
         "error": "⚠ Error",
     }
 

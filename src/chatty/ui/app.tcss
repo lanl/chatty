@@ -36,9 +36,12 @@ MessageWidget {
     color: $text;
 }
 
-/* System messages: cyan/blue - informational */
+/* System messages: cyan/blue with border - informational
+ * Uses border for shape distinction (colorblind accessibility) */
 .system-message {
     color: $accent;
+    border-left: thick $accent;
+    padding-left: 1;
 }
 
 /* Error messages: red with subtle background - attention needed */
