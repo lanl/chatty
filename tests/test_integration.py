@@ -149,10 +149,18 @@ class TestActions:
         """action_save shows message when conversation empty."""
         app = ChatApp(config_with_sources=mock_config_with_sources)
         async with app.run_test() as pilot:
+            await pilot.pause()  # Wait for mount
             chat_log = app.query_one("#chat-log", ChatLog)
+
+            # Clear conversation completely (remove any system prompt too)
+            if app.conversation:
+                app.conversation.clear()
+            chat_log.clear_messages()
+            await pilot.pause()
 
             app.action_save()
             await pilot.pause()
+            await pilot.pause()  # Extra pause for message to appear
 
             # Should show a system message about empty conversation
             last = chat_log.get_last_message()
@@ -365,10 +373,10 @@ class TestCopyAction:
 class TestSaveAction:
     """Tests for action_save with populated conversation."""
 
-    async def test_save_creates_session_file(
+    async def test_save_opens_rename_modal_on_first_save(
         self, mock_config_with_sources: ConfigWithSources
     ) -> None:
-        """action_save creates session file when conversation has messages."""
+        """action_save opens name modal on first save."""
         app = ChatApp(config_with_sources=mock_config_with_sources)
         async with app.run_test() as pilot:
             await pilot.pause()  # Wait for mount
@@ -378,14 +386,70 @@ class TestSaveAction:
             app.conversation.add_user_message("Hello world")
             app.conversation.add_assistant_message("Hi!")
 
-            # Save
+            # Save - should open modal
             app.action_save()
             await pilot.pause()
+
+            # Modal should be open (2 screens: main + modal)
+            assert len(app.screen_stack) == 2
+
+    async def test_save_creates_session_file_via_modal(
+        self, mock_config_with_sources: ConfigWithSources
+    ) -> None:
+        """action_save creates session file after modal is dismissed."""
+        app = ChatApp(config_with_sources=mock_config_with_sources)
+        async with app.run_test() as pilot:
+            await pilot.pause()  # Wait for mount
+            assert app.conversation is not None
+
+            # Add messages
+            app.conversation.add_user_message("Hello world")
+            app.conversation.add_assistant_message("Hi!")
+
+            # Save - opens modal
+            app.action_save()
+            await pilot.pause()
+
+            # Press enter to accept default name in modal
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.pause()  # Extra pause for save to complete
 
             # Verify file created
             session_path = Path(mock_config_with_sources.config.session_path)
             sessions = list(session_path.glob("*.json"))
             assert len(sessions) >= 1
+
+    async def test_subsequent_save_no_modal(
+        self, mock_config_with_sources: ConfigWithSources
+    ) -> None:
+        """Subsequent saves don't open modal."""
+        app = ChatApp(config_with_sources=mock_config_with_sources)
+        async with app.run_test() as pilot:
+            await pilot.pause()  # Wait for mount
+            assert app.conversation is not None
+
+            # Add messages
+            app.conversation.add_user_message("Hello world")
+            app.conversation.add_assistant_message("Hi!")
+
+            # First save - opens modal
+            app.action_save()
+            await pilot.pause()
+            await pilot.press("enter")  # Accept default name
+            await pilot.pause()
+
+            # Add more messages
+            app.conversation.add_user_message("More")
+            app.conversation.add_assistant_message("Content")
+
+            # Second save - should NOT open modal
+            initial_stack_size = len(app.screen_stack)
+            app.action_save()
+            await pilot.pause()
+
+            # No new modal
+            assert len(app.screen_stack) == initial_stack_size
 
 
 class TestExportAction:
