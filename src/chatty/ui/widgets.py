@@ -501,10 +501,11 @@ class StatusBar(Static):
     def _rebuild_display(self) -> None:
         """Rebuild the status bar text from current state."""
         # Add spinner prefix and elapsed time for active states
-        if self._status in ("Thinking...", "Streaming..."):
+        if self._status in ("Thinking...", "Streaming...", "Compressing..."):
             spinner_char = self.SPINNER_FRAMES[self._spinner_index]
             elapsed = time.monotonic() - self._start_time if self._start_time else 0
-            status_display = f"{spinner_char} {self._status} ({self._format_elapsed(elapsed)})"
+            elapsed_str = self._format_elapsed(elapsed)
+            status_display = f"{spinner_char} {self._status} ({elapsed_str})"
         elif self._status == "Ready" and self._last_response_time is not None:
             # Show response time after generation completes
             status_display = f"Ready ({self._format_elapsed(self._last_response_time)})"
@@ -567,11 +568,11 @@ class StatusBar(Static):
             self._status = status
 
             # Start/stop spinner based on status
-            if status in ("Thinking...", "Streaming..."):
-                if old_status not in ("Thinking...", "Streaming..."):
+            if status in ("Thinking...", "Streaming...", "Compressing..."):
+                if old_status not in ("Thinking...", "Streaming...", "Compressing..."):
                     # Only start spinner if not already running
                     self._start_spinner()
-            elif old_status in ("Thinking...", "Streaming..."):
+            elif old_status in ("Thinking...", "Streaming...", "Compressing..."):
                 self._stop_spinner()
 
         if model is not None:

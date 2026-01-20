@@ -802,8 +802,7 @@ class CompressionPreviewModal(ModalScreen[bool | None]):
 
     #compression-dialog {
         width: 70;
-        height: auto;
-        max-height: 80%;
+        height: 28;
         padding: 1 2;
         background: $surface;
         border: thick $primary;
@@ -820,8 +819,7 @@ class CompressionPreviewModal(ModalScreen[bool | None]):
     }
 
     #summary-container {
-        height: auto;
-        max-height: 12;
+        height: 1fr;
         border: solid $primary;
         padding: 1;
         margin-bottom: 1;
