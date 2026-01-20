@@ -441,55 +441,8 @@ class ChatApp(App[None]):
         """Browse and load saved sessions (Ctrl+L).
 
         Opens a modal dialog showing all saved sessions.
-        User can select a session to load. If there are unsaved
-        changes, shows a warning dialog first.
+        User can select a session to load.
         """
-        if self._session_dirty:
-            # Show warning first
-            self.push_screen(
-                UnsavedChangesModal(),
-                self._handle_unsaved_warning,
-            )
-        else:
-            # No unsaved changes, proceed directly
-            self._show_session_browser()
-
-    def _handle_unsaved_warning(self, choice: str | None) -> None:
-        """Handle user choice from unsaved changes modal.
-
-        Args:
-            choice: "save_and_load", "load", or None (cancelled).
-        """
-        if choice == "save_and_load":
-            # If no current session, prompt for name first
-            if not self._current_session:
-                self.push_screen(
-                    SessionRenameModal(
-                        generate_session_name(self.conversation.messages)
-                        if self.conversation
-                        else "Untitled"
-                    ),
-                    self._save_then_show_browser,
-                )
-            else:
-                save_current_session(self)
-                self._show_session_browser()
-        elif choice == "load":
-            self._show_session_browser()
-        # else: None = cancelled, do nothing
-
-    def _save_then_show_browser(self, name: str | None) -> None:
-        """Save with given name, then show browser.
-
-        Args:
-            name: Session name from rename modal, or None if cancelled.
-        """
-        if name:
-            handle_first_save(self, name)
-        self._show_session_browser()
-
-    def _show_session_browser(self) -> None:
-        """Open the session browser modal."""
         session_dir = self.config.get_session_path()
         self.push_screen(
             SessionBrowserModal(session_dir),
@@ -499,10 +452,69 @@ class ChatApp(App[None]):
     def _handle_session_load(self, filepath: Path | None) -> None:
         """Handle the session file selected from browser.
 
+        If there are unsaved changes, shows a warning dialog before loading.
+
         Args:
             filepath: Path to session file, or None if cancelled.
         """
-        handle_session_load(self, filepath)
+        if filepath is None:
+            return  # User cancelled
+
+        if self._session_dirty:
+            # Store the path and show warning
+            self._pending_load_path = filepath
+            self.push_screen(
+                UnsavedChangesModal(),
+                self._handle_unsaved_warning,
+            )
+        else:
+            # No unsaved changes, load directly
+            handle_session_load(self, filepath)
+
+    def _handle_unsaved_warning(self, choice: str | None) -> None:
+        """Handle user choice from unsaved changes modal.
+
+        Args:
+            choice: "save_and_load", "load", or None (cancelled).
+        """
+        pending_path = getattr(self, "_pending_load_path", None)
+
+        if choice == "save_and_load":
+            # If no current session, prompt for name first
+            if not self._current_session:
+                self.push_screen(
+                    SessionRenameModal(
+                        generate_session_name(self.conversation.messages)
+                        if self.conversation
+                        else "Untitled"
+                    ),
+                    self._save_then_load,
+                )
+            else:
+                save_current_session(self)
+                if pending_path:
+                    handle_session_load(self, pending_path)
+        elif choice == "load":
+            # Load without saving
+            if pending_path:
+                handle_session_load(self, pending_path)
+        # else: None = cancelled, do nothing
+
+        # Clear pending path
+        self._pending_load_path = None
+
+    def _save_then_load(self, name: str | None) -> None:
+        """Save with given name, then load the pending session.
+
+        Args:
+            name: Session name from rename modal, or None if cancelled.
+        """
+        pending_path = getattr(self, "_pending_load_path", None)
+        if name:
+            handle_first_save(self, name)
+        if pending_path:
+            handle_session_load(self, pending_path)
+        self._pending_load_path = None
 
     def action_load_file(self) -> None:
         """Load a query from a file (Ctrl+O).

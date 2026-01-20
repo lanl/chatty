@@ -702,7 +702,7 @@ class UnsavedChangesModal(ModalScreen[str | None]):
     }
 
     #unsaved-dialog {
-        width: 50;
+        width: 60;
         height: auto;
         padding: 1 2;
         background: $surface;
