@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from chatty.ui.app import ChatApp
 
 
-async def send_message_worker(app: "ChatApp", user_text: str) -> None:
+async def send_message_worker(app: ChatApp, user_text: str) -> None:
     """Worker function for async LLM call.
 
     Handles the complete workflow:
@@ -123,7 +123,7 @@ async def send_message_worker(app: "ChatApp", user_text: str) -> None:
         app.current_worker = None
 
 
-async def fetch_context_window_worker(app: "ChatApp") -> None:
+async def fetch_context_window_worker(app: ChatApp) -> None:
     """Fetch context window from /models endpoint.
 
     Called when context_window = "auto". Fetches model metadata
@@ -170,12 +170,11 @@ async def fetch_context_window_worker(app: "ChatApp") -> None:
     except Exception as e:
         chat_log.add_message(
             "error",
-            f"⚠ Failed to determine context window: {e}\n\n"
-            "Using fallback value: 128,000 tokens",
+            f"⚠ Failed to determine context window: {e}\n\n" "Using fallback value: 128,000 tokens",
         )
 
 
-async def fetch_models_worker(app: "ChatApp") -> None:
+async def fetch_models_worker(app: ChatApp) -> None:
     """Fetch models from endpoint and show picker modal.
 
     Fetches available models from /models endpoint.

@@ -73,7 +73,6 @@ Key Design Decisions
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -96,6 +95,7 @@ from chatty.core.session import (
 )
 from chatty.core.transcript import TranscriptLogger
 from chatty.rag import RAGMetadata, RAGProvider, get_provider
+from chatty.ui.clipboard import copy_to_clipboard
 from chatty.ui.footer import ChattyFooter
 from chatty.ui.modals import (
     FileInputModal,
@@ -910,42 +910,15 @@ class ChatApp(App[None]):
     def _copy_to_clipboard(self, text: str) -> str:
         """Copy text to clipboard with fallback to file.
 
+        Delegates to clipboard module for actual implementation.
+
         Args:
             text: Text to copy.
 
         Returns:
             Status message describing what happened.
         """
-        try:
-            import pyperclip
-
-            pyperclip.copy(text)
-            return "Copied to clipboard"
-        except Exception:
-            # Clipboard unavailable — fall back to file
-            return self._write_copy_file(text)
-
-    def _write_copy_file(self, text: str) -> str:
-        """Write text to fallback copy file.
-
-        Args:
-            text: Text to write.
-
-        Returns:
-            Status message with file path.
-        """
-        try:
-            copy_dir = self.config.get_copy_fallback_path()
-            copy_dir.mkdir(parents=True, exist_ok=True)
-
-            # Generate timestamped filename
-            timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-            filepath = copy_dir / f"copy-{timestamp}.txt"
-
-            filepath.write_text(text)
-            return f"Clipboard unavailable. Saved to {filepath}"
-        except Exception as e:
-            return f"Failed to copy: {e}"
+        return copy_to_clipboard(text, self.config.get_copy_fallback_path())
 
     def action_pick_model(self) -> None:
         """Open the model picker (Ctrl+G).

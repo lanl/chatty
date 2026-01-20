@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from chatty.ui.widgets import ChatLog
 
 
-def load_session_file(app: "ChatApp", chat_log: "ChatLog") -> None:
+def load_session_file(app: ChatApp, chat_log: ChatLog) -> None:
     """Load a saved session from file.
 
     Called during app startup when session_file is provided.
@@ -65,7 +65,7 @@ def load_session_file(app: "ChatApp", chat_log: "ChatLog") -> None:
         chat_log.add_message("error", f"Failed to load session: {e}")
 
 
-def load_and_submit_query_file(app: "ChatApp") -> None:
+def load_and_submit_query_file(app: ChatApp) -> None:
     """Load query from file and submit it.
 
     Called during app startup when query_file is provided.
@@ -90,7 +90,7 @@ def load_and_submit_query_file(app: "ChatApp") -> None:
         chat_log.add_message("error", f"Failed to load query file: {e}")
 
 
-def handle_session_load(app: "ChatApp", filepath: Path | None) -> None:
+def handle_session_load(app: ChatApp, filepath: Path | None) -> None:
     """Handle the session file selected from browser.
 
     Called when user selects a session in SessionBrowserModal.
@@ -149,7 +149,7 @@ def handle_session_load(app: "ChatApp", filepath: Path | None) -> None:
         chat_log.add_message("error", f"Failed to load session: {e}")
 
 
-def handle_first_save(app: "ChatApp", name: str | None) -> None:
+def handle_first_save(app: ChatApp, name: str | None) -> None:
     """Handle the name returned from first-save modal.
 
     Called when user enters a name in SessionRenameModal for first save.
@@ -176,7 +176,7 @@ def handle_first_save(app: "ChatApp", name: str | None) -> None:
     save_current_session(app)
 
 
-def save_current_session(app: "ChatApp") -> None:
+def save_current_session(app: ChatApp) -> None:
     """Save the current session to disk.
 
     Updates the session with current conversation state and saves to file.
@@ -207,7 +207,7 @@ def save_current_session(app: "ChatApp") -> None:
         chat_log.add_message("error", f"Failed to save session: {e}")
 
 
-def handle_file_path(app: "ChatApp", path: str | None) -> None:
+def handle_file_path(app: ChatApp, path: str | None) -> None:
     """Handle the file path returned from FileInputModal.
 
     Loads file content into the input area (without auto-submit).
@@ -244,7 +244,7 @@ def handle_file_path(app: "ChatApp", path: str | None) -> None:
         chat_log.add_message("error", f"Failed to load file: {e}")
 
 
-def generate_default_session_name(app: "ChatApp") -> str:
+def generate_default_session_name(app: ChatApp) -> str:
     """Generate a default session name from conversation.
 
     Args:
