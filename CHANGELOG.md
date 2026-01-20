@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.10] - 2026-01-19
+
+### Added
+
+**Test Coverage Improvements**
+- Overall coverage improved from 78% to 80%
+- `app.py` coverage: 62% → 64% (+2%)
+- `modals.py` coverage: 63% → 66% (+3%)
+- `widgets.py` coverage: 90% → 93% (+3%)
+- `search.py` coverage: 74% → 77% (+3%)
+
+### Tests Added
+
+- Help modal integration tests (open/close)
+- Search bar integration tests
+- Submit whitespace handling tests
+- Streaming toggle status bar tests
+- First save flow tests (_handle_first_save)
+- ModelPickerModal selection tests
+- ModelInputModal enter key submission tests
+- SearchBar.set_matches tests
+- MessageWidget.count_occurrences tests
+- ChatLog.total_occurrences tests
+
+### Changed
+
+- `pyproject.toml` and `__init__.py` version updated to 0.2.10
+
+### Developer Notes
+
+- 351 total tests (was 331)
+- 80% coverage target achieved
+
+---
+
 ## [0.2.9] - 2026-01-19
 
 ### Added
