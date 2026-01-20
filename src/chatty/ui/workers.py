@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from chatty.ui.app import ChatApp
 
 
-async def fetch_context_window(app: "ChatApp") -> None:
+async def fetch_context_window(app: ChatApp) -> None:
     """Fetch context window from /models endpoint.
 
     Called when context_window = "auto". Fetches model metadata
@@ -39,9 +39,7 @@ async def fetch_context_window(app: "ChatApp") -> None:
     chat_log = app.query_one("#chat-log", ChatLog)
 
     try:
-        context_length = await app.client.get_model_context_length(
-            app.config.model
-        )
+        context_length = await app.client.get_model_context_length(app.config.model)
         if context_length is not None:
             app.conversation.set_context_window(context_length)
             # Update status bar to reflect actual context window
@@ -71,12 +69,11 @@ async def fetch_context_window(app: "ChatApp") -> None:
     except Exception as e:
         chat_log.add_message(
             "error",
-            f"⚠ Failed to determine context window: {e}\n\n"
-            "Using fallback value: 128,000 tokens",
+            f"⚠ Failed to determine context window: {e}\n\n" "Using fallback value: 128,000 tokens",
         )
 
 
-async def fetch_and_show_models(app: "ChatApp") -> None:
+async def fetch_and_show_models(app: ChatApp) -> None:
     """Fetch models from endpoint and show picker modal.
 
     Args:
@@ -114,7 +111,7 @@ async def fetch_and_show_models(app: "ChatApp") -> None:
         chat_log.add_message("error", f"Failed to fetch models: {e}")
 
 
-async def send_message(app: "ChatApp") -> None:  # noqa: C901
+async def send_message(app: ChatApp) -> None:  # noqa: C901
     """Worker function for async LLM call.
 
     Handles the complete workflow:
@@ -149,9 +146,7 @@ async def send_message(app: "ChatApp") -> None:  # noqa: C901
     try:
         # Use RAG provider to augment messages with context
         # NullProvider passes through unchanged; LitkitProvider adds context
-        messages, rag_metadata = await app.rag_provider.augment(
-            app.conversation, user_text
-        )
+        messages, rag_metadata = await app.rag_provider.augment(app.conversation, user_text)
         app.last_rag_metadata = rag_metadata
 
         if app.streaming:
@@ -200,20 +195,14 @@ async def send_message(app: "ChatApp") -> None:  # noqa: C901
 
             # Update conversation with user message and assistant response
             app.conversation.add_user_message(user_text)
-            app.conversation.add_assistant_message(
-                response.content, response.usage
-            )
+            app.conversation.add_assistant_message(response.content, response.usage)
 
             # Log to transcript
             app.transcript.log_message(
                 "assistant",
                 response.content,
                 model=app.config.model,
-                tokens=(
-                    response.usage.get("total_tokens")
-                    if response.usage
-                    else None
-                ),
+                tokens=(response.usage.get("total_tokens") if response.usage else None),
             )
 
         # Update status with token count

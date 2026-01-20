@@ -684,3 +684,197 @@ class TestSessionBrowserModal:
             await pilot.pause()
 
             assert app.result is None
+
+    async def test_load_button_with_sessions(self, tmp_path: Path) -> None:
+        """Load button returns selected session path."""
+        from chatty.client.openai_client import Message
+        from chatty.core.session import (
+            Session,
+            SessionMetadata,
+            save_session,
+        )
+
+        # Create a session file
+        metadata = SessionMetadata.create(
+            name="Test Session",
+            model="gpt-4",
+            message_count=1,
+        )
+        session = Session(
+            metadata=metadata,
+            system_prompt="You are helpful.",
+            messages=[Message(role="user", content="Hello")],
+        )
+        save_session(session, tmp_path)
+
+        app = SessionBrowserTestApp()
+        async with app.run_test() as pilot:
+            modal = SessionBrowserModal(tmp_path)
+            app.push_screen(modal, callback=lambda r: setattr(app, "result", r))
+            await pilot.pause()
+
+            # Should have session loaded
+            assert len(modal._sessions) == 1
+
+            # Click load (first item should be highlighted)
+            await pilot.click("#load-btn")
+            await pilot.pause()
+
+            # Should return a Path
+            assert app.result is not None
+            assert isinstance(app.result, Path)
+
+    async def test_enter_key_loads_session(self, tmp_path: Path) -> None:
+        """Enter key loads selected session."""
+        from chatty.client.openai_client import Message
+        from chatty.core.session import (
+            Session,
+            SessionMetadata,
+            save_session,
+        )
+
+        metadata = SessionMetadata.create(name="Enter Test", model="gpt-4", message_count=1)
+        session = Session(
+            metadata=metadata,
+            system_prompt="Test",
+            messages=[Message(role="user", content="Hi")],
+        )
+        save_session(session, tmp_path)
+
+        app = SessionBrowserTestApp()
+        async with app.run_test() as pilot:
+            modal = SessionBrowserModal(tmp_path)
+            app.push_screen(modal, callback=lambda r: setattr(app, "result", r))
+            await pilot.pause()
+
+            # Press enter to load
+            await pilot.press("enter")
+            await pilot.pause()
+
+            # Should return a Path
+            assert app.result is not None
+
+
+# ============================================================================
+# SessionBrowserModal Action Tests (v0.2.14)
+# ============================================================================
+
+
+class TestSessionBrowserModalActions:
+    """Tests for SessionBrowserModal rename/delete actions."""
+
+    async def test_delete_action_opens_confirm(self, tmp_path: Path) -> None:
+        """Delete action opens confirmation modal."""
+        from chatty.client.openai_client import Message
+        from chatty.core.session import (
+            Session,
+            SessionMetadata,
+            save_session,
+        )
+
+        metadata = SessionMetadata.create(name="Delete Me", model="gpt-4", message_count=1)
+        session = Session(
+            metadata=metadata,
+            system_prompt="Test",
+            messages=[Message(role="user", content="Hi")],
+        )
+        save_session(session, tmp_path)
+
+        app = SessionBrowserTestApp()
+        async with app.run_test() as pilot:
+            modal = SessionBrowserModal(tmp_path)
+            app.push_screen(modal)
+            await pilot.pause()
+
+            # Press d for delete
+            await pilot.press("d")
+            await pilot.pause()
+
+            # Confirmation modal should be pushed
+            assert len(app.screen_stack) >= 2
+
+    async def test_rename_action_opens_rename_modal(self, tmp_path: Path) -> None:
+        """Rename action opens rename modal."""
+        from chatty.client.openai_client import Message
+        from chatty.core.session import (
+            Session,
+            SessionMetadata,
+            save_session,
+        )
+
+        metadata = SessionMetadata.create(name="Rename Me", model="gpt-4", message_count=1)
+        session = Session(
+            metadata=metadata,
+            system_prompt="Test",
+            messages=[Message(role="user", content="Hi")],
+        )
+        save_session(session, tmp_path)
+
+        app = SessionBrowserTestApp()
+        async with app.run_test() as pilot:
+            modal = SessionBrowserModal(tmp_path)
+            app.push_screen(modal)
+            await pilot.pause()
+
+            # Press r for rename
+            await pilot.press("r")
+            await pilot.pause()
+
+            # Rename modal should be pushed
+            assert len(app.screen_stack) >= 2
+
+    async def test_delete_action_no_selection(self, tmp_path: Path) -> None:
+        """Delete action does nothing when no sessions."""
+        app = SessionBrowserTestApp()
+        async with app.run_test() as pilot:
+            modal = SessionBrowserModal(tmp_path)
+            app.push_screen(modal)
+            await pilot.pause()
+
+            # Press d with no sessions
+            await pilot.press("d")
+            await pilot.pause()
+
+            # Should still be on same screen
+            assert len(app.screen_stack) == 2
+
+    async def test_rename_action_no_selection(self, tmp_path: Path) -> None:
+        """Rename action does nothing when no sessions."""
+        app = SessionBrowserTestApp()
+        async with app.run_test() as pilot:
+            modal = SessionBrowserModal(tmp_path)
+            app.push_screen(modal)
+            await pilot.pause()
+
+            # Press r with no sessions
+            await pilot.press("r")
+            await pilot.pause()
+
+            # Should still be on same screen
+            assert len(app.screen_stack) == 2
+
+
+# ============================================================================
+# ModelPickerModal Additional Tests (v0.2.14)
+# ============================================================================
+
+
+class TestModelPickerModalActions:
+    """Additional tests for ModelPickerModal."""
+
+    async def test_option_list_populated(self) -> None:
+        """Model picker option list is populated correctly."""
+        app = ModelPickerTestApp()
+        async with app.run_test() as pilot:
+            models = ["gpt-4", "gpt-3.5-turbo"]
+            modal = ModelPickerModal(models, "gpt-4")
+            app.push_screen(modal, callback=lambda r: setattr(app, "result", r))
+            await pilot.pause()
+
+            # Get the option list
+            option_list = modal.query_one("#model-list", OptionList)
+            assert option_list.option_count == 2
+
+            # Verify current model is tracked
+            assert modal._current_model == "gpt-4"
+            assert modal._models == models

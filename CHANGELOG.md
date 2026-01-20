@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.14] - 2026-01-19
+
+### Added
+
+**Test Coverage Improvements**
+- Overall coverage improved from 80% to 88%
+- `session_handlers.py` coverage: 46% → 94% (+48%)
+- `workers.py` coverage: 52% → 100% (+48%)
+- `cli.py` coverage: 64% → 82% (+18%)
+- `modals.py` coverage: 66% → 85% (+19%)
+
+### Tests Added
+
+**New Test Files**
+- `tests/test_session_handlers.py` — 27 tests for session management functions
+- `tests/test_workers.py` — 22 tests for async worker functions
+
+**Extended Test Files**
+- `tests/test_cli.py` — CLI argument tests (--query-file, --session, --model, etc.)
+- `tests/test_modals.py` — Session browser rename/delete action tests
+
+### Developer Notes
+
+- 410 total tests (was 351)
+- 88% coverage target exceeded (goal was 83%)
+- All acceptance criteria met
+- Pre-commit hooks pass
+
+---
+
 ## [0.2.13] - 2026-01-19
 
 ### Changed

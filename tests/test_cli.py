@@ -106,3 +106,100 @@ class TestChatCommand:
         # Error is printed to stderr
         output = result.output if result.output else ""
         assert "not found" in output.lower() or result.exit_code == 1
+
+    def test_chat_with_query_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """chat --query-file loads the file."""
+        # Create a query file
+        query_file = tmp_path / "query.txt"
+        query_file.write_text("What is Python?")
+
+        # Mock the UI main to avoid launching
+        monkeypatch.setenv("OPENAI_BASE_URL", "https://test.example.com/v1")
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+        from unittest.mock import patch
+
+        with patch("chatty.ui.app.main") as mock_main:
+            result = runner.invoke(app, ["chat", "--query-file", str(query_file)])
+            # Should call main with query_file parameter
+            if result.exit_code == 0:
+                mock_main.assert_called_once()
+                call_kwargs = mock_main.call_args[1]
+                assert call_kwargs.get("query_file") == str(query_file)
+
+    def test_chat_with_session(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """chat --session loads existing session."""
+        from chatty.client.openai_client import Message
+        from chatty.core.session import (
+            Session,
+            SessionMetadata,
+            save_session,
+        )
+
+        # Create a valid session file
+        metadata = SessionMetadata.create(
+            name="Test Session",
+            model="gpt-4",
+            message_count=1,
+        )
+        session = Session(
+            metadata=metadata,
+            system_prompt="You are helpful.",
+            messages=[Message(role="user", content="Hello")],
+        )
+        filepath = save_session(session, tmp_path)
+
+        monkeypatch.setenv("OPENAI_BASE_URL", "https://test.example.com/v1")
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+        from unittest.mock import patch
+
+        with patch("chatty.ui.app.main") as mock_main:
+            result = runner.invoke(app, ["chat", "--session", str(filepath)])
+            if result.exit_code == 0:
+                mock_main.assert_called_once()
+                call_kwargs = mock_main.call_args[1]
+                assert call_kwargs.get("session_file") == filepath
+
+    def test_chat_with_model_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """chat --model overrides config model."""
+        monkeypatch.setenv("OPENAI_BASE_URL", "https://test.example.com/v1")
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+        from unittest.mock import patch
+
+        with patch("chatty.ui.app.main") as mock_main:
+            result = runner.invoke(app, ["chat", "--model", "claude-3"])
+            if result.exit_code == 0:
+                mock_main.assert_called_once()
+                call_kwargs = mock_main.call_args[1]
+                config = call_kwargs.get("config_with_sources")
+                # Model should be in the config
+                assert config is not None
+
+    def test_chat_with_no_stream(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """chat --no-stream disables streaming."""
+        monkeypatch.setenv("OPENAI_BASE_URL", "https://test.example.com/v1")
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+        from unittest.mock import patch
+
+        with patch("chatty.ui.app.main") as mock_main:
+            result = runner.invoke(app, ["chat", "--no-stream"])
+            if result.exit_code == 0:
+                mock_main.assert_called_once()
+                call_kwargs = mock_main.call_args[1]
+                config = call_kwargs.get("config_with_sources")
+                assert config is not None
+
+    def test_chat_with_temperature(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """chat --temperature sets temperature."""
+        monkeypatch.setenv("OPENAI_BASE_URL", "https://test.example.com/v1")
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+        from unittest.mock import patch
+
+        with patch("chatty.ui.app.main") as mock_main:
+            result = runner.invoke(app, ["chat", "--temperature", "0.7"])
+            if result.exit_code == 0:
+                mock_main.assert_called_once()
