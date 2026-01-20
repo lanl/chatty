@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.7] - 2026-01-19
+
+### Added
+
+**Session Naming Improvements**
+- First `Ctrl+S` prompts for session name with auto-generated default
+- `r` key in session browser renames selected session
+- `SessionRenameModal` for name input with cancel/rename buttons
+- `rename_session()` function in `session.py`
+- Hint text in session browser showing `r rename Enter load`
+- 17 new tests for rename functionality
+
+### Changed
+
+- Session browser refreshes list after rename, preserving selection
+- `action_save()` now uses `_handle_first_save()` and `_save_current_session()`
+
+---
+
 ## [0.2.6] - 2026-01-19
 
 ### Added

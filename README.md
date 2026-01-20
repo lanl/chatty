@@ -134,8 +134,9 @@ chatty print-config
 Save conversations and resume them later. Sessions store the full conversation state including messages and system prompt.
 
 **Keyboard shortcuts:**
-- `Ctrl+S` — Save current session
+- `Ctrl+S` — Save current session (prompts for name on first save)
 - `Ctrl+L` — Browse and load saved sessions
+- `r` — Rename selected session (in session browser)
 
 **CLI option:**
 ```bash
