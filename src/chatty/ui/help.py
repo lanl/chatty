@@ -18,7 +18,7 @@ from chatty import __version__
 VISIBLE_SHORTCUTS: list[tuple[str, str]] = [
     ("^P", "Submit query"),
     ("^O", "Load query from file"),
-    ("Esc", "Stop generation / Close search"),
+    ("Esc", "Stop generation / Close dialogs"),
     ("^F", "Search in conversation"),
     ("^C", "Copy last response"),
     ("^S", "Save session"),
