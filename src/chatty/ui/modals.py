@@ -18,7 +18,12 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, OptionList
 from textual.widgets.option_list import Option
 
-from chatty.core.session import SessionMetadata, get_session_filepath, list_sessions
+from chatty.core.session import (
+    SessionMetadata,
+    get_session_filepath,
+    list_sessions,
+    rename_session,
+)
 
 
 class FileInputModal(ModalScreen[str | None]):
@@ -118,6 +123,7 @@ class SessionBrowserModal(ModalScreen[Path | None]):
 
     Bindings:
         Enter: Load selected session
+        r: Rename selected session
         Escape: Cancel and dismiss
     """
 
@@ -158,11 +164,17 @@ class SessionBrowserModal(ModalScreen[Path | None]):
         text-align: center;
         padding: 2;
     }
+
+    #session-hint {
+        color: $text-muted;
+        text-align: center;
+    }
     """
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel"),
         Binding("enter", "load", "Load Session"),
+        Binding("r", "rename", "Rename"),
     ]
 
     def __init__(self, session_dir: Path) -> None:
@@ -180,13 +192,23 @@ class SessionBrowserModal(ModalScreen[Path | None]):
         with Vertical(id="session-dialog"):
             yield Label("Saved Sessions")
             yield OptionList(id="session-list")
+            yield Label("[dim]r[/dim] rename  [dim]Enter[/dim] load", id="session-hint")
             with Container(id="session-buttons"):
                 yield Button("Cancel", variant="default", id="cancel-btn")
                 yield Button("Load", variant="primary", id="load-btn")
 
     def on_mount(self) -> None:
         """Load sessions when modal opens."""
+        self._refresh_session_list()
+
+    def _refresh_session_list(self, select_id: str | None = None) -> None:
+        """Refresh the session list from disk.
+
+        Args:
+            select_id: Optional session ID to re-select after refresh.
+        """
         option_list = self.query_one("#session-list", OptionList)
+        option_list.clear_options()
         self._sessions = list_sessions(self.session_dir)
 
         if not self._sessions:
@@ -196,7 +218,12 @@ class SessionBrowserModal(ModalScreen[Path | None]):
                 Option("Press Ctrl+S to save a session", id="hint", disabled=True)
             )
         else:
-            for session in self._sessions:
+            select_index = 0
+            for i, session in enumerate(self._sessions):
+                # Track index to re-select after refresh
+                if select_id and session.id == select_id:
+                    select_index = i
+
                 # Format: "Name                    Jan 9   3 msg"
                 # Truncate name to fit
                 name = session.name[:35]
@@ -208,6 +235,10 @@ class SessionBrowserModal(ModalScreen[Path | None]):
 
                 label = f"{name:<38} {date_str}  {session.message_count} msg"
                 option_list.add_option(Option(label, id=session.id))
+
+            # Re-select the session if specified
+            if self._sessions:
+                option_list.highlighted = select_index
 
         option_list.focus()
 
@@ -239,6 +270,25 @@ class SessionBrowserModal(ModalScreen[Path | None]):
         else:
             self.dismiss(None)
 
+    def _get_highlighted_session(self) -> tuple[SessionMetadata, Path] | None:
+        """Get the currently highlighted session and its filepath.
+
+        Returns:
+            Tuple of (SessionMetadata, Path) or None if nothing selected.
+        """
+        option_list = self.query_one("#session-list", OptionList)
+        highlighted = option_list.highlighted
+
+        if highlighted is None or not self._sessions:
+            return None
+
+        if highlighted < len(self._sessions):
+            session = self._sessions[highlighted]
+            filepath = get_session_filepath(self.session_dir, session.id)
+            if filepath:
+                return (session, filepath)
+        return None
+
     def action_cancel(self) -> None:
         """Handle Escape key."""
         self.dismiss(None)
@@ -246,6 +296,131 @@ class SessionBrowserModal(ModalScreen[Path | None]):
     def action_load(self) -> None:
         """Handle Enter key."""
         self._load_selected()
+
+    def action_rename(self) -> None:
+        """Handle r key - rename selected session."""
+        selected = self._get_highlighted_session()
+        if not selected:
+            return
+
+        session, filepath = selected
+        # Push rename modal
+        self.app.push_screen(
+            SessionRenameModal(session.name),
+            lambda new_name: self._handle_rename(filepath, session.id, new_name),
+        )
+
+    def _handle_rename(self, filepath: Path, session_id: str, new_name: str | None) -> None:
+        """Handle the result of rename modal.
+
+        Args:
+            filepath: Path to the session file.
+            session_id: ID of session being renamed (for re-selection).
+            new_name: New name from modal, or None if cancelled.
+        """
+        if not new_name:
+            return
+
+        try:
+            rename_session(filepath, new_name)
+            # Refresh list and re-select the renamed session
+            self._refresh_session_list(select_id=session_id)
+        except Exception as e:
+            # Show error - for now just log, could add toast
+            self.app.log.error(f"Failed to rename session: {e}")
+
+
+class SessionRenameModal(ModalScreen[str | None]):
+    """Modal screen for renaming a session.
+
+    Displays an input field with the current session name.
+    Returns the new name, or None if cancelled.
+
+    Usage:
+        app.push_screen(SessionRenameModal(current_name), callback)
+        # callback receives str (new name) or None
+
+    Bindings:
+        Enter: Apply the new name
+        Escape: Cancel and dismiss
+    """
+
+    CSS = """
+    SessionRenameModal {
+        align: center middle;
+    }
+
+    #rename-dialog {
+        width: 60;
+        height: auto;
+        padding: 1 2;
+        background: $surface;
+        border: thick $primary;
+    }
+
+    #rename-dialog Label {
+        margin-bottom: 1;
+    }
+
+    #rename-dialog Input {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #rename-buttons {
+        width: 100%;
+        height: auto;
+        align: right middle;
+    }
+
+    #rename-buttons Button {
+        margin-left: 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, current_name: str) -> None:
+        """Initialize the rename dialog.
+
+        Args:
+            current_name: Current session name (shown in input).
+        """
+        super().__init__()
+        self._current_name = current_name
+
+    def compose(self) -> ComposeResult:
+        """Create the dialog layout."""
+        with Vertical(id="rename-dialog"):
+            yield Label("Rename Session")
+            yield Input(value=self._current_name, id="session-name", select_on_focus=True)
+            with Container(id="rename-buttons"):
+                yield Button("Cancel", variant="default", id="cancel-btn")
+                yield Button("Rename", variant="primary", id="rename-btn")
+
+    def on_mount(self) -> None:
+        """Focus the input when modal opens."""
+        input_widget = self.query_one("#session-name", Input)
+        input_widget.focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button clicks."""
+        if event.button.id == "rename-btn":
+            name = self.query_one("#session-name", Input).value.strip()
+            self.dismiss(name if name else None)
+        else:
+            self.dismiss(None)
+
+    def on_input_submitted(self, _event: Input.Submitted) -> None:
+        """Handle Enter key in input field."""
+        name = self.query_one("#session-name", Input).value.strip()
+        self.dismiss(name if name else None)
+
+    def action_cancel(self) -> None:
+        """Handle Escape key."""
+        self.dismiss(None)
 
 
 class ModelPickerModal(ModalScreen[str | None]):

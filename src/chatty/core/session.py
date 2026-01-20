@@ -182,6 +182,28 @@ def get_session_filepath(directory: Path, session_id: str) -> Path | None:
     return None
 
 
+def rename_session(filepath: Path, new_name: str) -> None:
+    """Rename a session's display name.
+
+    Updates the session metadata with a new name and saves the file.
+
+    Args:
+        filepath: Path to the session file.
+        new_name: The new display name for the session.
+
+    Raises:
+        FileNotFoundError: If the session file doesn't exist.
+        ValueError: If new_name is empty.
+    """
+    if not new_name or not new_name.strip():
+        raise ValueError("Session name cannot be empty")
+
+    session = load_session(filepath)
+    session.metadata.name = new_name.strip()
+    session.metadata.updated_at = datetime.now().isoformat(timespec="seconds")
+    save_session(session, filepath.parent)
+
+
 def export_session_markdown(
     messages: list[Message],
     *,
