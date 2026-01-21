@@ -279,6 +279,12 @@ chatty chat
 # chatty retrieves relevant papers → injects context → LLM responds with citations
 ```
 
+### Technical Note: Tokenizer Parallelism
+
+Chatty disables Hugging Face tokenizer parallelism (`TOKENIZERS_PARALLELISM=false`) when using litkit. This is required for compatibility with Textual's asyncio-based UI.
+
+**Impact:** None for chatty's use case. Tokenizer parallelism only accelerates batch tokenization (thousands of documents at once). Single-query retrieval—which chatty does—is equally fast either way. FAISS vector search (the actual bottleneck for large corpora) is unaffected.
+
 **RAG Keyboard Shortcuts (v0.4+):**
 
 | Key | Action |

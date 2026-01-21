@@ -130,16 +130,20 @@ class LitkitProvider:
         to avoid multiprocessing conflicts when retrieval is called
         from asyncio thread pool later.
 
-        Litkit uses lazy loading for heavy deps (FAISS, embedder models).
-        If these are first loaded inside an asyncio.to_thread() context,
-        sentence_transformers' multiprocessing can fail with
-        "bad value(s) in fds_to_keep" due to file descriptor inheritance
-        issues.
+        We set TOKENIZERS_PARALLELISM=false to disable huggingface tokenizers'
+        multiprocessing, which conflicts with asyncio's thread pool. This has
+        no performance impact for single-query retrieval (our use case), and
+        only affects batch tokenization of thousands of documents.
 
+        Litkit uses lazy loading for heavy deps (FAISS, embedder models).
         By calling deps() here, we ensure the embedder is loaded on the
         main thread before any async operations.
         """
         import os
+
+        # Disable tokenizer parallelism to avoid asyncio/multiprocessing conflicts
+        # See: https://github.com/huggingface/tokenizers/issues/220
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
         old_workspace = os.environ.get("LITKIT_WORKSPACE")
         os.environ["LITKIT_WORKSPACE"] = str(self._workspace)
