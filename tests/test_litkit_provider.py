@@ -125,34 +125,11 @@ class TestLitkitProviderInit:
 
 
 class TestLitkitProviderRetrieve:
-    """Tests for LitkitProvider retrieval logic."""
+    """Tests for LitkitProvider retrieval logic.
 
-    @pytest.fixture
-    def mock_litkit(self) -> MagicMock:
-        """Create mock litkit module."""
-        mock = MagicMock()
-        mock.shortlist_papers = MagicMock(return_value=[1, 2, 3])
-        mock.search_chunks_constrained = MagicMock(return_value=([10, 20], [0.9, 0.8]))
-        mock.get_chunks = MagicMock(
-            return_value=[
-                {
-                    "id": 10,
-                    "text": "Chunk 1 text about HIV treatments.",
-                    "paper_title": "Paper A",
-                    "pmid": "12345",
-                    "pmcid": None,
-                },
-                {
-                    "id": 20,
-                    "text": "Chunk 2 text about side effects.",
-                    "paper_title": "Paper B",
-                    "pmid": None,
-                    "pmcid": "PMC67890",
-                },
-            ]
-        )
-        mock.connect_db = MagicMock(return_value=MagicMock())
-        return mock
+    Note: _retrieve_chunks now runs in a subprocess for isolation from Textual.
+    Tests mock subprocess.run() instead of litkit modules directly.
+    """
 
     @pytest.fixture
     def valid_workspace(self, tmp_path: Path) -> Path:
@@ -163,22 +140,17 @@ class TestLitkitProviderRetrieve:
         (tmp_path / "sqlite" / "litkit.sqlite3").touch()
         return tmp_path
 
-    def test_retrieve_chunks_empty_query(
-        self, valid_workspace: Path, mock_litkit: MagicMock
-    ) -> None:
-        """_retrieve_chunks handles empty paper shortlist."""
-        mock_litkit.shortlist_papers = MagicMock(return_value=[])
+    def test_retrieve_chunks_empty_result(self, valid_workspace: Path) -> None:
+        """_retrieve_chunks handles empty paper shortlist (returns [])."""
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "[]"
+        mock_result.stderr = ""
 
         with (
             patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"),
-            patch.dict(
-                "sys.modules",
-                {
-                    "litkit": MagicMock(),
-                    "litkit.cli": mock_litkit,
-                    "litkit.db": mock_litkit,
-                },
-            ),
+            patch("chatty.rag.litkit_provider.subprocess.run", return_value=mock_result),
         ):
             from chatty.rag.litkit_provider import LitkitProvider
 
@@ -187,42 +159,37 @@ class TestLitkitProviderRetrieve:
 
             assert chunks == []
 
-    def test_retrieve_chunks_no_results(
-        self, valid_workspace: Path, mock_litkit: MagicMock
-    ) -> None:
-        """_retrieve_chunks handles empty chunk results."""
-        mock_litkit.search_chunks_constrained = MagicMock(return_value=([], []))
-
-        with (
-            patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"),
-            patch.dict(
-                "sys.modules",
-                {
-                    "litkit": MagicMock(),
-                    "litkit.cli": mock_litkit,
-                    "litkit.db": mock_litkit,
-                },
-            ),
-        ):
-            from chatty.rag.litkit_provider import LitkitProvider
-
-            provider = LitkitProvider(workspace=valid_workspace)
-            chunks = provider._retrieve_chunks("test query")
-
-            assert chunks == []
-
-    def test_retrieve_chunks_success(self, valid_workspace: Path, mock_litkit: MagicMock) -> None:
+    def test_retrieve_chunks_success(self, valid_workspace: Path) -> None:
         """_retrieve_chunks returns RetrievedChunk objects with metadata."""
+        import json
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = json.dumps(
+            [
+                {
+                    "chunk_id": 10,
+                    "text": "Chunk 1 text about HIV treatments.",
+                    "paper_title": "Paper A",
+                    "pmid": "12345",
+                    "pmcid": None,
+                    "score": 0.9,
+                },
+                {
+                    "chunk_id": 20,
+                    "text": "Chunk 2 text about side effects.",
+                    "paper_title": "Paper B",
+                    "pmid": None,
+                    "pmcid": "PMC67890",
+                    "score": 0.8,
+                },
+            ]
+        )
+        mock_result.stderr = ""
+
         with (
             patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"),
-            patch.dict(
-                "sys.modules",
-                {
-                    "litkit": MagicMock(),
-                    "litkit.cli": mock_litkit,
-                    "litkit.db": mock_litkit,
-                },
-            ),
+            patch("chatty.rag.litkit_provider.subprocess.run", return_value=mock_result),
         ):
             from chatty.rag.litkit_provider import LitkitProvider
 
@@ -241,6 +208,46 @@ class TestLitkitProviderRetrieve:
             assert chunks[1].paper_title == "Paper B"
             assert chunks[1].pmcid == "PMC67890"
             assert chunks[1].score == 0.8
+
+    def test_retrieve_chunks_subprocess_error(self, valid_workspace: Path) -> None:
+        """_retrieve_chunks raises LitkitError on subprocess failure."""
+        import json
+
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stdout = ""
+        mock_result.stderr = json.dumps({"error": "Test error"})
+
+        with (
+            patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"),
+            patch("chatty.rag.litkit_provider.subprocess.run", return_value=mock_result),
+        ):
+            from chatty.rag.litkit_provider import LitkitError, LitkitProvider
+
+            provider = LitkitProvider(workspace=valid_workspace)
+            with pytest.raises(LitkitError) as exc_info:
+                provider._retrieve_chunks("test query")
+
+            assert "Test error" in str(exc_info.value)
+
+    def test_retrieve_chunks_timeout(self, valid_workspace: Path) -> None:
+        """_retrieve_chunks raises LitkitError on timeout."""
+        import subprocess
+
+        with (
+            patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"),
+            patch(
+                "chatty.rag.litkit_provider.subprocess.run",
+                side_effect=subprocess.TimeoutExpired("cmd", 120),
+            ),
+        ):
+            from chatty.rag.litkit_provider import LitkitError, LitkitProvider
+
+            provider = LitkitProvider(workspace=valid_workspace)
+            with pytest.raises(LitkitError) as exc_info:
+                provider._retrieve_chunks("test query")
+
+            assert "timed out" in str(exc_info.value)
 
 
 class TestLitkitProviderTokenBudget:

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import ProcessPoolExecutor
+import json
+import subprocess
+import sys
+import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -16,114 +19,77 @@ if TYPE_CHECKING:
     pass
 
 
-# Module-level ProcessPoolExecutor for retrieval
-# Using a single worker process to avoid multiprocessing conflicts with asyncio
-_retrieval_executor: ProcessPoolExecutor | None = None
+# Retrieval script template that runs in a completely isolated subprocess
+# This avoids all fd inheritance issues with Textual's terminal I/O
+_RETRIEVAL_SCRIPT = textwrap.dedent("""
+import json
+import os
+import sys
 
+# Set environment before any imports
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["LITKIT_WORKSPACE"] = sys.argv[1]
 
-def _get_retrieval_executor() -> ProcessPoolExecutor:
-    """Get or create the retrieval process pool executor.
+try:
+    from litkit.cli import deps, get_chunks, search_chunks_constrained, shortlist_papers
+    from litkit.db import connect_db
 
-    Uses a single worker process to isolate litkit's multiprocessing
-    from Textual's asyncio event loop.
-    """
-    global _retrieval_executor
-    if _retrieval_executor is None:
-        _retrieval_executor = ProcessPoolExecutor(max_workers=1)
-    return _retrieval_executor
+    # Initialize litkit deps
+    deps()
 
+    db_path = sys.argv[2]
+    top_papers = int(sys.argv[3])
+    top_chunks = int(sys.argv[4])
+    query = sys.argv[5]
 
-def _retrieve_chunks_in_process(
-    workspace: str,
-    db_path: str,
-    top_papers: int,
-    top_chunks: int,
-    query: str,
-) -> list[dict[str, Any]]:
-    """Retrieve chunks in a subprocess (module-level function for pickling).
+    conn = connect_db(db_path)
+    paper_ids = shortlist_papers(query, top_papers)
 
-    This function runs in a separate process to avoid asyncio/multiprocessing
-    conflicts. It must be a module-level function (not a method) to be picklable.
+    if not paper_ids:
+        print(json.dumps([]))
+        sys.exit(0)
 
-    Args:
-        workspace: Path to litkit workspace.
-        db_path: Path to SQLite database.
-        top_papers: Number of papers to shortlist.
-        top_chunks: Number of chunks to retrieve.
-        query: The search query.
+    chunk_ids, scores = search_chunks_constrained(query, paper_ids, top_chunks)
 
-    Returns:
-        List of chunk dictionaries with metadata.
-    """
-    import os
+    if not chunk_ids:
+        print(json.dumps([]))
+        sys.exit(0)
 
-    # Disable tokenizer parallelism in subprocess too
-    os.environ["TOKENIZERS_PARALLELISM"] = "false"
-    os.environ["LITKIT_WORKSPACE"] = workspace
+    chunks_data = get_chunks(conn, chunk_ids)
 
-    try:
-        from litkit.cli import get_chunks, search_chunks_constrained, shortlist_papers
-        from litkit.db import connect_db
-    except ImportError:
-        return []
+    result = []
+    for i, chunk_data in enumerate(chunks_data):
+        if isinstance(chunk_data, dict):
+            chunk_id = chunk_data.get("id", chunk_ids[i] if i < len(chunk_ids) else 0)
+            text = chunk_data.get("text", "")
+            paper_title = chunk_data.get("paper_title", chunk_data.get("title", ""))
+            pmid = chunk_data.get("pmid")
+            pmcid = chunk_data.get("pmcid")
+        else:
+            chunk_id = getattr(chunk_data, "id", chunk_ids[i] if i < len(chunk_ids) else 0)
+            text = getattr(chunk_data, "text", "")
+            paper_title = getattr(chunk_data, "paper_title", getattr(chunk_data, "title", ""))
+            pmid = getattr(chunk_data, "pmid", None)
+            pmcid = getattr(chunk_data, "pmcid", None)
 
-    try:
-        # Connect to the database
-        conn = connect_db(db_path)
+        score = scores[i] if i < len(scores) else 0.0
 
-        # Stage 1: Shortlist papers by abstract/title relevance
-        paper_ids = shortlist_papers(query, top_papers)
+        result.append({
+            "chunk_id": int(chunk_id) if chunk_id else 0,
+            "text": str(text),
+            "paper_title": str(paper_title),
+            "pmid": str(pmid) if pmid else None,
+            "pmcid": str(pmcid) if pmcid else None,
+            "score": float(score),
+        })
 
-        if not paper_ids:
-            return []
+    print(json.dumps(result))
 
-        # Stage 2: Search chunks within shortlisted papers
-        chunk_ids, scores = search_chunks_constrained(
-            query,
-            paper_ids,
-            top_chunks,
-        )
-
-        if not chunk_ids:
-            return []
-
-        # Get chunk content and metadata from database
-        chunks_data = get_chunks(conn, chunk_ids)
-
-        # Convert to serializable dicts
-        result: list[dict[str, Any]] = []
-        for i, chunk_data in enumerate(chunks_data):
-            if isinstance(chunk_data, dict):
-                chunk_id = chunk_data.get("id", chunk_ids[i] if i < len(chunk_ids) else 0)
-                text = chunk_data.get("text", "")
-                paper_title = chunk_data.get("paper_title", chunk_data.get("title", ""))
-                pmid = chunk_data.get("pmid")
-                pmcid = chunk_data.get("pmcid")
-            else:
-                chunk_id = getattr(chunk_data, "id", chunk_ids[i] if i < len(chunk_ids) else 0)
-                text = getattr(chunk_data, "text", "")
-                paper_title = getattr(chunk_data, "paper_title", getattr(chunk_data, "title", ""))
-                pmid = getattr(chunk_data, "pmid", None)
-                pmcid = getattr(chunk_data, "pmcid", None)
-
-            score = scores[i] if i < len(scores) else 0.0
-
-            result.append(
-                {
-                    "chunk_id": int(chunk_id) if chunk_id else 0,
-                    "text": str(text),
-                    "paper_title": str(paper_title),
-                    "pmid": str(pmid) if pmid else None,
-                    "pmcid": str(pmcid) if pmcid else None,
-                    "score": float(score),
-                }
-            )
-
-        return result
-
-    except Exception:
-        # Return empty list on error (error will be logged in main process)
-        return []
+except Exception as e:
+    # Output error as JSON for parsing
+    print(json.dumps({"error": str(e)}), file=sys.stderr)
+    sys.exit(1)
+""")
 
 
 class LitkitError(Exception):
@@ -192,6 +158,9 @@ class LitkitProvider:
     2. Stage 2: Search chunks within shortlisted papers
 
     litkit must be installed separately: `uv add litkit`
+
+    Note: Retrieval runs in a completely isolated subprocess (via subprocess.run
+    with close_fds=True) to avoid fd inheritance issues with Textual's terminal I/O.
     """
 
     def __init__(
@@ -223,9 +192,8 @@ class LitkitProvider:
         # Validate workspace exists and has required files
         self._validate_workspace()
 
-        # Pre-initialize litkit heavy deps on main thread
-        # This avoids multiprocessing/asyncio conflicts during retrieval
-        self._prewarm_litkit()
+        # Note: We no longer pre-warm litkit in the main process because
+        # retrieval runs in a completely isolated subprocess
 
     def _check_litkit_installed(self) -> None:
         """Check if litkit package is installed."""
@@ -233,40 +201,6 @@ class LitkitProvider:
             import litkit  # noqa: F401
         except ImportError:
             raise LitkitNotInstalledError() from None
-
-    def _prewarm_litkit(self) -> None:
-        """Pre-initialize litkit heavy dependencies.
-
-        Called at init time (main thread, before Textual's event loop)
-        to avoid multiprocessing conflicts when retrieval is called
-        from asyncio thread pool later.
-
-        We set TOKENIZERS_PARALLELISM=false to disable huggingface tokenizers'
-        multiprocessing, which conflicts with asyncio's thread pool. This has
-        no performance impact for single-query retrieval (our use case), and
-        only affects batch tokenization of thousands of documents.
-
-        Litkit uses lazy loading for heavy deps (FAISS, embedder models).
-        By calling deps() here, we ensure the embedder is loaded on the
-        main thread before any async operations.
-        """
-        import os
-
-        # Disable tokenizer parallelism to avoid asyncio/multiprocessing conflicts
-        # See: https://github.com/huggingface/tokenizers/issues/220
-        os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
-        old_workspace = os.environ.get("LITKIT_WORKSPACE")
-        os.environ["LITKIT_WORKSPACE"] = str(self._workspace)
-        try:
-            from litkit.cli import deps
-
-            deps()  # Triggers _load_heavy_deps() → loads embedder, FAISS, etc.
-        finally:
-            if old_workspace is not None:
-                os.environ["LITKIT_WORKSPACE"] = old_workspace
-            elif "LITKIT_WORKSPACE" in os.environ:
-                del os.environ["LITKIT_WORKSPACE"]
 
     def _validate_workspace(self) -> None:
         """Validate that the workspace has required files.
@@ -311,17 +245,11 @@ class LitkitProvider:
         self._indices_dir = indices_dir
 
     def _retrieve_chunks(self, query: str) -> list[RetrievedChunk]:
-        """Retrieve relevant chunks using litkit (sync).
+        """Retrieve relevant chunks using litkit in a subprocess.
 
-        This is a synchronous method that should be run in a thread pool
-        to avoid blocking the async event loop.
-
-        Uses litkit's two-stage retrieval:
-        1. Stage 1: Shortlist papers by abstract/title relevance
-        2. Stage 2: Search chunks within shortlisted papers
-
-        Note: litkit 0.3.x uses LITKIT_WORKSPACE env var for workspace path.
-        The workspace is set via deps() which reads the env var.
+        Runs retrieval in a completely isolated subprocess using subprocess.run()
+        with close_fds=True. This avoids all fd inheritance issues that occur
+        when spawning processes from within Textual's terminal I/O context.
 
         Args:
             query: The search query.
@@ -332,93 +260,61 @@ class LitkitProvider:
         Raises:
             LitkitError: If retrieval fails.
         """
-        import os
-
         try:
-            # Import litkit functions here to avoid import errors at module load
-            from litkit.cli import get_chunks, search_chunks_constrained, shortlist_papers
-            from litkit.db import connect_db
-        except ImportError:
-            raise LitkitNotInstalledError() from None
-
-        try:
-            # Set LITKIT_WORKSPACE env var so litkit.cli.deps() finds our workspace
-            # This is how litkit 0.3.x discovers workspace configuration
-            old_workspace = os.environ.get("LITKIT_WORKSPACE")
-            os.environ["LITKIT_WORKSPACE"] = str(self._workspace)
-
-            try:
-                # Connect to the database
-                conn = connect_db(str(self._db_path))
-
-                # Stage 1: Shortlist papers by abstract/title relevance
-                # litkit 0.3.x API: shortlist_papers(question, k, ...)
-                paper_ids = shortlist_papers(query, self._top_papers)
-
-                if not paper_ids:
-                    return []
-
-                # Stage 2: Search chunks within shortlisted papers
-                # litkit 0.3.x API: search_chunks_constrained(question, candidate_papers, k, ...)
-                chunk_ids, scores = search_chunks_constrained(
+            # Run retrieval script in isolated subprocess
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    _RETRIEVAL_SCRIPT,
+                    str(self._workspace),
+                    str(self._db_path),
+                    str(self._top_papers),
+                    str(self._top_chunks),
                     query,
-                    paper_ids,
-                    self._top_chunks,
+                ],
+                capture_output=True,
+                text=True,
+                close_fds=True,  # Close all fds - avoids inheritance issues
+                timeout=120,  # 2 minute timeout
+            )
+
+            if result.returncode != 0:
+                # Check for error message in stderr
+                if result.stderr:
+                    try:
+                        error_data = json.loads(result.stderr)
+                        if "error" in error_data:
+                            raise LitkitError(f"Retrieval failed: {error_data['error']}")
+                    except json.JSONDecodeError:
+                        pass
+                    raise LitkitError(f"Retrieval failed: {result.stderr}")
+                raise LitkitError("Retrieval failed with unknown error")
+
+            # Parse JSON output
+            if not result.stdout.strip():
+                return []
+
+            chunk_dicts = json.loads(result.stdout)
+
+            # Convert to RetrievedChunk objects
+            return [
+                RetrievedChunk(
+                    chunk_id=d["chunk_id"],
+                    text=d["text"],
+                    paper_title=d["paper_title"],
+                    pmid=d["pmid"],
+                    pmcid=d["pmcid"],
+                    score=d["score"],
                 )
+                for d in chunk_dicts
+            ]
 
-                if not chunk_ids:
-                    return []
-
-                # Get chunk content and metadata from database
-                chunks_data = get_chunks(conn, chunk_ids)
-
-                # Convert to RetrievedChunk objects
-                retrieved_chunks: list[RetrievedChunk] = []
-                for i, chunk_data in enumerate(chunks_data):
-                    # Handle both dict and object return types from litkit
-                    if isinstance(chunk_data, dict):
-                        chunk_id = chunk_data.get("id", chunk_ids[i] if i < len(chunk_ids) else 0)
-                        text = chunk_data.get("text", "")
-                        paper_title = chunk_data.get("paper_title", chunk_data.get("title", ""))
-                        pmid = chunk_data.get("pmid")
-                        pmcid = chunk_data.get("pmcid")
-                    else:
-                        # Object with attributes
-                        chunk_id = getattr(
-                            chunk_data, "id", chunk_ids[i] if i < len(chunk_ids) else 0
-                        )
-                        text = getattr(chunk_data, "text", "")
-                        paper_title = getattr(
-                            chunk_data, "paper_title", getattr(chunk_data, "title", "")
-                        )
-                        pmid = getattr(chunk_data, "pmid", None)
-                        pmcid = getattr(chunk_data, "pmcid", None)
-
-                    # Get score for this chunk (if available)
-                    score = scores[i] if i < len(scores) else 0.0
-
-                    retrieved_chunks.append(
-                        RetrievedChunk(
-                            chunk_id=int(chunk_id) if chunk_id else 0,
-                            text=str(text),
-                            paper_title=str(paper_title),
-                            pmid=str(pmid) if pmid else None,
-                            pmcid=str(pmcid) if pmcid else None,
-                            score=float(score),
-                        )
-                    )
-
-                return retrieved_chunks
-
-            finally:
-                # Restore original LITKIT_WORKSPACE env var
-                if old_workspace is not None:
-                    os.environ["LITKIT_WORKSPACE"] = old_workspace
-                elif "LITKIT_WORKSPACE" in os.environ:
-                    del os.environ["LITKIT_WORKSPACE"]
-
+        except subprocess.TimeoutExpired:
+            raise LitkitError("Retrieval timed out after 120 seconds") from None
+        except json.JSONDecodeError as e:
+            raise LitkitError(f"Failed to parse retrieval results: {e}") from e
         except Exception as e:
-            # Wrap litkit errors in LitkitError for consistent error handling
             if isinstance(e, LitkitError):
                 raise
             raise LitkitError(f"Retrieval failed: {e}") from e
@@ -625,13 +521,14 @@ class LitkitProvider:
         """Augment messages with retrieved context.
 
         This method:
-        1. Retrieves relevant chunks from litkit (in subprocess)
+        1. Retrieves relevant chunks from litkit (in isolated subprocess)
         2. Fits chunks to available token budget
         3. Injects context into the user message
         4. Returns augmented messages and metadata
 
-        Retrieval runs in a separate process via ProcessPoolExecutor to avoid
-        asyncio/multiprocessing conflicts that cause "bad value(s) in fds_to_keep".
+        Retrieval runs via subprocess.run() with close_fds=True to completely
+        isolate the subprocess from Textual's terminal I/O, avoiding fd
+        inheritance errors that occur with ProcessPoolExecutor/asyncio.to_thread.
 
         Args:
             conversation: Current conversation history.
@@ -640,35 +537,9 @@ class LitkitProvider:
         Returns:
             Tuple of (augmented messages, retrieval metadata).
         """
-        # Retrieve chunks in a separate process to avoid asyncio/multiprocessing conflicts
-        loop = asyncio.get_event_loop()
-        executor = _get_retrieval_executor()
-
-        try:
-            chunk_dicts = await loop.run_in_executor(
-                executor,
-                _retrieve_chunks_in_process,
-                str(self._workspace),
-                str(self._db_path),
-                self._top_papers,
-                self._top_chunks,
-                user_text,
-            )
-        except Exception as e:
-            raise LitkitError(f"Retrieval failed: {e}") from e
-
-        # Convert dicts back to RetrievedChunk objects
-        chunks = [
-            RetrievedChunk(
-                chunk_id=d["chunk_id"],
-                text=d["text"],
-                paper_title=d["paper_title"],
-                pmid=d["pmid"],
-                pmcid=d["pmcid"],
-                score=d["score"],
-            )
-            for d in chunk_dicts
-        ]
+        # Run subprocess retrieval in thread pool to avoid blocking event loop
+        # The subprocess itself is completely isolated (close_fds=True)
+        chunks = await asyncio.to_thread(self._retrieve_chunks, user_text)
 
         if not chunks:
             # No relevant chunks found, return messages unchanged
