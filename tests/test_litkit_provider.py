@@ -17,9 +17,11 @@ class TestLitkitProviderInit:
 
     def test_init_raises_when_litkit_not_installed(self, tmp_path: Path) -> None:
         """LitkitProvider raises LitkitNotInstalledError if litkit not installed."""
-        # Create minimal workspace
-        (tmp_path / "papers.index").touch()
-        (tmp_path / "litkit.db").touch()
+        # Create minimal workspace with standard litkit layout
+        (tmp_path / "indices").mkdir()
+        (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "sqlite").mkdir()
+        (tmp_path / "sqlite" / "litkit.sqlite3").touch()
 
         with (
             patch.dict("sys.modules", {"litkit": None}),
@@ -55,8 +57,9 @@ class TestLitkitProviderInit:
         """LitkitProvider raises FAISSIndexNotFoundError if FAISS indices missing."""
         from chatty.rag.litkit_provider import FAISSIndexNotFoundError
 
-        # Create workspace without FAISS indices
-        (tmp_path / "litkit.db").touch()
+        # Create workspace without indices/ directory
+        (tmp_path / "sqlite").mkdir()
+        (tmp_path / "sqlite" / "litkit.sqlite3").touch()
 
         with patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"):
             from chatty.rag.litkit_provider import LitkitProvider
@@ -70,8 +73,9 @@ class TestLitkitProviderInit:
         """LitkitProvider raises DatabaseNotFoundError if SQLite DB missing."""
         from chatty.rag.litkit_provider import DatabaseNotFoundError
 
-        # Create workspace with FAISS but no DB
-        (tmp_path / "papers.index").touch()
+        # Create workspace with indices but no sqlite/
+        (tmp_path / "indices").mkdir()
+        (tmp_path / "indices" / "papers.faiss").touch()
 
         with patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"):
             from chatty.rag.litkit_provider import LitkitProvider
@@ -83,9 +87,11 @@ class TestLitkitProviderInit:
 
     def test_init_success_with_valid_workspace(self, tmp_path: Path) -> None:
         """LitkitProvider initializes successfully with valid workspace."""
-        # Create valid workspace
-        (tmp_path / "papers.index").touch()
-        (tmp_path / "litkit.db").touch()
+        # Create valid workspace with standard litkit layout
+        (tmp_path / "indices").mkdir()
+        (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "sqlite").mkdir()
+        (tmp_path / "sqlite" / "litkit.sqlite3").touch()
 
         with patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"):
             from chatty.rag.litkit_provider import LitkitProvider
@@ -99,28 +105,16 @@ class TestLitkitProviderInit:
             assert provider._workspace == tmp_path
             assert provider._top_papers == 100
             assert provider._top_chunks == 10
-            assert provider._db_path == tmp_path / "litkit.db"
+            assert provider._db_path == tmp_path / "sqlite" / "litkit.sqlite3"
+            assert provider._indices_dir == tmp_path / "indices"
 
-    def test_init_accepts_alternative_db_name(self, tmp_path: Path) -> None:
-        """LitkitProvider accepts corpus.db as alternative database name."""
-        # Create workspace with alternative DB name
-        (tmp_path / "papers.index").touch()
-        (tmp_path / "corpus.db").touch()
-
-        with patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"):
-            from chatty.rag.litkit_provider import LitkitProvider
-
-            provider = LitkitProvider(workspace=tmp_path)
-
-            assert provider._db_path == tmp_path / "corpus.db"
-
-    def test_init_accepts_faiss_subdirectory(self, tmp_path: Path) -> None:
-        """LitkitProvider accepts FAISS indices in subdirectory."""
-        # Create workspace with FAISS in subdirectory
-        faiss_dir = tmp_path / "faiss"
-        faiss_dir.mkdir()
-        (faiss_dir / "papers.index").touch()
-        (tmp_path / "litkit.db").touch()
+    def test_init_accepts_chunks_only(self, tmp_path: Path) -> None:
+        """LitkitProvider accepts workspace with only chunks.faiss."""
+        # Create workspace with only chunks.faiss (no papers.faiss)
+        (tmp_path / "indices").mkdir()
+        (tmp_path / "indices" / "chunks.faiss").touch()
+        (tmp_path / "sqlite").mkdir()
+        (tmp_path / "sqlite" / "litkit.sqlite3").touch()
 
         with patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"):
             from chatty.rag.litkit_provider import LitkitProvider
@@ -162,9 +156,11 @@ class TestLitkitProviderRetrieve:
 
     @pytest.fixture
     def valid_workspace(self, tmp_path: Path) -> Path:
-        """Create a valid workspace directory."""
-        (tmp_path / "papers.index").touch()
-        (tmp_path / "litkit.db").touch()
+        """Create a valid workspace directory with standard litkit layout."""
+        (tmp_path / "indices").mkdir()
+        (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "sqlite").mkdir()
+        (tmp_path / "sqlite" / "litkit.sqlite3").touch()
         return tmp_path
 
     def test_retrieve_chunks_empty_query(
@@ -253,8 +249,10 @@ class TestLitkitProviderTokenBudget:
     @pytest.fixture
     def provider(self, tmp_path: Path) -> Any:
         """Create a LitkitProvider for testing."""
-        (tmp_path / "papers.index").touch()
-        (tmp_path / "litkit.db").touch()
+        (tmp_path / "indices").mkdir()
+        (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "sqlite").mkdir()
+        (tmp_path / "sqlite" / "litkit.sqlite3").touch()
 
         with patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"):
             from chatty.rag.litkit_provider import LitkitProvider
@@ -363,8 +361,10 @@ class TestLitkitProviderFormatting:
     @pytest.fixture
     def provider(self, tmp_path: Path) -> Any:
         """Create a LitkitProvider for testing."""
-        (tmp_path / "papers.index").touch()
-        (tmp_path / "litkit.db").touch()
+        (tmp_path / "indices").mkdir()
+        (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "sqlite").mkdir()
+        (tmp_path / "sqlite" / "litkit.sqlite3").touch()
 
         with patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"):
             from chatty.rag.litkit_provider import LitkitProvider
@@ -448,8 +448,10 @@ class TestLitkitProviderAugment:
     @pytest.fixture
     def provider(self, tmp_path: Path) -> Any:
         """Create a LitkitProvider for testing."""
-        (tmp_path / "papers.index").touch()
-        (tmp_path / "litkit.db").touch()
+        (tmp_path / "indices").mkdir()
+        (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "sqlite").mkdir()
+        (tmp_path / "sqlite" / "litkit.sqlite3").touch()
 
         with patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"):
             from chatty.rag.litkit_provider import LitkitProvider

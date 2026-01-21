@@ -122,6 +122,14 @@ class LitkitProvider:
     def _validate_workspace(self) -> None:
         """Validate that the workspace has required files.
 
+        Standard litkit workspace layout:
+            workspace/
+            ├── indices/           # FAISS indices
+            │   ├── papers.faiss
+            │   └── chunks.faiss
+            └── sqlite/            # SQLite database
+                └── litkit.sqlite3
+
         Raises:
             WorkspaceNotFoundError: If workspace directory doesn't exist.
             FAISSIndexNotFoundError: If FAISS index files are missing.
@@ -131,31 +139,27 @@ class LitkitProvider:
         if not self._workspace.exists():
             raise WorkspaceNotFoundError(self._workspace)
 
-        # Check for FAISS indices (paper index and chunk index)
-        # litkit uses 'papers.index' and 'chunks.index' by default
-        papers_index = self._workspace / "papers.index"
-        chunks_index = self._workspace / "chunks.index"
+        # Check for FAISS indices in standard litkit location: indices/
+        indices_dir = self._workspace / "indices"
+        papers_index = indices_dir / "papers.faiss"
+        chunks_index = indices_dir / "chunks.faiss"
+
+        if not indices_dir.exists():
+            raise FAISSIndexNotFoundError(self._workspace)
 
         if not papers_index.exists() and not chunks_index.exists():
-            # Also check for alternative locations
-            faiss_dir = self._workspace / "faiss"
-            if faiss_dir.exists():
-                papers_index = faiss_dir / "papers.index"
-                chunks_index = faiss_dir / "chunks.index"
+            raise FAISSIndexNotFoundError(self._workspace)
 
-            if not papers_index.exists() and not chunks_index.exists():
-                raise FAISSIndexNotFoundError(self._workspace)
+        # Check for SQLite database in standard litkit location: sqlite/
+        sqlite_dir = self._workspace / "sqlite"
+        db_path = sqlite_dir / "litkit.sqlite3"
 
-        # Check for SQLite database
-        db_path = self._workspace / "litkit.db"
         if not db_path.exists():
-            # Try alternative location
-            db_path = self._workspace / "corpus.db"
-            if not db_path.exists():
-                raise DatabaseNotFoundError(self._workspace / "litkit.db")
+            raise DatabaseNotFoundError(db_path)
 
         # Store validated paths
         self._db_path = db_path
+        self._indices_dir = indices_dir
 
     def _retrieve_chunks(self, query: str) -> list[RetrievedChunk]:
         """Retrieve relevant chunks using litkit (sync).
