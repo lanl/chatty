@@ -112,12 +112,46 @@ class LitkitProvider:
         # Validate workspace exists and has required files
         self._validate_workspace()
 
+        # Pre-initialize litkit heavy deps on main thread
+        # This avoids multiprocessing/asyncio conflicts during retrieval
+        self._prewarm_litkit()
+
     def _check_litkit_installed(self) -> None:
         """Check if litkit package is installed."""
         try:
             import litkit  # noqa: F401
         except ImportError:
             raise LitkitNotInstalledError() from None
+
+    def _prewarm_litkit(self) -> None:
+        """Pre-initialize litkit heavy dependencies.
+
+        Called at init time (main thread, before Textual's event loop)
+        to avoid multiprocessing conflicts when retrieval is called
+        from asyncio thread pool later.
+
+        Litkit uses lazy loading for heavy deps (FAISS, embedder models).
+        If these are first loaded inside an asyncio.to_thread() context,
+        sentence_transformers' multiprocessing can fail with
+        "bad value(s) in fds_to_keep" due to file descriptor inheritance
+        issues.
+
+        By calling deps() here, we ensure the embedder is loaded on the
+        main thread before any async operations.
+        """
+        import os
+
+        old_workspace = os.environ.get("LITKIT_WORKSPACE")
+        os.environ["LITKIT_WORKSPACE"] = str(self._workspace)
+        try:
+            from litkit.cli import deps
+
+            deps()  # Triggers _load_heavy_deps() → loads embedder, FAISS, etc.
+        finally:
+            if old_workspace is not None:
+                os.environ["LITKIT_WORKSPACE"] = old_workspace
+            elif "LITKIT_WORKSPACE" in os.environ:
+                del os.environ["LITKIT_WORKSPACE"]
 
     def _validate_workspace(self) -> None:
         """Validate that the workspace has required files.
