@@ -464,6 +464,7 @@ class StatusBar(Static):
         *,
         model: str = "gpt-4.1",
         streaming: bool = True,
+        rag_provider: str = "none",
     ) -> None:
         """Initialize the status bar.
 
@@ -471,12 +472,14 @@ class StatusBar(Static):
             id: Optional DOM identifier for CSS styling and queries.
             model: Initial model name to display.
             streaming: Initial streaming mode.
+            rag_provider: RAG provider name ("none", "litkit", etc.).
         """
         super().__init__("", id=id)
         self._status = "Ready"
         self._model = model
         self._streaming = streaming
         self._tokens = ""
+        self._rag_provider = rag_provider
         self._spinner_index = 0
         self._spinner_timer: object | None = None
         self._start_time: float | None = None
@@ -515,6 +518,8 @@ class StatusBar(Static):
         parts = [status_display, f"Model: {self._model}"]
         stream_str = "on" if self._streaming else "off"
         parts.append(f"Stream: {stream_str}")
+        if self._rag_provider and self._rag_provider != "none":
+            parts.append(f"RAG: {self._rag_provider}")
         if self._tokens:
             parts.append(self._tokens)
         self.update(" | ".join(parts))
@@ -551,6 +556,7 @@ class StatusBar(Static):
         model: str | None = None,
         streaming: bool | None = None,
         tokens: str | None = None,
+        rag_provider: str | None = None,
     ) -> None:
         """Update the status bar display.
 
@@ -562,6 +568,7 @@ class StatusBar(Static):
             model: Model name to display
             streaming: Whether streaming is enabled
             tokens: Token usage string (e.g., "12K / 128K tokens")
+            rag_provider: RAG provider name ("none", "litkit", etc.)
         """
         if status is not None:
             old_status = self._status
@@ -581,6 +588,8 @@ class StatusBar(Static):
             self._streaming = streaming
         if tokens is not None:
             self._tokens = tokens
+        if rag_provider is not None:
+            self._rag_provider = rag_provider
         self._rebuild_display()
 
     @property

@@ -239,7 +239,12 @@ class ChatApp(App[None]):
             ChatInput(id="input"),
             id="input-container",
         )
-        yield StatusBar(id="status-bar", model=self.config.model, streaming=self.streaming)
+        yield StatusBar(
+            id="status-bar",
+            model=self.config.model,
+            streaming=self.streaming,
+            rag_provider=self.config.rag_provider,
+        )
         yield ChattyFooter(id="footer")
 
     def on_mount(self) -> None:
