@@ -1,10 +1,10 @@
 [project]
 name = "chatty"
-version = "0.3.0"
+version = "0.4.0"
 description = "A terminal UI chatbot for OpenAI-compatible endpoints"
 readme = "README.md"
 license = { text = "TBD" }
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 authors = [
     { name = "LANL" }
 ]
@@ -31,12 +31,16 @@ dependencies = [
     "rich>=13.0",
     "tiktoken>=0.5",
     "pyperclip>=1.11.0",
+    "litkit>=0.0.11",
 ]
 
 [project.optional-dependencies]
 rag = [
     "faiss-cpu>=1.8,<1.9",
     "numpy<2",
+]
+litkit = [
+    "litkit>=0.0.1",
 ]
 
 [project.scripts]
@@ -130,3 +134,6 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "raise NotImplementedError",
 ]
+
+[tool.uv.sources]
+litkit = { path = "../litkit", editable = true }

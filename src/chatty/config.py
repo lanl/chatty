@@ -172,7 +172,31 @@ class Config(BaseSettings):
     transcript_path: str = "~/.config/chatty/transcripts"
 
     # RAG Provider
-    rag_provider: str = "none"  # "none" (v0.1-0.2), "litkit" (v0.3+)
+    rag_provider: str = "none"  # "none" (v0.1-0.3), "litkit" (v0.4+)
+
+    # RAG Settings (v0.4+)
+    rag_workspace: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("CHATTY_RAG_WORKSPACE", "LITKIT_WORKSPACE", "rag_workspace"),
+    )
+    rag_top_papers: int = 500  # Stage 1: papers to shortlist
+    rag_top_chunks: int = 30  # Stage 2: chunks for LLM context
+
+    @field_validator("rag_top_papers")
+    @classmethod
+    def validate_rag_top_papers(cls, v: int) -> int:
+        """Validate rag_top_papers is in reasonable range (1-5000)."""
+        if not 1 <= v <= 5000:
+            raise ValueError("rag_top_papers must be between 1 and 5000")
+        return v
+
+    @field_validator("rag_top_chunks")
+    @classmethod
+    def validate_rag_top_chunks(cls, v: int) -> int:
+        """Validate rag_top_chunks is in reasonable range (1-100)."""
+        if not 1 <= v <= 100:
+            raise ValueError("rag_top_chunks must be between 1 and 100")
+        return v
 
     # Session Persistence
     session_path: str = "./sessions"
@@ -219,6 +243,9 @@ class Config(BaseSettings):
             "transcript_enabled": str(self.transcript_enabled),
             "transcript_path": self.transcript_path,
             "rag_provider": self.rag_provider,
+            "rag_workspace": self.rag_workspace or "(not set)",
+            "rag_top_papers": str(self.rag_top_papers),
+            "rag_top_chunks": str(self.rag_top_chunks),
             "session_path": self.session_path,
             "copy_fallback_path": self.copy_fallback_path,
             "export_path": self.export_path,
@@ -239,6 +266,16 @@ class Config(BaseSettings):
     def get_export_path(self) -> Path:
         """Get the resolved export path with ~ expanded."""
         return Path(self.export_path).expanduser()
+
+    def get_rag_workspace(self) -> Path | None:
+        """Get the resolved RAG workspace path with ~ expanded.
+
+        Returns:
+            Path to workspace if configured, None otherwise.
+        """
+        if self.rag_workspace:
+            return Path(self.rag_workspace).expanduser()
+        return None
 
 
 @dataclass
@@ -268,6 +305,9 @@ _CONFIG_FIELDS = [
     "transcript_enabled",
     "transcript_path",
     "rag_provider",
+    "rag_workspace",
+    "rag_top_papers",
+    "rag_top_chunks",
     "session_path",
     "copy_fallback_path",
     "export_path",
@@ -292,6 +332,9 @@ _ENV_MAPPINGS = {
     "transcript_enabled": ["CHATTY_TRANSCRIPT_ENABLED"],
     "transcript_path": ["CHATTY_TRANSCRIPT_PATH"],
     "rag_provider": ["CHATTY_RAG_PROVIDER"],
+    "rag_workspace": ["CHATTY_RAG_WORKSPACE", "LITKIT_WORKSPACE"],
+    "rag_top_papers": ["CHATTY_RAG_TOP_PAPERS"],
+    "rag_top_chunks": ["CHATTY_RAG_TOP_CHUNKS"],
     "session_path": ["CHATTY_SESSION_PATH"],
     "copy_fallback_path": ["CHATTY_COPY_FALLBACK_PATH"],
     "export_path": ["CHATTY_EXPORT_PATH"],
@@ -406,6 +449,9 @@ def format_config_with_sources(config_with_sources: ConfigWithSources) -> str:
         "transcript_enabled": str(config.transcript_enabled),
         "transcript_path": config.transcript_path,
         "rag_provider": config.rag_provider,
+        "rag_workspace": config.rag_workspace or "(not set)",
+        "rag_top_papers": str(config.rag_top_papers),
+        "rag_top_chunks": str(config.rag_top_chunks),
         "session_path": config.session_path,
         "copy_fallback_path": config.copy_fallback_path,
         "export_path": config.export_path,

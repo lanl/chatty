@@ -98,11 +98,26 @@ export_path = "./exports"
 # =============================================================================
 
 # RAG provider: "none" (default) or "litkit"
+# When set to "litkit", chatty will use litkit for corpus-grounded responses.
+# Requires: litkit package installed (`uv add litkit` or `uv sync --extra litkit`)
 # rag_provider = "none"
 
-# litkit workspace path (auto-detected if omitted)
+# litkit workspace path
+# If omitted, chatty will check the LITKIT_WORKSPACE environment variable.
+# The workspace must contain pre-built FAISS indices and SQLite database.
+# Build indices with: litkit --build-only --faiss-writer
 # rag_workspace = "~/litkit/workspace"
 
 # Retrieval parameters
-# rag_top_papers = 500   # Stage 1: papers to shortlist
-# rag_top_chunks = 30    # Stage 2: chunks for LLM context
+# rag_top_papers: Number of papers to shortlist in stage 1 (range: 1-5000)
+# rag_top_papers = 500
+
+# rag_top_chunks: Number of chunks to retrieve for LLM context (range: 1-100)
+# rag_top_chunks = 30
+
+# Environment variables (alternative to config file):
+#   CHATTY_RAG_PROVIDER   - "none" or "litkit"
+#   CHATTY_RAG_WORKSPACE  - path to litkit workspace
+#   LITKIT_WORKSPACE      - also accepted for workspace path
+#   CHATTY_RAG_TOP_PAPERS - stage 1 paper count
+#   CHATTY_RAG_TOP_CHUNKS - stage 2 chunk count

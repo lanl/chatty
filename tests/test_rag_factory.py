@@ -3,7 +3,7 @@
 import pytest
 
 from chatty.config import Config
-from chatty.rag import NullProvider, UnknownProviderError, get_provider
+from chatty.rag import ConfigurationError, NullProvider, UnknownProviderError, get_provider
 
 
 def test_get_provider_returns_null_provider_by_default() -> None:
@@ -46,16 +46,28 @@ def test_get_provider_unknown_raises_error() -> None:
     assert "Valid options" in str(exc_info.value)
 
 
-def test_get_provider_litkit_not_implemented_yet() -> None:
-    """Litkit provider raises error (not implemented in v0.2)."""
+def test_get_provider_litkit_requires_workspace() -> None:
+    """Litkit provider raises error when workspace not configured."""
     config = Config(rag_provider="litkit")
 
-    with pytest.raises(UnknownProviderError) as exc_info:
+    with pytest.raises(ConfigurationError) as exc_info:
         get_provider(config)
 
-    # Should mention litkit is coming in v0.3
-    assert "litkit" in str(exc_info.value).lower()
-    assert "v0.3" in str(exc_info.value)
+    # Should mention workspace is required
+    assert "workspace" in str(exc_info.value).lower()
+
+
+def test_get_provider_litkit_invalid_workspace() -> None:
+    """Litkit provider raises error for non-existent workspace or missing litkit."""
+    config = Config(rag_provider="litkit", rag_workspace="/nonexistent/path")
+
+    with pytest.raises(ConfigurationError) as exc_info:
+        get_provider(config)
+
+    # Should mention either workspace not found OR litkit not installed
+    # (depends on whether litkit is installed in test environment)
+    error_msg = str(exc_info.value).lower()
+    assert "workspace not found" in error_msg or "litkit" in error_msg
 
 
 def test_config_rag_provider_default() -> None:

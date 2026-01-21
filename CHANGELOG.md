@@ -5,6 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-01-21
+
+### Added
+
+**Core Litkit Integration (RAG)**
+- `LitkitProvider` implementation for corpus-grounded responses
+- Two-stage retrieval: paper shortlisting → chunk search
+- Automatic context injection with source citations
+- Token budget fitting to prevent context overflow
+
+**New Config Options**
+- `rag_workspace` — Path to litkit workspace (FAISS indices + SQLite DB)
+- `rag_top_papers` — Number of papers to shortlist (default: 500, range: 1-5000)
+- `rag_top_chunks` — Number of chunks to retrieve (default: 30, range: 1-100)
+- Environment variables: `CHATTY_RAG_WORKSPACE`, `LITKIT_WORKSPACE`, `CHATTY_RAG_TOP_PAPERS`, `CHATTY_RAG_TOP_CHUNKS`
+
+**New Files**
+- `rag/litkit_provider.py` — LitkitProvider class with retrieval, token budget, and context formatting
+- `tests/test_litkit_provider.py` — 32 tests for LitkitProvider
+
+**Error Handling**
+- Clear error messages for missing litkit, missing indices, missing database
+- Graceful fallback to NullProvider if RAG initialization fails
+- RAG errors displayed inline in chat with actionable hints
+
+**New Dependencies**
+- `litkit>=0.0.1` as optional dependency (`uv sync --extra litkit`)
+
+### Changed
+
+- RAG provider factory (`get_provider()`) now supports `"litkit"` option
+- `ConfigurationError` added to `chatty.rag` exports
+- App shows warning on startup if RAG provider fails to initialize (falls back to NullProvider)
+- Updated `chatty.toml.example` with comprehensive RAG documentation
+
+### Developer Notes
+
+- 488 total tests (was 447)
+- litkit functions are sync — wrapped in `asyncio.to_thread()` for async UI
+- Token estimation uses tiktoken with character-based fallback
+- All acceptance criteria for v0.4.0 met
+- Pre-commit hooks pass
+
+---
+
 ## [0.3.0] - 2026-01-20
 
 ### Added

@@ -90,7 +90,7 @@ from chatty.core.session import (
     save_markdown_export,
 )
 from chatty.core.transcript import TranscriptLogger
-from chatty.rag import RAGMetadata, RAGProvider, get_provider
+from chatty.rag import ConfigurationError, NullProvider, RAGMetadata, RAGProvider, get_provider
 from chatty.ui.clipboard import copy_to_clipboard
 from chatty.ui.footer import ChattyFooter
 from chatty.ui.modals import (
@@ -201,7 +201,14 @@ class ChatApp(App[None]):
         self.conversation: Conversation | None = None
         self.current_worker: Worker[None] | None = None
         self.transcript: TranscriptLogger = TranscriptLogger(self.config)
-        self.rag_provider: RAGProvider = get_provider(self.config)
+        self.rag_provider: RAGProvider
+        self._rag_init_error: str | None = None
+        try:
+            self.rag_provider = get_provider(self.config)
+        except ConfigurationError as e:
+            # Fall back to NullProvider and store error for display
+            self.rag_provider = NullProvider()
+            self._rag_init_error = str(e)
         self.last_rag_metadata: RAGMetadata | None = None  # For future citation display
         self._pending_user_text: str | None = None  # User message awaiting LLM response
         self._current_session: Session | None = None  # For save/load functionality
@@ -253,6 +260,14 @@ class ChatApp(App[None]):
 
         # Check for missing configuration and warn user
         self._check_startup_config(chat_log)
+
+        # Show RAG initialization error if any
+        if self._rag_init_error:
+            chat_log.add_message(
+                "error",
+                f"⚠ RAG provider failed to initialize:\n\n{self._rag_init_error}\n\n"
+                "Chat will work without RAG. Fix the issue or set `rag_provider = 'none'`.",
+            )
 
         # Initialize client and conversation
         self.client = OpenAIClient(self.config)
