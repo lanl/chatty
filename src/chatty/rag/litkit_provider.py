@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -13,6 +14,116 @@ from chatty.rag.provider import RAGMetadata
 
 if TYPE_CHECKING:
     pass
+
+
+# Module-level ProcessPoolExecutor for retrieval
+# Using a single worker process to avoid multiprocessing conflicts with asyncio
+_retrieval_executor: ProcessPoolExecutor | None = None
+
+
+def _get_retrieval_executor() -> ProcessPoolExecutor:
+    """Get or create the retrieval process pool executor.
+
+    Uses a single worker process to isolate litkit's multiprocessing
+    from Textual's asyncio event loop.
+    """
+    global _retrieval_executor
+    if _retrieval_executor is None:
+        _retrieval_executor = ProcessPoolExecutor(max_workers=1)
+    return _retrieval_executor
+
+
+def _retrieve_chunks_in_process(
+    workspace: str,
+    db_path: str,
+    top_papers: int,
+    top_chunks: int,
+    query: str,
+) -> list[dict[str, Any]]:
+    """Retrieve chunks in a subprocess (module-level function for pickling).
+
+    This function runs in a separate process to avoid asyncio/multiprocessing
+    conflicts. It must be a module-level function (not a method) to be picklable.
+
+    Args:
+        workspace: Path to litkit workspace.
+        db_path: Path to SQLite database.
+        top_papers: Number of papers to shortlist.
+        top_chunks: Number of chunks to retrieve.
+        query: The search query.
+
+    Returns:
+        List of chunk dictionaries with metadata.
+    """
+    import os
+
+    # Disable tokenizer parallelism in subprocess too
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    os.environ["LITKIT_WORKSPACE"] = workspace
+
+    try:
+        from litkit.cli import get_chunks, search_chunks_constrained, shortlist_papers
+        from litkit.db import connect_db
+    except ImportError:
+        return []
+
+    try:
+        # Connect to the database
+        conn = connect_db(db_path)
+
+        # Stage 1: Shortlist papers by abstract/title relevance
+        paper_ids = shortlist_papers(query, top_papers)
+
+        if not paper_ids:
+            return []
+
+        # Stage 2: Search chunks within shortlisted papers
+        chunk_ids, scores = search_chunks_constrained(
+            query,
+            paper_ids,
+            top_chunks,
+        )
+
+        if not chunk_ids:
+            return []
+
+        # Get chunk content and metadata from database
+        chunks_data = get_chunks(conn, chunk_ids)
+
+        # Convert to serializable dicts
+        result: list[dict[str, Any]] = []
+        for i, chunk_data in enumerate(chunks_data):
+            if isinstance(chunk_data, dict):
+                chunk_id = chunk_data.get("id", chunk_ids[i] if i < len(chunk_ids) else 0)
+                text = chunk_data.get("text", "")
+                paper_title = chunk_data.get("paper_title", chunk_data.get("title", ""))
+                pmid = chunk_data.get("pmid")
+                pmcid = chunk_data.get("pmcid")
+            else:
+                chunk_id = getattr(chunk_data, "id", chunk_ids[i] if i < len(chunk_ids) else 0)
+                text = getattr(chunk_data, "text", "")
+                paper_title = getattr(chunk_data, "paper_title", getattr(chunk_data, "title", ""))
+                pmid = getattr(chunk_data, "pmid", None)
+                pmcid = getattr(chunk_data, "pmcid", None)
+
+            score = scores[i] if i < len(scores) else 0.0
+
+            result.append(
+                {
+                    "chunk_id": int(chunk_id) if chunk_id else 0,
+                    "text": str(text),
+                    "paper_title": str(paper_title),
+                    "pmid": str(pmid) if pmid else None,
+                    "pmcid": str(pmcid) if pmcid else None,
+                    "score": float(score),
+                }
+            )
+
+        return result
+
+    except Exception:
+        # Return empty list on error (error will be logged in main process)
+        return []
 
 
 class LitkitError(Exception):
@@ -514,10 +625,13 @@ class LitkitProvider:
         """Augment messages with retrieved context.
 
         This method:
-        1. Retrieves relevant chunks from litkit (in thread pool)
+        1. Retrieves relevant chunks from litkit (in subprocess)
         2. Fits chunks to available token budget
         3. Injects context into the user message
         4. Returns augmented messages and metadata
+
+        Retrieval runs in a separate process via ProcessPoolExecutor to avoid
+        asyncio/multiprocessing conflicts that cause "bad value(s) in fds_to_keep".
 
         Args:
             conversation: Current conversation history.
@@ -526,8 +640,35 @@ class LitkitProvider:
         Returns:
             Tuple of (augmented messages, retrieval metadata).
         """
-        # Retrieve chunks in a thread pool to avoid blocking
-        chunks = await asyncio.to_thread(self._retrieve_chunks, user_text)
+        # Retrieve chunks in a separate process to avoid asyncio/multiprocessing conflicts
+        loop = asyncio.get_event_loop()
+        executor = _get_retrieval_executor()
+
+        try:
+            chunk_dicts = await loop.run_in_executor(
+                executor,
+                _retrieve_chunks_in_process,
+                str(self._workspace),
+                str(self._db_path),
+                self._top_papers,
+                self._top_chunks,
+                user_text,
+            )
+        except Exception as e:
+            raise LitkitError(f"Retrieval failed: {e}") from e
+
+        # Convert dicts back to RetrievedChunk objects
+        chunks = [
+            RetrievedChunk(
+                chunk_id=d["chunk_id"],
+                text=d["text"],
+                paper_title=d["paper_title"],
+                pmid=d["pmid"],
+                pmcid=d["pmcid"],
+                score=d["score"],
+            )
+            for d in chunk_dicts
+        ]
 
         if not chunks:
             # No relevant chunks found, return messages unchanged
