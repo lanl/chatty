@@ -43,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Developer Notes
 
 - 488 total tests (was 447)
-- litkit functions are sync — wrapped in `asyncio.to_thread()` for async UI
+- litkit retrieval runs in isolated subprocess via `subprocess.run(close_fds=True)` for Textual compatibility
 - Token estimation uses tiktoken with character-based fallback
 - All acceptance criteria for v0.4.0 met
 - Pre-commit hooks pass

@@ -279,11 +279,16 @@ chatty chat
 # chatty retrieves relevant papers → injects context → LLM responds with citations
 ```
 
-### Technical Note: Tokenizer Parallelism
+### Technical Note: Subprocess Isolation
 
-Chatty disables Hugging Face tokenizer parallelism (`TOKENIZERS_PARALLELISM=false`) when using litkit. This is required for compatibility with Textual's asyncio-based UI.
+Chatty runs litkit retrieval in a completely isolated subprocess using `subprocess.run(close_fds=True)`. This is required for compatibility with Textual's terminal I/O, which creates file descriptors that conflict with Python's multiprocessing.
 
-**Impact:** None for chatty's use case. Tokenizer parallelism only accelerates batch tokenization (thousands of documents at once). Single-query retrieval—which chatty does—is equally fast either way. FAISS vector search (the actual bottleneck for large corpora) is unaffected.
+**What this means:**
+- Each query spawns a fresh Python subprocess for retrieval
+- The subprocess loads litkit, performs embedding + FAISS search, returns JSON results
+- First query takes ~30 seconds (model loading); subsequent queries spawn fresh subprocesses
+
+**Impact:** Slightly higher latency per query compared to in-process retrieval, but guarantees stability with Textual's asyncio-based UI. FAISS vector search remains the main bottleneck for large corpora.
 
 **RAG Keyboard Shortcuts (v0.4+):**
 
