@@ -171,6 +171,9 @@ class LitkitProvider:
         1. Stage 1: Shortlist papers by abstract/title relevance
         2. Stage 2: Search chunks within shortlisted papers
 
+        Note: litkit 0.3.x uses LITKIT_WORKSPACE env var for workspace path.
+        The workspace is set via deps() which reads the env var.
+
         Args:
             query: The search query.
 
@@ -180,6 +183,8 @@ class LitkitProvider:
         Raises:
             LitkitError: If retrieval fails.
         """
+        import os
+
         try:
             # Import litkit functions here to avoid import errors at module load
             from litkit.cli import get_chunks, search_chunks_constrained, shortlist_papers
@@ -188,68 +193,80 @@ class LitkitProvider:
             raise LitkitNotInstalledError() from None
 
         try:
-            # Connect to the database
-            conn = connect_db(str(self._db_path))
+            # Set LITKIT_WORKSPACE env var so litkit.cli.deps() finds our workspace
+            # This is how litkit 0.3.x discovers workspace configuration
+            old_workspace = os.environ.get("LITKIT_WORKSPACE")
+            os.environ["LITKIT_WORKSPACE"] = str(self._workspace)
 
-            # Stage 1: Shortlist papers by abstract/title relevance
-            paper_ids = shortlist_papers(
-                query,
-                top_k=self._top_papers,
-                workspace=str(self._workspace),
-            )
+            try:
+                # Connect to the database
+                conn = connect_db(str(self._db_path))
 
-            if not paper_ids:
-                return []
+                # Stage 1: Shortlist papers by abstract/title relevance
+                # litkit 0.3.x API: shortlist_papers(question, k, ...)
+                paper_ids = shortlist_papers(query, self._top_papers)
 
-            # Stage 2: Search chunks within shortlisted papers
-            chunk_ids, scores = search_chunks_constrained(
-                query,
-                paper_ids,
-                top_k=self._top_chunks,
-                workspace=str(self._workspace),
-            )
+                if not paper_ids:
+                    return []
 
-            if not chunk_ids:
-                return []
-
-            # Get chunk content and metadata from database
-            chunks_data = get_chunks(conn, chunk_ids)
-
-            # Convert to RetrievedChunk objects
-            retrieved_chunks: list[RetrievedChunk] = []
-            for i, chunk_data in enumerate(chunks_data):
-                # Handle both dict and object return types from litkit
-                if isinstance(chunk_data, dict):
-                    chunk_id = chunk_data.get("id", chunk_ids[i] if i < len(chunk_ids) else 0)
-                    text = chunk_data.get("text", "")
-                    paper_title = chunk_data.get("paper_title", chunk_data.get("title", ""))
-                    pmid = chunk_data.get("pmid")
-                    pmcid = chunk_data.get("pmcid")
-                else:
-                    # Object with attributes
-                    chunk_id = getattr(chunk_data, "id", chunk_ids[i] if i < len(chunk_ids) else 0)
-                    text = getattr(chunk_data, "text", "")
-                    paper_title = getattr(
-                        chunk_data, "paper_title", getattr(chunk_data, "title", "")
-                    )
-                    pmid = getattr(chunk_data, "pmid", None)
-                    pmcid = getattr(chunk_data, "pmcid", None)
-
-                # Get score for this chunk (if available)
-                score = scores[i] if i < len(scores) else 0.0
-
-                retrieved_chunks.append(
-                    RetrievedChunk(
-                        chunk_id=int(chunk_id) if chunk_id else 0,
-                        text=str(text),
-                        paper_title=str(paper_title),
-                        pmid=str(pmid) if pmid else None,
-                        pmcid=str(pmcid) if pmcid else None,
-                        score=float(score),
-                    )
+                # Stage 2: Search chunks within shortlisted papers
+                # litkit 0.3.x API: search_chunks_constrained(question, candidate_papers, k, ...)
+                chunk_ids, scores = search_chunks_constrained(
+                    query,
+                    paper_ids,
+                    self._top_chunks,
                 )
 
-            return retrieved_chunks
+                if not chunk_ids:
+                    return []
+
+                # Get chunk content and metadata from database
+                chunks_data = get_chunks(conn, chunk_ids)
+
+                # Convert to RetrievedChunk objects
+                retrieved_chunks: list[RetrievedChunk] = []
+                for i, chunk_data in enumerate(chunks_data):
+                    # Handle both dict and object return types from litkit
+                    if isinstance(chunk_data, dict):
+                        chunk_id = chunk_data.get("id", chunk_ids[i] if i < len(chunk_ids) else 0)
+                        text = chunk_data.get("text", "")
+                        paper_title = chunk_data.get("paper_title", chunk_data.get("title", ""))
+                        pmid = chunk_data.get("pmid")
+                        pmcid = chunk_data.get("pmcid")
+                    else:
+                        # Object with attributes
+                        chunk_id = getattr(
+                            chunk_data, "id", chunk_ids[i] if i < len(chunk_ids) else 0
+                        )
+                        text = getattr(chunk_data, "text", "")
+                        paper_title = getattr(
+                            chunk_data, "paper_title", getattr(chunk_data, "title", "")
+                        )
+                        pmid = getattr(chunk_data, "pmid", None)
+                        pmcid = getattr(chunk_data, "pmcid", None)
+
+                    # Get score for this chunk (if available)
+                    score = scores[i] if i < len(scores) else 0.0
+
+                    retrieved_chunks.append(
+                        RetrievedChunk(
+                            chunk_id=int(chunk_id) if chunk_id else 0,
+                            text=str(text),
+                            paper_title=str(paper_title),
+                            pmid=str(pmid) if pmid else None,
+                            pmcid=str(pmcid) if pmcid else None,
+                            score=float(score),
+                        )
+                    )
+
+                return retrieved_chunks
+
+            finally:
+                # Restore original LITKIT_WORKSPACE env var
+                if old_workspace is not None:
+                    os.environ["LITKIT_WORKSPACE"] = old_workspace
+                elif "LITKIT_WORKSPACE" in os.environ:
+                    del os.environ["LITKIT_WORKSPACE"]
 
         except Exception as e:
             # Wrap litkit errors in LitkitError for consistent error handling
