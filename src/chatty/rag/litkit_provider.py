@@ -365,10 +365,10 @@ class LitkitProvider:
         return total
 
     def _deduplicate_chunks(self, chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
-        """Remove duplicate chunks by chunk_id.
+        """Remove duplicate chunks by text content.
 
-        litkit may return the same chunk multiple times. This deduplicates
-        while preserving order (first occurrence wins).
+        litkit may return the same text passage with different chunk_ids.
+        This deduplicates by text content while preserving order (first occurrence wins).
 
         Args:
             chunks: List of retrieved chunks.
@@ -376,11 +376,13 @@ class LitkitProvider:
         Returns:
             Deduplicated list preserving original order.
         """
-        seen_ids: set[int] = set()
+        seen_texts: set[str] = set()
         unique_chunks: list[RetrievedChunk] = []
         for chunk in chunks:
-            if chunk.chunk_id not in seen_ids:
-                seen_ids.add(chunk.chunk_id)
+            # Normalize text for comparison (strip whitespace)
+            normalized_text = " ".join(chunk.text.split())
+            if normalized_text not in seen_texts:
+                seen_texts.add(normalized_text)
                 unique_chunks.append(chunk)
         return unique_chunks
 

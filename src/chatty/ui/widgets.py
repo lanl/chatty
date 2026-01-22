@@ -682,9 +682,6 @@ class CitationsWidget(Static):
             for widget in citation_widgets:
                 yield widget
 
-    # Maximum title length before truncation
-    MAX_TITLE_LENGTH = 60
-
     def _build_citation(self, index: int, source: RAGSource) -> Collapsible:
         """Build a single expandable citation entry.
 
@@ -695,8 +692,8 @@ class CitationsWidget(Static):
         Returns:
             Collapsible widget with title showing preview, expanded showing full text.
         """
-        # Build citation title: [N] PMID:xxx | Title...
-        # PMID/PMCID comes FIRST so it's always visible
+        # Build citation title: [N] PMID:xxx | Title
+        # PMID/PMCID comes FIRST so it's always visible (user can widen terminal for full title)
         title_parts = [f"[{index}]"]
 
         # Add identifier first (plain text - Collapsible titles don't support Rich links)
@@ -705,12 +702,9 @@ class CitationsWidget(Static):
         elif source.pmcid:
             title_parts.append(f" PMCID:{source.pmcid}")
 
-        # Add truncated title after identifier
+        # Add full title (no truncation - user can widen terminal)
         if source.title:
-            truncated_title = source.title
-            if len(truncated_title) > self.MAX_TITLE_LENGTH:
-                truncated_title = truncated_title[: self.MAX_TITLE_LENGTH - 3] + "..."
-            title_parts.append(f" | {truncated_title}")
+            title_parts.append(f" | {source.title}")
 
         title = "".join(title_parts)
 
