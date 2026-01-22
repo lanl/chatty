@@ -507,10 +507,13 @@ class StatusBar(Static):
         remaining = seconds % 60
         return f"{minutes}m {remaining:.0f}s"
 
+    # States that show spinner animation with elapsed time
+    _SPINNER_STATES = ("Thinking...", "Streaming...", "Compressing...", "Searching corpus...")
+
     def _rebuild_display(self) -> None:
         """Rebuild the status bar text from current state."""
         # Add spinner prefix and elapsed time for active states
-        if self._status in ("Thinking...", "Streaming...", "Compressing..."):
+        if self._status in self._SPINNER_STATES:
             spinner_char = self.SPINNER_FRAMES[self._spinner_index]
             elapsed = time.monotonic() - self._start_time if self._start_time else 0
             elapsed_str = self._format_elapsed(elapsed)
@@ -581,11 +584,11 @@ class StatusBar(Static):
             self._status = status
 
             # Start/stop spinner based on status
-            if status in ("Thinking...", "Streaming...", "Compressing..."):
-                if old_status not in ("Thinking...", "Streaming...", "Compressing..."):
+            if status in self._SPINNER_STATES:
+                if old_status not in self._SPINNER_STATES:
                     # Only start spinner if not already running
                     self._start_spinner()
-            elif old_status in ("Thinking...", "Streaming...", "Compressing..."):
+            elif old_status in self._SPINNER_STATES:
                 self._stop_spinner()
 
         if model is not None:
