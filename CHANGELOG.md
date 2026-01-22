@@ -10,26 +10,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 **Citations Display**
-- `RAGSource` dataclass for structured source information (title, PMID, PMCID, snippet, score)
+- `RAGSource` dataclass for structured source information (title, PMID, PMCID, snippet, full_text, score)
 - `CitationsWidget` for bibliography-style display after RAG-augmented responses
+- **Expandable citations** — Click to reveal full chunk text
 - Collapsible sections for long source lists (>5 sources)
 - Retrieval time displayed in citations header
+- Citation title format: `[N] PMID:xxx | Paper Title` (PMID first for visibility)
 
 **Progress Feedback**
-- "Searching corpus..." status during RAG retrieval (instead of immediate "Thinking...")
+- "Searching corpus..." status during RAG retrieval with spinner and elapsed timer
 - Retrieval timing tracked and displayed
+
+**RAG-Aware System Prompt**
+- System prompt now instructs LLM to cite sources by bracketed number `[N]`
+- Instructions for `[1, 3]` syntax when citing multiple sources
+- Encourages citing ALL relevant chunks
+
+**Chunk Deduplication**
+- `LitkitProvider._deduplicate_chunks()` removes duplicate passages by text content
+- Same passage won't appear twice even with different chunk IDs
 
 ### Changed
 
 - `RAGMetadata` enhanced with `retrieval_time_s` and `chunk_count` fields
 - `RAGMetadata.sources` now uses `list[RAGSource]` instead of `list[dict[str, str]]`
-- `LitkitProvider._build_metadata()` now populates `RAGSource` objects with scores
+- `LitkitProvider._build_metadata()` now populates `RAGSource` objects with full text
 - `workers.py` shows "Searching corpus..." status for RAG providers before "Thinking..."
 - Citations widget mounted after assistant responses when RAG sources available
+- `extract_cited_indices()` function parses citation numbers from LLM responses (for future use)
 
 ### Developer Notes
 
-- 26 new tests across `test_provider.py`, `test_widgets.py`, `test_litkit_provider.py`
+- 525 total tests (was 488)
 - `CitationsWidget.from_metadata()` factory returns `None` for empty sources
 - CSS styling in `app.tcss` for `.citations-container`, `.citations-header`, `.citation`
 - All acceptance criteria for v0.4.1 met
