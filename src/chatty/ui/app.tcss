@@ -158,6 +158,7 @@ MessageWidget {
 .citation CollapsibleTitle {
     color: $text;
     padding-left: 1;
+    text-wrap: wrap;
 }
 
 .citation CollapsibleTitle:hover {

@@ -433,3 +433,81 @@ class TestSendMessage:
         await send_message(mock_app)
 
         assert mock_app.last_rag_metadata == rag_metadata
+
+
+# ============================================================================
+# extract_cited_indices Tests
+# ============================================================================
+
+
+class TestExtractCitedIndices:
+    """Tests for extract_cited_indices function."""
+
+    def test_empty_text(self) -> None:
+        """Returns empty set for empty text."""
+        from chatty.ui.workers import extract_cited_indices
+
+        assert extract_cited_indices("") == set()
+
+    def test_no_citations(self) -> None:
+        """Returns empty set when no citations present."""
+        from chatty.ui.workers import extract_cited_indices
+
+        text = "This is a response with no citations."
+        assert extract_cited_indices(text) == set()
+
+    def test_single_citation(self) -> None:
+        """Extracts single citation."""
+        from chatty.ui.workers import extract_cited_indices
+
+        text = "This claim is supported by evidence [1]."
+        assert extract_cited_indices(text) == {1}
+
+    def test_multiple_citations(self) -> None:
+        """Extracts multiple separate citations."""
+        from chatty.ui.workers import extract_cited_indices
+
+        text = "Claim A [1] and claim B [2] and claim C [3]."
+        assert extract_cited_indices(text) == {1, 2, 3}
+
+    def test_comma_separated_citations(self) -> None:
+        """Extracts comma-separated citations like [1, 3, 7]."""
+        from chatty.ui.workers import extract_cited_indices
+
+        text = "This is supported by multiple sources [1, 3, 7]."
+        assert extract_cited_indices(text) == {1, 3, 7}
+
+    def test_no_spaces_in_comma_list(self) -> None:
+        """Extracts citations without spaces like [1,3,7]."""
+        from chatty.ui.workers import extract_cited_indices
+
+        text = "Multiple sources support this [1,3,7]."
+        assert extract_cited_indices(text) == {1, 3, 7}
+
+    def test_duplicate_citations(self) -> None:
+        """Deduplicates repeated citations."""
+        from chatty.ui.workers import extract_cited_indices
+
+        text = "First claim [1], second claim [1], third claim [2]."
+        assert extract_cited_indices(text) == {1, 2}
+
+    def test_mixed_single_and_multi(self) -> None:
+        """Handles mix of single and multi-citation brackets."""
+        from chatty.ui.workers import extract_cited_indices
+
+        text = "Claim A [1]. Claim B [2, 3]. Claim C [4]."
+        assert extract_cited_indices(text) == {1, 2, 3, 4}
+
+    def test_ignores_non_citation_brackets(self) -> None:
+        """Ignores brackets that aren't citations."""
+        from chatty.ui.workers import extract_cited_indices
+
+        text = "The array [x, y, z] is not a citation but [1] is."
+        assert extract_cited_indices(text) == {1}
+
+    def test_double_digit_citations(self) -> None:
+        """Handles double-digit citation numbers."""
+        from chatty.ui.workers import extract_cited_indices
+
+        text = "Sources [10], [15], and [20, 25] support this."
+        assert extract_cited_indices(text) == {10, 15, 20, 25}
