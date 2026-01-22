@@ -287,9 +287,10 @@ class ChatApp(App[None]):
             chat_log.add_message("system", f"Transcript: {transcript_file}")
 
         # Add system prompt if configured
-        if self.config.system_prompt:
-            self.conversation.add_system_message(self.config.system_prompt)
-            self.transcript.log_message("system", self.config.system_prompt)
+        system_prompt = self.config.get_effective_system_prompt()
+        if system_prompt:
+            self.conversation.add_system_message(system_prompt)
+            self.transcript.log_message("system", system_prompt)
 
         # Update status bar with actual model
         self.query_one("#status-bar", StatusBar).update_status(model=self.config.model)

@@ -11,6 +11,20 @@ from typing import Any
 from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Default system prompt for non-RAG mode
+DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
+
+# Default system prompt when RAG is enabled (litkit-style)
+# Instructs the LLM to cite sources using bracketed references [1], [2], etc.
+RAG_DEFAULT_SYSTEM_PROMPT = (
+    "You are a precise scientific assistant. Answer questions using ONLY "
+    "the provided context chunks—do not use prior knowledge. Each chunk "
+    "is numbered [1], [2], etc. You MUST cite sources using these numbers "
+    "in your response. When multiple chunks support a claim, cite all of "
+    "them. If sources conflict, acknowledge the disagreement. If the "
+    "context is insufficient to answer, say so briefly."
+)
+
 
 def find_config_path() -> Path | None:
     """Find the config file using search order.
@@ -276,6 +290,31 @@ class Config(BaseSettings):
         if self.rag_workspace:
             return Path(self.rag_workspace).expanduser()
         return None
+
+    def get_effective_system_prompt(self) -> str:
+        """Get the effective system prompt based on RAG configuration.
+
+        When RAG is enabled (rag_provider != "none") and the user hasn't
+        explicitly configured a system_prompt, returns RAG_DEFAULT_SYSTEM_PROMPT
+        which instructs the LLM to cite sources.
+
+        When RAG is disabled or user has set a custom system_prompt, returns
+        the configured system_prompt.
+
+        Returns:
+            The effective system prompt to use.
+        """
+        # Check if user explicitly set a system prompt (not the default)
+        if self.system_prompt != DEFAULT_SYSTEM_PROMPT:
+            # User provided custom prompt - use it regardless of RAG
+            return self.system_prompt
+
+        # No custom prompt - use RAG prompt if RAG is enabled
+        if self.rag_provider != "none":
+            return RAG_DEFAULT_SYSTEM_PROMPT
+
+        # Non-RAG mode with default prompt
+        return self.system_prompt
 
 
 @dataclass

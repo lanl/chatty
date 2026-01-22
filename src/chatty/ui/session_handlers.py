@@ -180,7 +180,7 @@ def handle_first_save(app: ChatApp, name: str | None) -> None:
     )
     app._current_session = Session(
         metadata=metadata,
-        system_prompt=app.config.system_prompt,
+        system_prompt=app.config.get_effective_system_prompt(),
         messages=list(app.conversation.messages),
     )
     # Now save it

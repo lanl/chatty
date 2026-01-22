@@ -40,7 +40,22 @@ context_window = 128000
 stream = true
 
 # System prompt (sets assistant behavior)
+# When RAG is enabled (rag_provider != "none") and no custom system_prompt is set,
+# chatty automatically uses a citation-focused prompt that instructs the LLM to:
+# - Use ONLY the provided context chunks
+# - Cite sources using [1], [2], etc. notation
+# - Acknowledge when context is insufficient
+#
+# To override the RAG prompt, uncomment and customize:
 # system_prompt = "You are a helpful assistant."
+#
+# RAG default prompt (used when rag_provider is set and system_prompt is not):
+# "You are a precise scientific assistant. Answer questions using ONLY the
+# provided context chunks—do not use prior knowledge. Each chunk is numbered
+# [1], [2], etc. You MUST cite sources using these numbers in your response.
+# When multiple chunks support a claim, cite all of them. If sources conflict,
+# acknowledge the disagreement. If the context is insufficient to answer, say
+# so briefly."
 
 # =============================================================================
 # TLS / NETWORK (for institutional endpoints)

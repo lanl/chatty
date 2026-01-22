@@ -421,3 +421,52 @@ def test_timeout_negative() -> None:
     """Negative timeout raises ValidationError."""
     with pytest.raises(ValueError, match="timeout_s must be positive"):
         Config(timeout_s=-1)
+
+
+# ============================================================================
+# RAG System Prompt Tests (v0.4.1)
+# ============================================================================
+
+
+def test_get_effective_system_prompt_default_no_rag() -> None:
+    """Default prompt used when RAG is disabled."""
+    config = Config()
+    prompt = config.get_effective_system_prompt()
+    assert prompt == "You are a helpful assistant."
+
+
+def test_get_effective_system_prompt_rag_enabled() -> None:
+    """RAG default prompt used when RAG is enabled and no custom prompt."""
+    config = Config(rag_provider="litkit")
+    prompt = config.get_effective_system_prompt()
+    assert "precise scientific assistant" in prompt
+    assert "cite sources" in prompt.lower()
+
+
+def test_get_effective_system_prompt_custom_no_rag() -> None:
+    """Custom prompt used when explicitly set (no RAG)."""
+    config = Config(system_prompt="You are a pirate assistant. Arrr!")
+    prompt = config.get_effective_system_prompt()
+    assert prompt == "You are a pirate assistant. Arrr!"
+
+
+def test_get_effective_system_prompt_custom_with_rag() -> None:
+    """Custom prompt takes precedence even when RAG is enabled."""
+    config = Config(
+        rag_provider="litkit",
+        system_prompt="You are a medical expert. Cite papers when possible.",
+    )
+    prompt = config.get_effective_system_prompt()
+    assert prompt == "You are a medical expert. Cite papers when possible."
+    assert "precise scientific assistant" not in prompt
+
+
+def test_rag_default_system_prompt_content() -> None:
+    """RAG default prompt contains required citation instructions."""
+    from chatty.config import RAG_DEFAULT_SYSTEM_PROMPT
+
+    assert "ONLY" in RAG_DEFAULT_SYSTEM_PROMPT
+    assert "[1]" in RAG_DEFAULT_SYSTEM_PROMPT
+    assert "[2]" in RAG_DEFAULT_SYSTEM_PROMPT
+    assert "cite" in RAG_DEFAULT_SYSTEM_PROMPT.lower()
+    assert "context" in RAG_DEFAULT_SYSTEM_PROMPT.lower()
