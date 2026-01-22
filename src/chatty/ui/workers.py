@@ -204,25 +204,12 @@ async def send_message(app: ChatApp) -> None:  # noqa: C901
             # Finish streaming - re-render with markdown
             msg_widget.finish_streaming()
 
-            # Display citations widget if RAG returned sources (filtered to cited only)
-            if rag_metadata and rag_metadata.sources:
-                cited_indices = extract_cited_indices(response_content)
-                # Filter to only cited sources (1-based indices)
-                cited_sources = [
-                    src for i, src in enumerate(rag_metadata.sources, 1) if i in cited_indices
-                ]
-                if cited_sources:
-                    from chatty.rag.provider import RAGMetadata
-
-                    filtered_metadata = RAGMetadata(
-                        sources=cited_sources,
-                        retrieval_time_s=rag_metadata.retrieval_time_s,
-                        chunk_count=rag_metadata.chunk_count,
-                    )
-                    citations_widget = CitationsWidget.from_metadata(filtered_metadata)
-                    if citations_widget:
-                        chat_log.mount(citations_widget)
-                        chat_log.scroll_end(animate=False)
+            # Display citations widget if RAG returned sources
+            # Show ALL sources to preserve numbering that LLM used in its response
+            citations_widget = CitationsWidget.from_metadata(rag_metadata)
+            if citations_widget:
+                chat_log.mount(citations_widget)
+                chat_log.scroll_end(animate=False)
 
             # Update conversation with user message and assistant response
             # User message is added here (after success) to keep conversation
@@ -249,25 +236,12 @@ async def send_message(app: ChatApp) -> None:  # noqa: C901
 
             chat_log.add_message("assistant", response.content)
 
-            # Display citations widget if RAG returned sources (filtered to cited only)
-            if rag_metadata and rag_metadata.sources:
-                cited_indices = extract_cited_indices(response.content)
-                # Filter to only cited sources (1-based indices)
-                cited_sources = [
-                    src for i, src in enumerate(rag_metadata.sources, 1) if i in cited_indices
-                ]
-                if cited_sources:
-                    from chatty.rag.provider import RAGMetadata
-
-                    filtered_metadata = RAGMetadata(
-                        sources=cited_sources,
-                        retrieval_time_s=rag_metadata.retrieval_time_s,
-                        chunk_count=rag_metadata.chunk_count,
-                    )
-                    citations_widget = CitationsWidget.from_metadata(filtered_metadata)
-                    if citations_widget:
-                        chat_log.mount(citations_widget)
-                        chat_log.scroll_end(animate=False)
+            # Display citations widget if RAG returned sources
+            # Show ALL sources to preserve numbering that LLM used in its response
+            citations_widget = CitationsWidget.from_metadata(rag_metadata)
+            if citations_widget:
+                chat_log.mount(citations_widget)
+                chat_log.scroll_end(animate=False)
 
             # Update conversation with user message and assistant response
             app.conversation.add_user_message(user_text)
