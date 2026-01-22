@@ -1,7 +1,7 @@
 """RAG provider protocol and implementations."""
 
 from chatty.config import Config
-from chatty.rag.provider import NullProvider, RAGMetadata, RAGProvider
+from chatty.rag.provider import NullProvider, RAGMetadata, RAGProvider, RAGSource
 
 
 class UnknownProviderError(ValueError):
@@ -95,6 +95,7 @@ __all__ = [
     "RAGProvider",
     "NullProvider",
     "RAGMetadata",
+    "RAGSource",
     "UnknownProviderError",
     "ConfigurationError",
     "get_provider",

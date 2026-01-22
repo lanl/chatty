@@ -9,11 +9,11 @@ import sys
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from chatty.client.openai_client import Message
 from chatty.core.conversation import Conversation
-from chatty.rag.provider import RAGMetadata
+from chatty.rag.provider import RAGMetadata, RAGSource
 
 if TYPE_CHECKING:
     pass
@@ -490,28 +490,41 @@ class LitkitProvider:
 
         return "\n".join(context_parts)
 
-    def _build_metadata(self, chunks: list[RetrievedChunk]) -> RAGMetadata:
+    def _build_metadata(
+        self,
+        chunks: list[RetrievedChunk],
+        total_chunks: int,
+        retrieval_time_s: float,
+    ) -> RAGMetadata:
         """Build RAG metadata from retrieved chunks.
 
         Args:
-            chunks: List of retrieved chunks.
+            chunks: List of fitted chunks (after budget fitting).
+            total_chunks: Total chunks retrieved before budget fitting.
+            retrieval_time_s: Time taken for retrieval in seconds.
 
         Returns:
             RAGMetadata with source information.
         """
-        sources: list[dict[str, Any]] = []
+        sources: list[RAGSource] = []
         for chunk in chunks:
-            source: dict[str, Any] = {
-                "title": chunk.paper_title,
-                "snippet": chunk.text[:200] + "..." if len(chunk.text) > 200 else chunk.text,
-            }
-            if chunk.pmid:
-                source["pmid"] = chunk.pmid
-            if chunk.pmcid:
-                source["pmcid"] = chunk.pmcid
+            # Create snippet (first 200 chars) for preview
+            snippet = chunk.text[:200] + "..." if len(chunk.text) > 200 else chunk.text
+            source = RAGSource(
+                title=chunk.paper_title,
+                pmid=chunk.pmid,
+                pmcid=chunk.pmcid,
+                snippet=snippet,
+                full_text=chunk.text,  # Store complete chunk text
+                score=chunk.score,
+            )
             sources.append(source)
 
-        return RAGMetadata(sources=sources)
+        return RAGMetadata(
+            sources=sources,
+            retrieval_time_s=retrieval_time_s,
+            chunk_count=total_chunks,
+        )
 
     async def augment(
         self,
@@ -537,14 +550,20 @@ class LitkitProvider:
         Returns:
             Tuple of (augmented messages, retrieval metadata).
         """
+        import time
+
         # Run subprocess retrieval in thread pool to avoid blocking event loop
         # The subprocess itself is completely isolated (close_fds=True)
+        start_time = time.monotonic()
         chunks = await asyncio.to_thread(self._retrieve_chunks, user_text)
+        retrieval_time_s = time.monotonic() - start_time
 
         if not chunks:
             # No relevant chunks found, return messages unchanged
             messages = list(conversation.messages) + [Message(role="user", content=user_text)]
-            return messages, RAGMetadata(sources=[])
+            return messages, RAGMetadata(sources=[], retrieval_time_s=retrieval_time_s)
+
+        total_chunks = len(chunks)
 
         # Calculate available token budget
         # Reserve 2000 tokens for response, use remaining for context
@@ -564,6 +583,6 @@ class LitkitProvider:
         messages = list(conversation.messages) + [Message(role="user", content=augmented_text)]
 
         # Build metadata
-        metadata = self._build_metadata(fitted_chunks)
+        metadata = self._build_metadata(fitted_chunks, total_chunks, retrieval_time_s)
 
         return messages, metadata

@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-01-22
+
+### Added
+
+**Citations Display**
+- `RAGSource` dataclass for structured source information (title, PMID, PMCID, snippet, score)
+- `CitationsWidget` for bibliography-style display after RAG-augmented responses
+- Collapsible sections for long source lists (>5 sources)
+- Retrieval time displayed in citations header
+
+**Progress Feedback**
+- "Searching corpus..." status during RAG retrieval (instead of immediate "Thinking...")
+- Retrieval timing tracked and displayed
+
+### Changed
+
+- `RAGMetadata` enhanced with `retrieval_time_s` and `chunk_count` fields
+- `RAGMetadata.sources` now uses `list[RAGSource]` instead of `list[dict[str, str]]`
+- `LitkitProvider._build_metadata()` now populates `RAGSource` objects with scores
+- `workers.py` shows "Searching corpus..." status for RAG providers before "Thinking..."
+- Citations widget mounted after assistant responses when RAG sources available
+
+### Developer Notes
+
+- 26 new tests across `test_provider.py`, `test_widgets.py`, `test_litkit_provider.py`
+- `CitationsWidget.from_metadata()` factory returns `None` for empty sources
+- CSS styling in `app.tcss` for `.citations-container`, `.citations-header`, `.citation`
+- All acceptance criteria for v0.4.1 met
+- Pre-commit hooks pass
+
+---
+
 ## [0.4.0] - 2026-01-21
 
 ### Added

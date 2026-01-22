@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from chatty.core.conversation import Conversation
-from chatty.rag.provider import RAGMetadata
+from chatty.rag.provider import RAGMetadata, RAGSource
 
 
 class TestLitkitProviderInit:
@@ -412,7 +412,7 @@ class TestLitkitProviderFormatting:
         assert "Cite sources by number" in result
 
     def test_build_metadata(self, provider: Any) -> None:
-        """_build_metadata creates RAGMetadata with source info."""
+        """_build_metadata creates RAGMetadata with RAGSource objects."""
         from chatty.rag.litkit_provider import RetrievedChunk
 
         chunks = [
@@ -424,13 +424,17 @@ class TestLitkitProviderFormatting:
                 score=0.9,
             ),
         ]
-        metadata = provider._build_metadata(chunks)
+        metadata = provider._build_metadata(chunks, total_chunks=5, retrieval_time_s=1.2)
 
         assert isinstance(metadata, RAGMetadata)
         assert len(metadata.sources) == 1
-        assert metadata.sources[0]["title"] == "Paper A"
-        assert metadata.sources[0]["pmid"] == "12345"
-        assert "snippet" in metadata.sources[0]
+        assert isinstance(metadata.sources[0], RAGSource)
+        assert metadata.sources[0].title == "Paper A"
+        assert metadata.sources[0].pmid == "12345"
+        assert metadata.sources[0].score == 0.9
+        assert metadata.sources[0].snippet == "Short text"
+        assert metadata.retrieval_time_s == 1.2
+        assert metadata.chunk_count == 5
 
     def test_build_metadata_truncates_long_snippets(self, provider: Any) -> None:
         """_build_metadata truncates long snippets in metadata."""
@@ -444,9 +448,27 @@ class TestLitkitProviderFormatting:
                 score=0.9,
             ),
         ]
-        metadata = provider._build_metadata(chunks)
+        metadata = provider._build_metadata(chunks, total_chunks=1, retrieval_time_s=0.5)
 
-        assert len(metadata.sources[0]["snippet"]) <= 203  # 200 + "..."
+        assert len(metadata.sources[0].snippet) <= 203  # 200 + "..."
+
+    def test_build_metadata_with_pmcid(self, provider: Any) -> None:
+        """_build_metadata includes PMCID in RAGSource."""
+        from chatty.rag.litkit_provider import RetrievedChunk
+
+        chunks = [
+            RetrievedChunk(
+                chunk_id=1,
+                text="Some text",
+                paper_title="Paper B",
+                pmcid="PMC12345",
+                score=0.8,
+            ),
+        ]
+        metadata = provider._build_metadata(chunks, total_chunks=1, retrieval_time_s=0.3)
+
+        assert metadata.sources[0].pmcid == "PMC12345"
+        assert metadata.sources[0].pmid is None
 
 
 class TestLitkitProviderAugment:
@@ -485,6 +507,8 @@ class TestLitkitProviderAugment:
         assert messages[-1].role == "user"
         assert messages[-1].content == "new question"
         assert metadata.sources == []
+        # Should still have retrieval time even with no results
+        assert metadata.retrieval_time_s >= 0
 
     @pytest.mark.asyncio
     async def test_augment_with_chunks(self, provider: Any, conversation: Conversation) -> None:
@@ -512,6 +536,12 @@ class TestLitkitProviderAugment:
         assert "Relevant content" in messages[-1].content
         assert "Question: new question" in messages[-1].content
         assert len(metadata.sources) == 1
+        # Check RAGSource structure
+        assert isinstance(metadata.sources[0], RAGSource)
+        assert metadata.sources[0].title == "Paper A"
+        assert metadata.sources[0].pmid == "12345"
+        assert metadata.retrieval_time_s >= 0
+        assert metadata.chunk_count == 1
 
     @pytest.mark.asyncio
     async def test_augment_respects_token_budget(

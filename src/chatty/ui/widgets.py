@@ -10,11 +10,17 @@ This module contains the core UI widgets used by the chat application:
 from __future__ import annotations
 
 import time
+from typing import TYPE_CHECKING
 
 from rich.markdown import Markdown as RichMarkdown
 from textual.binding import Binding
 from textual.containers import VerticalScroll
-from textual.widgets import Static, TextArea
+from textual.widgets import Collapsible, Static, TextArea
+
+if TYPE_CHECKING:
+    from textual.app import ComposeResult
+
+    from chatty.rag.provider import RAGMetadata, RAGSource
 
 
 class ChatInput(TextArea):
@@ -600,3 +606,136 @@ class StatusBar(Static):
             Response time in seconds, or None if no response recorded.
         """
         return self._last_response_time
+
+
+class CitationsWidget(Static):
+    """Widget to display RAG source citations after a response.
+
+    Renders a bibliography-style list of sources used to inform the response.
+    Shows title, PubMed/PMC links (if available), and snippet preview.
+    Long lists (>5 sources) are collapsed by default.
+
+    CSS Classes:
+        .citations-container: Main container
+        .citations-header: Header line ("📚 Sources (N)")
+        .citation: Individual citation entry
+        .citation-title: Paper title
+        .citation-link: PMID/PMCID identifier
+        .citation-snippet: Preview text snippet
+
+    Attributes:
+        COLLAPSED_THRESHOLD: Number of sources before collapsing (default: 5)
+    """
+
+    COLLAPSED_THRESHOLD = 5
+
+    def __init__(
+        self,
+        sources: list[RAGSource],
+        retrieval_time_s: float = 0.0,
+        chunk_count: int = 0,
+    ) -> None:
+        """Initialize citations widget.
+
+        Args:
+            sources: List of RAGSource objects to display.
+            retrieval_time_s: Time taken for retrieval in seconds.
+            chunk_count: Total number of chunks retrieved.
+        """
+        super().__init__(classes="citations-container")
+        self._sources = sources
+        self._retrieval_time_s = retrieval_time_s
+        self._chunk_count = chunk_count
+
+    def compose(self) -> ComposeResult:
+        """Compose the citations display."""
+        if not self._sources:
+            return
+
+        # Build header with retrieval stats
+        header_text = f"📚 Sources ({len(self._sources)})"
+        if self._retrieval_time_s > 0:
+            header_text += f" · {self._retrieval_time_s:.1f}s"
+
+        yield Static(header_text, classes="citations-header")
+
+        # Build citation entries
+        citation_widgets = []
+        for i, source in enumerate(self._sources, 1):
+            citation_widgets.append(self._build_citation(i, source))
+
+        # Collapse long lists
+        if len(self._sources) > self.COLLAPSED_THRESHOLD:
+            # Show first few, collapse the rest
+            for widget in citation_widgets[: self.COLLAPSED_THRESHOLD]:
+                yield widget
+            with Collapsible(
+                title=f"Show {len(self._sources) - self.COLLAPSED_THRESHOLD} more...",
+                collapsed=True,
+            ):
+                for widget in citation_widgets[self.COLLAPSED_THRESHOLD :]:
+                    yield widget
+        else:
+            for widget in citation_widgets:
+                yield widget
+
+    def _build_citation(self, index: int, source: RAGSource) -> Collapsible:
+        """Build a single expandable citation entry.
+
+        Args:
+            index: Citation number (1-based).
+            source: RAGSource object.
+
+        Returns:
+            Collapsible widget with title showing preview, expanded showing full text.
+        """
+        # Build citation title (shown when collapsed)
+        title_parts = [f"[{index}] {source.title}"]
+
+        # Add identifiers
+        ids = []
+        if source.pmid:
+            ids.append(f"PMID:{source.pmid}")
+        if source.pmcid:
+            ids.append(f"PMCID:{source.pmcid}")
+        if ids:
+            title_parts.append(f" ({', '.join(ids)})")
+
+        title = "".join(title_parts)
+
+        # Build expanded content (full chunk text)
+        full_text = source.full_text if source.full_text else source.snippet
+        # Clean up whitespace
+        full_text = " ".join(full_text.split())
+
+        # Create collapsible with full text inside
+        collapsible = Collapsible(
+            Static(full_text, classes="citation-full-text"),
+            title=title,
+            collapsed=True,
+            classes="citation",
+        )
+
+        return collapsible
+
+    @classmethod
+    def from_metadata(cls, metadata: RAGMetadata | None) -> CitationsWidget | None:
+        """Create CitationsWidget from RAGMetadata.
+
+        Factory method to create widget from metadata, returning None
+        if there are no sources to display.
+
+        Args:
+            metadata: RAGMetadata object with sources and retrieval info.
+
+        Returns:
+            CitationsWidget instance, or None if no sources.
+        """
+        if not metadata or not metadata.sources:
+            return None
+
+        return cls(
+            sources=metadata.sources,
+            retrieval_time_s=metadata.retrieval_time_s,
+            chunk_count=metadata.chunk_count,
+        )

@@ -9,8 +9,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from textual.app import App, ComposeResult
+from textual.widgets import Collapsible
 
-from chatty.ui.widgets import ChatInput, ChatLog, MessageWidget, StatusBar
+from chatty.rag.provider import RAGMetadata, RAGSource
+from chatty.ui.widgets import ChatInput, ChatLog, CitationsWidget, MessageWidget, StatusBar
 
 # ============================================================================
 # MessageWidget ROLE_PREFIXES Tests (v0.2.9 Accessibility)
@@ -413,3 +415,202 @@ class TestChatInput:
             await pilot.pause()
 
             assert app.submitted_content == "Direct action test"
+
+
+# ============================================================================
+# CitationsWidget Tests
+# ============================================================================
+
+
+class CitationsWidgetApp(App[None]):
+    """Minimal app for testing CitationsWidget."""
+
+    def __init__(
+        self,
+        sources: list[RAGSource] | None = None,
+        retrieval_time_s: float = 0.0,
+        chunk_count: int = 0,
+    ) -> None:
+        super().__init__()
+        self.sources = sources or []
+        self.retrieval_time_s = retrieval_time_s
+        self.chunk_count = chunk_count
+
+    def compose(self) -> ComposeResult:
+        yield CitationsWidget(
+            sources=self.sources,
+            retrieval_time_s=self.retrieval_time_s,
+            chunk_count=self.chunk_count,
+        )
+
+
+class TestCitationsWidget:
+    """Tests for CitationsWidget."""
+
+    async def test_empty_sources(self) -> None:
+        """CitationsWidget handles empty sources list."""
+        app = CitationsWidgetApp(sources=[])
+        async with app.run_test() as _:
+            widget = app.query_one(CitationsWidget)
+            assert widget._sources == []
+
+    async def test_single_source(self) -> None:
+        """CitationsWidget displays a single source."""
+        sources = [RAGSource(title="Test Paper", pmid="12345")]
+        app = CitationsWidgetApp(sources=sources)
+        async with app.run_test() as _:
+            widget = app.query_one(CitationsWidget)
+            assert len(widget._sources) == 1
+            assert widget._sources[0].title == "Test Paper"
+            assert widget._sources[0].pmid == "12345"
+
+    async def test_multiple_sources(self) -> None:
+        """CitationsWidget displays multiple sources."""
+        sources = [
+            RAGSource(title="Paper A", pmid="111"),
+            RAGSource(title="Paper B", pmcid="PMC222"),
+            RAGSource(title="Paper C", snippet="Sample text..."),
+        ]
+        app = CitationsWidgetApp(sources=sources)
+        async with app.run_test() as _:
+            widget = app.query_one(CitationsWidget)
+            assert len(widget._sources) == 3
+
+    async def test_retrieval_time_stored(self) -> None:
+        """CitationsWidget stores retrieval time."""
+        sources = [RAGSource(title="Paper")]
+        app = CitationsWidgetApp(sources=sources, retrieval_time_s=1.5)
+        async with app.run_test() as _:
+            widget = app.query_one(CitationsWidget)
+            assert widget._retrieval_time_s == 1.5
+
+    async def test_chunk_count_stored(self) -> None:
+        """CitationsWidget stores chunk count."""
+        sources = [RAGSource(title="Paper")]
+        app = CitationsWidgetApp(sources=sources, chunk_count=30)
+        async with app.run_test() as _:
+            widget = app.query_one(CitationsWidget)
+            assert widget._chunk_count == 30
+
+    def test_from_metadata_with_sources(self) -> None:
+        """from_metadata() creates widget from RAGMetadata with sources."""
+        sources = [
+            RAGSource(title="Paper 1", pmid="123"),
+            RAGSource(title="Paper 2", pmcid="PMC456"),
+        ]
+        metadata = RAGMetadata(
+            sources=sources,
+            retrieval_time_s=2.0,
+            chunk_count=25,
+        )
+
+        widget = CitationsWidget.from_metadata(metadata)
+
+        assert widget is not None
+        assert len(widget._sources) == 2
+        assert widget._retrieval_time_s == 2.0
+        assert widget._chunk_count == 25
+
+    def test_from_metadata_empty_sources(self) -> None:
+        """from_metadata() returns None for empty sources."""
+        metadata = RAGMetadata(sources=[], retrieval_time_s=0.5)
+
+        widget = CitationsWidget.from_metadata(metadata)
+
+        assert widget is None
+
+    def test_from_metadata_none(self) -> None:
+        """from_metadata() returns None for None metadata."""
+        widget = CitationsWidget.from_metadata(None)
+        assert widget is None
+
+    async def test_css_class_applied(self) -> None:
+        """CitationsWidget has correct CSS class."""
+        sources = [RAGSource(title="Paper")]
+        app = CitationsWidgetApp(sources=sources)
+        async with app.run_test() as _:
+            widget = app.query_one(CitationsWidget)
+            assert "citations-container" in widget.classes
+
+    async def test_collapsed_threshold(self) -> None:
+        """CitationsWidget has correct collapsed threshold."""
+        assert CitationsWidget.COLLAPSED_THRESHOLD == 5
+
+    def test_build_citation_minimal(self) -> None:
+        """_build_citation() works with minimal source."""
+        sources = [RAGSource(title="Simple Paper")]
+        widget = CitationsWidget(sources=sources)
+
+        citation = widget._build_citation(1, sources[0])
+
+        # Citation is now a Collapsible widget
+        assert isinstance(citation, Collapsible)
+        assert "citation" in citation.classes
+
+    def test_build_citation_with_pmid(self) -> None:
+        """_build_citation() includes PMID in title."""
+        source = RAGSource(title="Paper", pmid="12345678")
+        widget = CitationsWidget(sources=[source])
+
+        citation = widget._build_citation(1, source)
+
+        # Verify it's a Collapsible with correct class
+        assert isinstance(citation, Collapsible)
+        assert "citation" in citation.classes
+        # PMID should be in the title
+        assert "PMID:12345678" in citation.title
+
+    def test_build_citation_with_pmcid(self) -> None:
+        """_build_citation() includes PMCID in title."""
+        source = RAGSource(title="Paper", pmcid="PMC9876543")
+        widget = CitationsWidget(sources=[source])
+
+        citation = widget._build_citation(1, source)
+
+        # Verify it's a Collapsible with correct class
+        assert isinstance(citation, Collapsible)
+        assert "citation" in citation.classes
+        # PMCID should be in the title
+        assert "PMCID:PMC9876543" in citation.title
+
+    def test_build_citation_uses_full_text(self) -> None:
+        """_build_citation() shows full_text when expanded."""
+        source = RAGSource(
+            title="Paper",
+            snippet="Short preview...",
+            full_text="This is the full text of the chunk which is much longer.",
+        )
+        widget = CitationsWidget(sources=[source])
+
+        citation = widget._build_citation(1, source)
+
+        # Should be a Collapsible
+        assert isinstance(citation, Collapsible)
+        assert "citation" in citation.classes
+        # Full text should be used (checked via child widget)
+
+    def test_build_citation_falls_back_to_snippet(self) -> None:
+        """_build_citation() uses snippet when full_text is empty."""
+        source = RAGSource(
+            title="Paper",
+            snippet="This is a fallback snippet.",
+            full_text="",  # Empty full_text
+        )
+        widget = CitationsWidget(sources=[source])
+
+        citation = widget._build_citation(1, source)
+
+        # Should be a Collapsible
+        assert isinstance(citation, Collapsible)
+        assert "citation" in citation.classes
+
+    def test_build_citation_starts_collapsed(self) -> None:
+        """_build_citation() creates collapsed collapsible by default."""
+        source = RAGSource(title="Paper", full_text="Full text here.")
+        widget = CitationsWidget(sources=[source])
+
+        citation = widget._build_citation(1, source)
+
+        # Should start collapsed
+        assert isinstance(citation, Collapsible)
+        assert citation.collapsed is True

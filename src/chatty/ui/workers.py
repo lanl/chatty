@@ -115,13 +115,15 @@ async def send_message(app: ChatApp) -> None:  # noqa: C901
     """Worker function for async LLM call.
 
     Handles the complete workflow:
-    1. Update status to "Thinking..."
+    1. Update status to "Searching corpus..." (if RAG enabled)
     2. Call RAGProvider.augment() to get messages (with potential context)
-    3. Call client.chat() with streaming or non-streaming
-    4. Stream tokens to chat log (if streaming)
-    5. Update conversation with user message and assistant response
-    6. Update status bar with token count
-    7. Handle errors gracefully
+    3. Update status to "Thinking..."
+    4. Call client.chat() with streaming or non-streaming
+    5. Stream tokens to chat log (if streaming)
+    6. Display citations widget (if RAG returned sources)
+    7. Update conversation with user message and assistant response
+    8. Update status bar with token count
+    9. Handle errors gracefully
 
     Note: This method is marked noqa: C901 due to inherent complexity
     of handling both streaming and non-streaming modes with error handling.
@@ -129,7 +131,8 @@ async def send_message(app: ChatApp) -> None:  # noqa: C901
     Args:
         app: The ChatApp instance.
     """
-    from chatty.ui.widgets import ChatLog, StatusBar
+    from chatty.rag.provider import NullProvider
+    from chatty.ui.widgets import ChatLog, CitationsWidget, StatusBar
 
     if not app.client or not app.conversation:
         return
@@ -141,13 +144,22 @@ async def send_message(app: ChatApp) -> None:  # noqa: C901
     chat_log = app.query_one("#chat-log", ChatLog)
     status_bar = app.query_one("#status-bar", StatusBar)
 
-    status_bar.update_status(status="Thinking...")
+    # Show "Searching corpus..." for RAG providers (not NullProvider)
+    is_rag_enabled = not isinstance(app.rag_provider, NullProvider)
+    if is_rag_enabled:
+        status_bar.update_status(status="Searching corpus...")
+    else:
+        status_bar.update_status(status="Thinking...")
 
     try:
         # Use RAG provider to augment messages with context
         # NullProvider passes through unchanged; LitkitProvider adds context
         messages, rag_metadata = await app.rag_provider.augment(app.conversation, user_text)
         app.last_rag_metadata = rag_metadata
+
+        # Update status after RAG retrieval completes
+        if is_rag_enabled:
+            status_bar.update_status(status="Thinking...")
 
         if app.streaming:
             # Streaming mode
@@ -167,6 +179,12 @@ async def send_message(app: ChatApp) -> None:  # noqa: C901
 
             # Finish streaming - re-render with markdown
             msg_widget.finish_streaming()
+
+            # Display citations widget if RAG returned sources
+            citations_widget = CitationsWidget.from_metadata(rag_metadata)
+            if citations_widget:
+                chat_log.mount(citations_widget)
+                chat_log.scroll_end(animate=False)
 
             # Update conversation with user message and assistant response
             # User message is added here (after success) to keep conversation
@@ -192,6 +210,12 @@ async def send_message(app: ChatApp) -> None:  # noqa: C901
             response = cast(AssistantMessage, result)
 
             chat_log.add_message("assistant", response.content)
+
+            # Display citations widget if RAG returned sources
+            citations_widget = CitationsWidget.from_metadata(rag_metadata)
+            if citations_widget:
+                chat_log.mount(citations_widget)
+                chat_log.scroll_end(animate=False)
 
             # Update conversation with user message and assistant response
             app.conversation.add_user_message(user_text)

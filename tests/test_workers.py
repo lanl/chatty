@@ -375,9 +375,30 @@ class TestSendMessage:
 
     @pytest.mark.asyncio
     async def test_send_message_updates_status_thinking(self, mock_app: MagicMock) -> None:
-        """Status bar shows 'Thinking...' during processing."""
+        """Status bar shows 'Thinking...' during processing with NullProvider."""
+        from chatty.rag.provider import NullProvider
+
         mock_app._pending_user_text = "Hello"
         mock_app.streaming = False
+        # Use NullProvider to get "Thinking..." status (not "Searching corpus...")
+        mock_app.rag_provider = NullProvider()
+
+        response = AssistantMessage(content="Hi!", usage=None)
+        mock_app.client.chat = AsyncMock(return_value=response)
+
+        await send_message(mock_app)
+
+        status_bar = mock_app.query_one("#status-bar")
+        # First call should be "Thinking..." for NullProvider
+        first_call = status_bar.update_status.call_args_list[0]
+        assert first_call[1].get("status") == "Thinking..."
+
+    @pytest.mark.asyncio
+    async def test_send_message_updates_status_searching_corpus(self, mock_app: MagicMock) -> None:
+        """Status bar shows 'Searching corpus...' during RAG retrieval."""
+        mock_app._pending_user_text = "Hello"
+        mock_app.streaming = False
+        # Non-NullProvider shows "Searching corpus..." first
         mock_app.rag_provider.augment = AsyncMock(
             return_value=([{"role": "user", "content": "Hello"}], None)
         )
@@ -388,9 +409,12 @@ class TestSendMessage:
         await send_message(mock_app)
 
         status_bar = mock_app.query_one("#status-bar")
-        # First call should be "Thinking..."
+        # First call should be "Searching corpus..." for RAG providers
         first_call = status_bar.update_status.call_args_list[0]
-        assert first_call[1].get("status") == "Thinking..."
+        assert first_call[1].get("status") == "Searching corpus..."
+        # Second call should be "Thinking..." after RAG completes
+        second_call = status_bar.update_status.call_args_list[1]
+        assert second_call[1].get("status") == "Thinking..."
 
     @pytest.mark.asyncio
     async def test_send_message_stores_rag_metadata(self, mock_app: MagicMock) -> None:

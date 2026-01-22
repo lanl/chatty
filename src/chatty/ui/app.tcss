@@ -132,3 +132,56 @@ MessageWidget {
     padding: 0 1;
     dock: bottom;
 }
+
+/* Citations widget - bibliography display after RAG-augmented responses */
+.citations-container {
+    margin-top: 1;
+    margin-bottom: 1;
+    padding: 1;
+    border: round $primary 50%;
+    background: $surface;
+}
+
+.citations-header {
+    color: $accent;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+/* Individual citation entries are collapsible */
+.citation {
+    margin-bottom: 0;
+    border: none;
+    padding: 0;
+}
+
+.citation CollapsibleTitle {
+    color: $text;
+    padding-left: 1;
+}
+
+.citation CollapsibleTitle:hover {
+    background: $primary 20%;
+}
+
+/* Expanded citation shows full chunk text */
+.citation-full-text {
+    color: $text-muted;
+    padding: 1;
+    padding-left: 3;
+    margin-bottom: 1;
+    text-style: italic;
+    background: $surface-darken-1;
+}
+
+/* Collapsible for showing more citations (when >5 sources) */
+.citations-container > Collapsible {
+    margin-top: 1;
+    border: none;
+    padding: 0;
+}
+
+.citations-container > Collapsible > CollapsibleTitle {
+    color: $text-muted;
+    text-style: italic;
+}

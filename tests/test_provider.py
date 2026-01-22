@@ -4,25 +4,94 @@ import pytest
 
 from chatty.client.openai_client import Message
 from chatty.core.conversation import Conversation
-from chatty.rag.provider import NullProvider, RAGMetadata
+from chatty.rag.provider import NullProvider, RAGMetadata, RAGSource
+
+# === RAGSource Tests ===
+
+
+def test_rag_source_minimal() -> None:
+    """Test RAGSource with only required field."""
+    source = RAGSource(title="Test Paper")
+    assert source.title == "Test Paper"
+    assert source.pmid is None
+    assert source.pmcid is None
+    assert source.snippet == ""
+    assert source.score == 0.0
+
+
+def test_rag_source_full() -> None:
+    """Test RAGSource with all fields."""
+    source = RAGSource(
+        title="Test Paper",
+        pmid="12345678",
+        pmcid="PMC9876543",
+        snippet="This is a test snippet...",
+        score=0.95,
+    )
+    assert source.title == "Test Paper"
+    assert source.pmid == "12345678"
+    assert source.pmcid == "PMC9876543"
+    assert source.snippet == "This is a test snippet..."
+    assert source.score == 0.95
+
+
+def test_rag_source_equality() -> None:
+    """Test RAGSource dataclass equality."""
+    source1 = RAGSource(title="Paper A", pmid="123")
+    source2 = RAGSource(title="Paper A", pmid="123")
+    source3 = RAGSource(title="Paper B", pmid="123")
+
+    assert source1 == source2
+    assert source1 != source3
+
+
+# === RAGMetadata Tests ===
 
 
 def test_rag_metadata_init() -> None:
-    """Test RAGMetadata initialization."""
+    """Test RAGMetadata initialization with defaults."""
     metadata = RAGMetadata()
     assert metadata.sources == []
+    assert metadata.retrieval_time_s == 0.0
+    assert metadata.chunk_count == 0
 
 
 def test_rag_metadata_with_sources() -> None:
-    """Test RAGMetadata with sources."""
+    """Test RAGMetadata with RAGSource objects."""
     sources = [
-        {"title": "Doc 1", "score": "0.9"},
-        {"title": "Doc 2", "score": "0.8"},
+        RAGSource(title="Doc 1", score=0.9),
+        RAGSource(title="Doc 2", score=0.8),
     ]
     metadata = RAGMetadata(sources=sources)
 
     assert len(metadata.sources) == 2
-    assert metadata.sources[0]["title"] == "Doc 1"
+    assert metadata.sources[0].title == "Doc 1"
+    assert metadata.sources[0].score == 0.9
+
+
+def test_rag_metadata_with_retrieval_time() -> None:
+    """Test RAGMetadata with retrieval timing info."""
+    sources = [RAGSource(title="Paper A")]
+    metadata = RAGMetadata(
+        sources=sources,
+        retrieval_time_s=1.5,
+        chunk_count=30,
+    )
+
+    assert metadata.retrieval_time_s == 1.5
+    assert metadata.chunk_count == 30
+
+
+def test_rag_metadata_empty_sources_with_time() -> None:
+    """Test RAGMetadata with no sources but retrieval time."""
+    metadata = RAGMetadata(
+        sources=[],
+        retrieval_time_s=0.8,
+        chunk_count=0,
+    )
+
+    assert len(metadata.sources) == 0
+    assert metadata.retrieval_time_s == 0.8
 
 
 @pytest.mark.asyncio
@@ -71,6 +140,8 @@ async def test_null_provider_returns_empty_metadata() -> None:
 
     assert isinstance(metadata, RAGMetadata)
     assert metadata.sources == []
+    assert metadata.retrieval_time_s == 0.0
+    assert metadata.chunk_count == 0
 
 
 @pytest.mark.asyncio
