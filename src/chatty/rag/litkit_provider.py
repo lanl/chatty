@@ -364,6 +364,26 @@ class LitkitProvider:
 
         return total
 
+    def _deduplicate_chunks(self, chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
+        """Remove duplicate chunks by chunk_id.
+
+        litkit may return the same chunk multiple times. This deduplicates
+        while preserving order (first occurrence wins).
+
+        Args:
+            chunks: List of retrieved chunks.
+
+        Returns:
+            Deduplicated list preserving original order.
+        """
+        seen_ids: set[int] = set()
+        unique_chunks: list[RetrievedChunk] = []
+        for chunk in chunks:
+            if chunk.chunk_id not in seen_ids:
+                seen_ids.add(chunk.chunk_id)
+                unique_chunks.append(chunk)
+        return unique_chunks
+
     def _fit_to_budget(
         self,
         chunks: list[RetrievedChunk],
@@ -383,6 +403,9 @@ class LitkitProvider:
         """
         if available_tokens <= 0:
             return []
+
+        # Deduplicate chunks first (litkit may return same chunk multiple times)
+        chunks = self._deduplicate_chunks(chunks)
 
         # Sort chunks by score (highest first) to prioritize best matches
         sorted_chunks = sorted(chunks, key=lambda c: c.score, reverse=True)
