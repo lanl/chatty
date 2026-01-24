@@ -158,6 +158,10 @@ class MessageWidget(Static):
         if not query:
             return text
 
+        # Escape brackets in text to prevent Rich markup interpretation
+        # (e.g., [1.3] citation references would break Rich markup)
+        text = text.replace("[", r"\[").replace("]", r"\]")
+
         # Case-insensitive search
         query_lower = query.lower()
         text_lower = text.lower()

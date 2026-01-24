@@ -253,6 +253,14 @@ class LitkitProvider:
         self._db_path = db_path
         self._indices_dir = indices_dir
 
+    def reset(self) -> None:
+        """Reset provider state for a new session.
+
+        Resets the turn counter so citation numbers start fresh.
+        Called by ChatApp.action_new_session().
+        """
+        self._turn_number = 0
+
     def _retrieve_chunks(self, query: str) -> list[RetrievedChunk]:
         """Retrieve relevant chunks using litkit in a subprocess.
 

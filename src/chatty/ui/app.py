@@ -440,6 +440,8 @@ class ChatApp(App[None]):
         then re-sends the previous user message to get a new response.
         Useful when the response was unsatisfactory.
         """
+        from chatty.ui.widgets import CitationsWidget
+
         if not self.conversation or len(self.conversation.messages) < 2:
             return
 
@@ -459,9 +461,18 @@ class ChatApp(App[None]):
         self.conversation.messages.pop()  # Remove assistant
         self.conversation.messages.pop()  # Remove user
 
-        # Remove assistant message from chat log display
+        # Remove citations widget if present (appears after assistant message)
         chat_log = self.query_one("#chat-log", ChatLog)
+        citations = list(chat_log.query(CitationsWidget))
+        if citations:
+            citations[-1].remove()  # Remove the last citations widget
+
+        # Remove assistant message from chat log display
         chat_log.remove_last_message()
+
+        # Decrement turn counter since we're regenerating the same turn
+        if hasattr(self.rag_provider, "_turn_number"):
+            self.rag_provider._turn_number = max(0, self.rag_provider._turn_number - 1)
 
         # Set pending user text for _send_message
         self._pending_user_text = user_text
@@ -609,6 +620,7 @@ class ChatApp(App[None]):
 
         Clears the chat log and resets the conversation state.
         Token count is reset. Does not change configuration.
+        Also resets RAG provider state (turn counter for citations).
         """
         chat_log = self.query_one("#chat-log", ChatLog)
         chat_log.clear_messages()
@@ -618,6 +630,10 @@ class ChatApp(App[None]):
             # Re-add system prompt if configured
             if self.config.system_prompt:
                 self.conversation.add_system_message(self.config.system_prompt)
+
+        # Reset RAG provider state (turn counter for citations)
+        if hasattr(self.rag_provider, "reset"):
+            self.rag_provider.reset()
 
         # Reset session tracking
         self._current_session = None
