@@ -33,6 +33,14 @@ class TestShouldRewrite:
         conv.messages = []
         assert rewriter.should_rewrite("What about side effects?", conv) is False
 
+    def test_system_prompt_only_returns_false(self) -> None:
+        """System prompt only (no user/assistant) means nothing to reference."""
+        rewriter = QueryRewriter(enabled=True)
+        conv = MagicMock()
+        # Conversation has system prompt but no user/assistant messages
+        conv.messages = [MagicMock(role="system", content="You are a helpful assistant")]
+        assert rewriter.should_rewrite("What about side effects?", conv) is False
+
     def test_short_query_returns_true(self) -> None:
         """Queries under threshold are rewritten."""
         rewriter = QueryRewriter(enabled=True)
@@ -76,7 +84,8 @@ class TestShouldRewrite:
         query = (
             "HIV treatment options for patients with drug resistance have evolved. "
             "Please describe current protocols for managing multi-drug resistant infections."
-            + " " * 80
+            + " "
+            * 80
         )
         assert SHORT_QUERY_THRESHOLD < len(query) < LONG_QUERY_THRESHOLD
         assert rewriter.should_rewrite(query, conv) is False
@@ -199,9 +208,7 @@ class TestRewrite:
 
         client = MagicMock()
         client.chat = AsyncMock(
-            return_value=AssistantMessage(
-                content="What are the side effects of HIV treatments?"
-            )
+            return_value=AssistantMessage(content="What are the side effects of HIV treatments?")
         )
 
         result = await rewriter.rewrite("What about side effects?", conv, client)
@@ -393,14 +400,10 @@ class TestRewriteStructured:
 
         client = MagicMock()
         client.chat = AsyncMock(
-            return_value=AssistantMessage(
-                content="What are the side effects of HIV treatments?"
-            )
+            return_value=AssistantMessage(content="What are the side effects of HIV treatments?")
         )
 
-        result = await rewriter.rewrite_structured(
-            "What about side effects?", conv, client
-        )
+        result = await rewriter.rewrite_structured("What about side effects?", conv, client)
 
         assert isinstance(result, RewriteResult)
         assert result.rewritten_query == "What are the side effects of HIV treatments?"
@@ -421,9 +424,7 @@ class TestRewriteStructured:
         client = MagicMock()
         client.chat = AsyncMock(side_effect=Exception("Error"))
 
-        result = await rewriter.rewrite_structured(
-            "What about it?", conv, client
-        )
+        result = await rewriter.rewrite_structured("What about it?", conv, client)
 
         assert isinstance(result, RewriteResult)
         assert result.rewritten_query == "What about it?"
@@ -442,13 +443,9 @@ class TestRewriteStructured:
         conv.messages = [MagicMock(role="user", content="Test")]
 
         client = MagicMock()
-        client.chat = AsyncMock(
-            return_value=AssistantMessage(content="Details about paper 1")
-        )
+        client.chat = AsyncMock(return_value=AssistantMessage(content="Details about paper 1"))
 
-        result = await rewriter.rewrite_structured(
-            "What does paper 1 say?", conv, client
-        )
+        result = await rewriter.rewrite_structured("What does paper 1 say?", conv, client)
 
         assert isinstance(result, RewriteResult)
         assert result.mode == MODE_REFERENCE

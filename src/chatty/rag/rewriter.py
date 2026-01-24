@@ -75,11 +75,9 @@ FOLLOWUP_PATTERNS = [
 # Reference patterns - questions about specific papers/sources
 REFERENCE_PATTERNS = [
     # "paper 1", "source 2", "citation #3"
-    r"\b(paper|source|article|citation|reference)\s*"
-    r"(\d+|#?\d+|one|two|three|four|five)\b",
+    r"\b(paper|source|article|citation|reference)\s*" r"(\d+|#?\d+|one|two|three|four|five)\b",
     # "first paper", "second source"
-    r"\b(first|second|third|fourth|fifth)\s*"
-    r"(paper|source|article|citation)\b",
+    r"\b(first|second|third|fourth|fifth)\s*" r"(paper|source|article|citation)\b",
     # "in paper 1"
     r"\bin\s+(paper|source|article)\s*\d+\b",
     # "the paper by Smith"
@@ -142,15 +140,9 @@ class QueryRewriter:
             enabled: Whether to enable query rewriting.
         """
         self.enabled = enabled
-        self._compiled_patterns = [
-            re.compile(p, re.IGNORECASE) for p in FOLLOWUP_PATTERNS
-        ]
-        self._compiled_reference = [
-            re.compile(p, re.IGNORECASE) for p in REFERENCE_PATTERNS
-        ]
-        self._compiled_new_topic = [
-            re.compile(p, re.IGNORECASE) for p in NEW_TOPIC_PATTERNS
-        ]
+        self._compiled_patterns = [re.compile(p, re.IGNORECASE) for p in FOLLOWUP_PATTERNS]
+        self._compiled_reference = [re.compile(p, re.IGNORECASE) for p in REFERENCE_PATTERNS]
+        self._compiled_new_topic = [re.compile(p, re.IGNORECASE) for p in NEW_TOPIC_PATTERNS]
 
     def classify_mode(self, query: str, conversation: Conversation) -> str:
         """Classify the query intent mode.
@@ -167,8 +159,10 @@ class QueryRewriter:
         Returns:
             One of MODE_NEW_TOPIC, MODE_FOLLOWUP, or MODE_REFERENCE.
         """
-        # No history means it's always a new topic
-        if not conversation.messages:
+        # No user/assistant history means it's always a new topic
+        # (system prompts don't count as conversation context)
+        non_system = [m for m in conversation.messages if m.role != "system"]
+        if not non_system:
             return MODE_NEW_TOPIC
 
         # Check for reference patterns first (highest priority)
@@ -196,7 +190,7 @@ class QueryRewriter:
 
         Decision logic:
         1. If disabled, return False
-        2. If no conversation history, return False (nothing to reference)
+        2. If no user/assistant history, return False (nothing to reference)
         3. If query > 800 chars, return False (self-contained)
         4. If query < 200 chars, return True (likely follow-up)
         5. Check for follow-up patterns
@@ -211,8 +205,10 @@ class QueryRewriter:
         if not self.enabled:
             return False
 
-        # No history = nothing to reference
-        if not conversation.messages:
+        # No user/assistant history = nothing to reference
+        # (system prompts don't count as conversation context)
+        non_system = [m for m in conversation.messages if m.role != "system"]
+        if not non_system:
             return False
 
         query_len = len(query)
@@ -237,10 +233,7 @@ class QueryRewriter:
         Returns:
             True if follow-up patterns detected.
         """
-        for pattern in self._compiled_patterns:
-            if pattern.search(query):
-                return True
-        return False
+        return any(pattern.search(query) for pattern in self._compiled_patterns)
 
     async def rewrite(
         self,
@@ -370,17 +363,13 @@ class QueryRewriter:
             return "(no prior conversation)"
 
         # Take last N exchanges (user + assistant pairs)
-        recent = messages[-(max_exchanges * 2):]
+        recent = messages[-(max_exchanges * 2) :]
 
         lines = []
         for msg in recent:
             role = msg.role.capitalize()
             # Truncate long messages
-            content = (
-                msg.content[:500] + "..."
-                if len(msg.content) > 500
-                else msg.content
-            )
+            content = msg.content[:500] + "..." if len(msg.content) > 500 else msg.content
             lines.append(f"{role}: {content}")
 
         return "\n".join(lines)
