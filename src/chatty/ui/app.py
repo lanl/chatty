@@ -90,7 +90,13 @@ from chatty.core.session import (
     save_markdown_export,
 )
 from chatty.core.transcript import TranscriptLogger
-from chatty.rag import ConfigurationError, NullProvider, RAGMetadata, RAGProvider, get_provider
+from chatty.rag import (
+    ConfigurationError,
+    NullProvider,
+    RAGMetadata,
+    RAGProvider,
+    get_provider,
+)
 from chatty.ui.clipboard import copy_to_clipboard
 from chatty.ui.footer import ChattyFooter
 from chatty.ui.modals import (
@@ -403,8 +409,8 @@ class ChatApp(App[None]):
         # Store pending user text - will be added to conversation after response
         # This allows RAGProvider.augment() to receive conversation history
         # separately from the new user message for query rewriting
+        # Note: User message logged in workers.py after RAG augment (has metadata)
         self._pending_user_text = user_message
-        self.transcript.log_message("user", user_message)
 
         # Start async worker for LLM call
         # Pass method reference (not called) — Textual invokes it

@@ -130,9 +130,17 @@ export_path = "./exports"
 # rag_top_chunks: Number of chunks to retrieve for LLM context (range: 1-100)
 # rag_top_chunks = 30
 
+# Query rewriting for multi-turn conversations (v0.4.2+)
+# When enabled, short follow-up questions like "What about side effects?" are
+# automatically rewritten using the LLM to include conversation context, e.g.,
+# "What are the side effects of HIV treatments?" This improves retrieval quality
+# for multi-turn conversations where follow-up questions reference prior context.
+# rag_rewrite_enabled = true
+
 # Environment variables (alternative to config file):
 #   CHATTY_RAG_PROVIDER   - "none" or "litkit"
 #   CHATTY_RAG_WORKSPACE  - path to litkit workspace
 #   LITKIT_WORKSPACE      - also accepted for workspace path
 #   CHATTY_RAG_TOP_PAPERS - stage 1 paper count
 #   CHATTY_RAG_TOP_CHUNKS - stage 2 chunk count
+#   CHATTY_RAG_REWRITE_ENABLED - enable/disable query rewriting

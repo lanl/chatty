@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -574,6 +574,148 @@ class TestLitkitProviderAugment:
         assert len(fit_called_with) == 1
         # Should have calculated available budget based on conversation state
         assert fit_called_with[0][1] > 0
+
+
+class TestLitkitProviderRewriter:
+    """Tests for LitkitProvider query rewriting integration."""
+
+    @pytest.fixture
+    def provider(self, tmp_path: Path) -> Any:
+        """Create a LitkitProvider for testing."""
+        (tmp_path / "indices").mkdir()
+        (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "sqlite").mkdir()
+        (tmp_path / "sqlite" / "litkit.sqlite3").touch()
+
+        with patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"):
+            from chatty.rag.litkit_provider import LitkitProvider
+
+            return LitkitProvider(workspace=tmp_path, rewrite_enabled=True)
+
+    @pytest.fixture
+    def provider_rewrite_disabled(self, tmp_path: Path) -> Any:
+        """Create a LitkitProvider with rewriting disabled."""
+        (tmp_path / "indices").mkdir()
+        (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "sqlite").mkdir()
+        (tmp_path / "sqlite" / "litkit.sqlite3").touch()
+
+        with patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"):
+            from chatty.rag.litkit_provider import LitkitProvider
+
+            return LitkitProvider(workspace=tmp_path, rewrite_enabled=False)
+
+    @pytest.fixture
+    def conversation(self) -> Conversation:
+        """Create a conversation with history for testing."""
+        conv = Conversation(model="gpt-4")
+        conv.add_system_message("You are a helpful assistant.")
+        conv.add_user_message("Tell me about HIV treatments")
+        conv.add_assistant_message("HIV treatments include various antiretroviral drugs...")
+        return conv
+
+    @pytest.mark.asyncio
+    async def test_augment_rewrites_short_query(
+        self, provider: Any, conversation: Conversation
+    ) -> None:
+        """augment() rewrites short follow-up queries when client provided."""
+        from chatty.client.openai_client import AssistantMessage, OpenAIClient
+
+        # Use spec=OpenAIClient so isinstance check passes
+        client = MagicMock(spec=OpenAIClient)
+        client.chat = AsyncMock(
+            return_value=AssistantMessage(content="What are the side effects of HIV treatments?")
+        )
+
+        with patch.object(provider, "_retrieve_chunks", return_value=[]) as mock_retrieve:
+            await provider.augment(conversation, "What about side effects?", client=client)
+
+            # Rewriter should have been called (client.chat was called)
+            client.chat.assert_called_once()
+            # Retrieval should use rewritten query
+            mock_retrieve.assert_called_once_with("What are the side effects of HIV treatments?")
+
+    @pytest.mark.asyncio
+    async def test_augment_skips_rewrite_without_client(
+        self, provider: Any, conversation: Conversation
+    ) -> None:
+        """augment() skips rewriting when no client provided."""
+        with patch.object(provider, "_retrieve_chunks", return_value=[]) as mock_retrieve:
+            await provider.augment(conversation, "What about side effects?")
+
+            # Retrieval should use original query (no rewriting)
+            mock_retrieve.assert_called_once_with("What about side effects?")
+
+    @pytest.mark.asyncio
+    async def test_augment_skips_rewrite_for_long_query(
+        self, provider: Any, conversation: Conversation
+    ) -> None:
+        """augment() skips rewriting for long queries."""
+        client = MagicMock()
+        client.chat = AsyncMock()
+
+        long_query = "x" * 900  # > 800 chars threshold
+
+        with patch.object(provider, "_retrieve_chunks", return_value=[]) as mock_retrieve:
+            await provider.augment(conversation, long_query, client=client)
+
+            # Rewriter should NOT have been called
+            client.chat.assert_not_called()
+            # Retrieval should use original query
+            mock_retrieve.assert_called_once_with(long_query)
+
+    @pytest.mark.asyncio
+    async def test_augment_skips_rewrite_when_disabled(
+        self, provider_rewrite_disabled: Any, conversation: Conversation
+    ) -> None:
+        """augment() skips rewriting when rewrite_enabled=False."""
+        client = MagicMock()
+        client.chat = AsyncMock()
+
+        with patch.object(
+            provider_rewrite_disabled, "_retrieve_chunks", return_value=[]
+        ) as mock_retrieve:
+            await provider_rewrite_disabled.augment(conversation, "What about it?", client=client)
+
+            # Rewriter should NOT have been called
+            client.chat.assert_not_called()
+            # Retrieval should use original query
+            mock_retrieve.assert_called_once_with("What about it?")
+
+    @pytest.mark.asyncio
+    async def test_augment_falls_back_on_rewrite_error(
+        self, provider: Any, conversation: Conversation
+    ) -> None:
+        """augment() uses original query if rewriting fails."""
+        from chatty.client.openai_client import OpenAIClient
+
+        # Use spec=OpenAIClient so isinstance check passes
+        client = MagicMock(spec=OpenAIClient)
+        client.chat = AsyncMock(side_effect=Exception("LLM error"))
+
+        with patch.object(provider, "_retrieve_chunks", return_value=[]) as mock_retrieve:
+            await provider.augment(conversation, "What about it?", client=client)
+
+            # Rewriter was called but failed
+            client.chat.assert_called_once()
+            # Retrieval should use original query (fallback)
+            mock_retrieve.assert_called_once_with("What about it?")
+
+    def test_init_with_rewrite_enabled(self, tmp_path: Path) -> None:
+        """LitkitProvider accepts rewrite_enabled parameter."""
+        (tmp_path / "indices").mkdir()
+        (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "sqlite").mkdir()
+        (tmp_path / "sqlite" / "litkit.sqlite3").touch()
+
+        with patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"):
+            from chatty.rag.litkit_provider import LitkitProvider
+
+            provider = LitkitProvider(workspace=tmp_path, rewrite_enabled=True)
+            assert provider._rewriter.enabled is True
+
+            provider_disabled = LitkitProvider(workspace=tmp_path, rewrite_enabled=False)
+            assert provider_disabled._rewriter.enabled is False
 
 
 class TestLitkitErrorClasses:

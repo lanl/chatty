@@ -148,6 +148,30 @@ MessageWidget {
     margin-bottom: 1;
 }
 
+/* Query rewriting collapsible - shows how query was transformed for retrieval */
+.query-rewritten {
+    margin-bottom: 1;
+    border: none;
+    padding: 0;
+}
+
+.query-rewritten > CollapsibleTitle {
+    color: $success;
+    padding-left: 1;
+}
+
+.query-rewritten > CollapsibleTitle:hover {
+    background: $success 20%;
+}
+
+.query-rewritten-content {
+    color: $text-muted;
+    padding: 1;
+    padding-left: 3;
+    margin-bottom: 1;
+    background: $surface-darken-1;
+}
+
 /* Individual citation entries are collapsible */
 .citation {
     margin-bottom: 0;

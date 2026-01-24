@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, TextIO
 
 if TYPE_CHECKING:
     from chatty.config import Config
+    from chatty.rag.provider import RAGMetadata
 
 
 class TranscriptLogger:
@@ -77,6 +78,7 @@ class TranscriptLogger:
         model: str | None = None,
         response_time_s: float | None = None,
         tokens: int | None = None,
+        rag_metadata: RAGMetadata | None = None,
     ) -> None:
         """Log a message to the transcript.
 
@@ -86,6 +88,7 @@ class TranscriptLogger:
             model: Model name (for assistant messages).
             response_time_s: Response time in seconds (for assistant messages).
             tokens: Token count (for assistant messages).
+            rag_metadata: RAG metadata for user messages (query mode, etc.).
         """
         if not self.enabled or self._handle is None:
             return
@@ -103,6 +106,17 @@ class TranscriptLogger:
             record["response_time_s"] = round(response_time_s, 2)
         if tokens is not None:
             record["tokens"] = tokens
+
+        # Add RAG metadata fields for user messages
+        if rag_metadata is not None:
+            if rag_metadata.query_mode is not None:
+                record["query_mode"] = rag_metadata.query_mode
+            if rag_metadata.rewritten_query is not None:
+                record["rewritten_query"] = rag_metadata.rewritten_query
+            if rag_metadata.retrieval_time_s > 0:
+                record["retrieval_time_s"] = round(rag_metadata.retrieval_time_s, 2)
+            if rag_metadata.chunk_count > 0:
+                record["chunk_count"] = rag_metadata.chunk_count
 
         try:
             line = json.dumps(record, ensure_ascii=False)

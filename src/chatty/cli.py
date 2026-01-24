@@ -5,14 +5,40 @@ from typing import Annotated
 
 import typer
 
+from chatty import __version__
 from chatty.config import format_config_with_sources, load_config
 from chatty.diagnostics import format_doctor_result, run_doctor
+
+
+def version_callback(value: bool) -> None:
+    """Print version and exit."""
+    if value:
+        typer.echo(f"chatty {__version__}")
+        raise typer.Exit()
+
 
 app = typer.Typer(
     name="chatty",
     help="A terminal UI chatbot for OpenAI-compatible endpoints.",
     no_args_is_help=True,
 )
+
+
+@app.callback()
+def main(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            "-V",
+            help="Show version and exit.",
+            callback=version_callback,
+            is_eager=True,
+        ),
+    ] = False,
+) -> None:
+    """chatty - A terminal UI chatbot for OpenAI-compatible endpoints."""
+    pass
 
 
 @app.command()

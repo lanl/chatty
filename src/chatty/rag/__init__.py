@@ -2,6 +2,13 @@
 
 from chatty.config import Config
 from chatty.rag.provider import NullProvider, RAGMetadata, RAGProvider, RAGSource
+from chatty.rag.rewriter import (
+    MODE_FOLLOWUP,
+    MODE_NEW_TOPIC,
+    MODE_REFERENCE,
+    QueryRewriter,
+    RewriteResult,
+)
 
 
 class UnknownProviderError(ValueError):
@@ -80,6 +87,7 @@ def _create_litkit_provider(config: Config) -> RAGProvider:
             workspace=workspace,
             top_papers=config.rag_top_papers,
             top_chunks=config.rag_top_chunks,
+            rewrite_enabled=config.rag_rewrite_enabled,
         )
     except LitkitNotInstalledError:
         raise ConfigurationError(
@@ -96,6 +104,11 @@ __all__ = [
     "NullProvider",
     "RAGMetadata",
     "RAGSource",
+    "QueryRewriter",
+    "RewriteResult",
+    "MODE_NEW_TOPIC",
+    "MODE_FOLLOWUP",
+    "MODE_REFERENCE",
     "UnknownProviderError",
     "ConfigurationError",
     "get_provider",

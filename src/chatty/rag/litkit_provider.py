@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from chatty.client.openai_client import Message
 from chatty.core.conversation import Conversation
 from chatty.rag.provider import RAGMetadata, RAGSource
+from chatty.rag.rewriter import QueryRewriter
 
 if TYPE_CHECKING:
     pass
@@ -168,6 +169,7 @@ class LitkitProvider:
         workspace: Path,
         top_papers: int = 500,
         top_chunks: int = 30,
+        rewrite_enabled: bool = True,
     ) -> None:
         """Initialize the LitkitProvider.
 
@@ -175,6 +177,7 @@ class LitkitProvider:
             workspace: Path to litkit workspace containing indices and database.
             top_papers: Number of papers to shortlist in stage 1 (default: 500).
             top_chunks: Number of chunks to retrieve in stage 2 (default: 30).
+            rewrite_enabled: Whether to enable LLM-based query rewriting (default: True).
 
         Raises:
             LitkitNotInstalledError: If litkit package is not installed.
@@ -185,6 +188,7 @@ class LitkitProvider:
         self._workspace = workspace
         self._top_papers = top_papers
         self._top_chunks = top_chunks
+        self._rewriter = QueryRewriter(enabled=rewrite_enabled)
 
         # Verify litkit is available
         self._check_litkit_installed()
@@ -555,14 +559,16 @@ class LitkitProvider:
         self,
         conversation: Conversation,
         user_text: str,
+        client: object | None = None,
     ) -> tuple[list[Message], RAGMetadata]:
         """Augment messages with retrieved context.
 
         This method:
-        1. Retrieves relevant chunks from litkit (in isolated subprocess)
-        2. Fits chunks to available token budget
-        3. Injects context into the user message
-        4. Returns augmented messages and metadata
+        1. Optionally rewrites the query for better retrieval (v0.4.2+)
+        2. Retrieves relevant chunks from litkit (in isolated subprocess)
+        3. Fits chunks to available token budget
+        4. Injects context into the user message
+        5. Returns augmented messages and metadata
 
         Retrieval runs via subprocess.run() with close_fds=True to completely
         isolate the subprocess from Textual's terminal I/O, avoiding fd
@@ -571,22 +577,47 @@ class LitkitProvider:
         Args:
             conversation: Current conversation history.
             user_text: New user input.
+            client: Optional OpenAI client for query rewriting.
 
         Returns:
             Tuple of (augmented messages, retrieval metadata).
         """
         import time
 
+        # Rewrite query if needed (v0.4.2+)
+        retrieval_query = user_text
+        rewritten_query: str | None = None
+        query_mode: str | None = None
+        # Cast client to expected type (protocol allows object for flexibility)
+        from chatty.client.openai_client import OpenAIClient
+
+        openai_client = client if isinstance(client, OpenAIClient) else None
+        if openai_client and self._rewriter.should_rewrite(user_text, conversation):
+            result = await self._rewriter.rewrite_structured(user_text, conversation, openai_client)
+            retrieval_query = result.rewritten_query
+            query_mode = result.mode
+            # Only store rewritten_query if actually different
+            if result.was_rewritten and retrieval_query != user_text:
+                rewritten_query = retrieval_query
+        else:
+            # Classify mode even when not rewriting
+            query_mode = self._rewriter.classify_mode(user_text, conversation)
+
         # Run subprocess retrieval in thread pool to avoid blocking event loop
         # The subprocess itself is completely isolated (close_fds=True)
         start_time = time.monotonic()
-        chunks = await asyncio.to_thread(self._retrieve_chunks, user_text)
+        chunks = await asyncio.to_thread(self._retrieve_chunks, retrieval_query)
         retrieval_time_s = time.monotonic() - start_time
 
         if not chunks:
             # No relevant chunks found, return messages unchanged
             messages = list(conversation.messages) + [Message(role="user", content=user_text)]
-            return messages, RAGMetadata(sources=[], retrieval_time_s=retrieval_time_s)
+            return messages, RAGMetadata(
+                sources=[],
+                retrieval_time_s=retrieval_time_s,
+                rewritten_query=rewritten_query,
+                query_mode=query_mode,
+            )
 
         total_chunks = len(chunks)
 
@@ -607,7 +638,9 @@ class LitkitProvider:
         # Build messages list
         messages = list(conversation.messages) + [Message(role="user", content=augmented_text)]
 
-        # Build metadata
+        # Build metadata with rewritten query and mode
         metadata = self._build_metadata(fitted_chunks, total_chunks, retrieval_time_s)
+        metadata.rewritten_query = rewritten_query
+        metadata.query_mode = query_mode
 
         return messages, metadata

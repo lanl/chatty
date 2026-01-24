@@ -317,6 +317,36 @@ class TestChatLog:
 
             assert len(list(log.query(MessageWidget))) == 0
 
+    async def test_clear_messages_removes_citations(self) -> None:
+        """clear_messages() also removes CitationsWidget instances."""
+        app = ChatLogApp()
+        async with app.run_test() as pilot:
+            log = app.query_one("#chat-log", ChatLog)
+
+            # Add messages
+            log.add_message("user", "Question")
+            log.add_message("assistant", "Answer with [1] citation")
+
+            # Add citations widget (as done in workers.py after response)
+            citations = CitationsWidget(
+                sources=[RAGSource(title="Paper", pmid="123")],
+                retrieval_time_s=1.0,
+            )
+            log.mount(citations)
+            await pilot.pause()
+
+            # Verify widgets are mounted
+            assert len(list(log.query(MessageWidget))) == 2
+            assert len(list(log.query(CitationsWidget))) == 1
+
+            # Clear
+            log.clear_messages()
+            await pilot.pause()
+
+            # Both MessageWidgets and CitationsWidget should be removed
+            assert len(list(log.query(MessageWidget))) == 0
+            assert len(list(log.query(CitationsWidget))) == 0
+
     async def test_remove_last_message(self) -> None:
         """remove_last_message() removes most recent."""
         app = ChatLogApp()

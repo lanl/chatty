@@ -195,6 +195,7 @@ class Config(BaseSettings):
     )
     rag_top_papers: int = 500  # Stage 1: papers to shortlist
     rag_top_chunks: int = 30  # Stage 2: chunks for LLM context
+    rag_rewrite_enabled: bool = True  # v0.4.2: LLM-based query rewriting for multi-turn RAG
 
     @field_validator("rag_top_papers")
     @classmethod
@@ -347,6 +348,7 @@ _CONFIG_FIELDS = [
     "rag_workspace",
     "rag_top_papers",
     "rag_top_chunks",
+    "rag_rewrite_enabled",
     "session_path",
     "copy_fallback_path",
     "export_path",
@@ -374,6 +376,7 @@ _ENV_MAPPINGS = {
     "rag_workspace": ["CHATTY_RAG_WORKSPACE", "LITKIT_WORKSPACE"],
     "rag_top_papers": ["CHATTY_RAG_TOP_PAPERS"],
     "rag_top_chunks": ["CHATTY_RAG_TOP_CHUNKS"],
+    "rag_rewrite_enabled": ["CHATTY_RAG_REWRITE_ENABLED"],
     "session_path": ["CHATTY_SESSION_PATH"],
     "copy_fallback_path": ["CHATTY_COPY_FALLBACK_PATH"],
     "export_path": ["CHATTY_EXPORT_PATH"],

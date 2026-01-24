@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from chatty.client.openai_client import AssistantMessage, ChattyClientError
+from chatty.rag.provider import RAGMetadata
 from chatty.ui.workers import (
     fetch_and_show_models,
     fetch_context_window,
@@ -243,9 +244,9 @@ class TestSendMessage:
         mock_app.streaming = True
         mock_app._pending_user_text = "Hello"
 
-        # Mock RAG provider
+        # Mock RAG provider with proper metadata
         mock_app.rag_provider.augment = AsyncMock(
-            return_value=([{"role": "user", "content": "Hello"}], None)
+            return_value=([{"role": "user", "content": "Hello"}], RAGMetadata())
         )
 
         # Mock streaming response
@@ -280,9 +281,9 @@ class TestSendMessage:
         mock_app.streaming = False
         mock_app._pending_user_text = "Hello"
 
-        # Mock RAG provider
+        # Mock RAG provider with proper metadata
         mock_app.rag_provider.augment = AsyncMock(
-            return_value=([{"role": "user", "content": "Hello"}], None)
+            return_value=([{"role": "user", "content": "Hello"}], RAGMetadata())
         )
 
         # Mock non-streaming response
@@ -311,7 +312,7 @@ class TestSendMessage:
         """Shows error on ChattyClientError."""
         mock_app._pending_user_text = "Hello"
         mock_app.rag_provider.augment = AsyncMock(
-            return_value=([{"role": "user", "content": "Hello"}], None)
+            return_value=([{"role": "user", "content": "Hello"}], RAGMetadata())
         )
         mock_app.client.chat = AsyncMock(side_effect=ChattyClientError("API error"))
 
@@ -333,7 +334,7 @@ class TestSendMessage:
         """Shows error on unexpected exception."""
         mock_app._pending_user_text = "Hello"
         mock_app.rag_provider.augment = AsyncMock(
-            return_value=([{"role": "user", "content": "Hello"}], None)
+            return_value=([{"role": "user", "content": "Hello"}], RAGMetadata())
         )
         mock_app.client.chat = AsyncMock(side_effect=RuntimeError("Unexpected error"))
 
@@ -350,7 +351,7 @@ class TestSendMessage:
         mock_app._pending_user_text = "Hello"
         mock_app.streaming = False
         mock_app.rag_provider.augment = AsyncMock(
-            return_value=([{"role": "user", "content": "Hello"}], None)
+            return_value=([{"role": "user", "content": "Hello"}], RAGMetadata())
         )
 
         response = AssistantMessage(content="Hi!", usage=None)
@@ -365,7 +366,7 @@ class TestSendMessage:
         """Worker is cleared even on error."""
         mock_app._pending_user_text = "Hello"
         mock_app.rag_provider.augment = AsyncMock(
-            return_value=([{"role": "user", "content": "Hello"}], None)
+            return_value=([{"role": "user", "content": "Hello"}], RAGMetadata())
         )
         mock_app.client.chat = AsyncMock(side_effect=ChattyClientError("Failed"))
 
@@ -400,7 +401,7 @@ class TestSendMessage:
         mock_app.streaming = False
         # Non-NullProvider shows "Searching corpus..." first
         mock_app.rag_provider.augment = AsyncMock(
-            return_value=([{"role": "user", "content": "Hello"}], None)
+            return_value=([{"role": "user", "content": "Hello"}], RAGMetadata())
         )
 
         response = AssistantMessage(content="Hi!", usage=None)
@@ -422,7 +423,7 @@ class TestSendMessage:
         mock_app._pending_user_text = "Hello"
         mock_app.streaming = False
 
-        rag_metadata = {"sources": ["doc1.txt"]}
+        rag_metadata = RAGMetadata(sources=[], chunk_count=5)
         mock_app.rag_provider.augment = AsyncMock(
             return_value=([{"role": "user", "content": "Hello"}], rag_metadata)
         )

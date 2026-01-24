@@ -5,6 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] - 2026-01-24
+
+### Added
+
+**RAG Metadata in Transcripts**
+- User messages in transcript JSONL now include RAG metadata:
+  - `query_mode` — Classification (NEW_TOPIC, FOLLOWUP, REFERENCE)
+  - `rewritten_query` — Expanded query if rewritten
+  - `retrieval_time_s` — Time spent on retrieval
+  - `chunk_count` — Number of chunks retrieved
+- `log_message()` accepts optional `rag_metadata` parameter
+- User message logging moved from app.py to workers.py (after RAG augment)
+
+**Improved Query Rewriting Prompt**
+- Enhanced `REWRITE_PROMPT` with critical rules for better domain term handling
+- Preserves domain-specific terms, acronyms, and scientific terminology
+- Prevents invention of constraints (dates, authors, exclusions) not mentioned
+- Only expands abbreviations when context unambiguously provides full form
+
+**Query Mode Classification**
+- `classify_mode()` method classifies queries into three modes:
+  - `NEW_TOPIC` — Fresh question with no prior context needed
+  - `FOLLOWUP` — Follow-up about the current discussion topic
+  - `REFERENCE` — Reference to a specific cited paper/source
+- Pattern-based detection for each mode type
+- Mode logged for debugging and stored in `RAGMetadata.query_mode`
+
+**Structured Rewrite Output**
+- `RewriteResult` dataclass with fields:
+  - `rewritten_query` — The expanded query for retrieval
+  - `original_query` — User's original input
+  - `mode` — Query intent classification
+  - `was_rewritten` — False if fell back to original
+  - `entities` — Extracted entities (for logging)
+- `rewrite_structured()` method returns `RewriteResult`
+- Original `rewrite()` method preserved for backward compatibility
+- `RAGMetadata.query_mode` field added
+
+**New Exports**
+- `RewriteResult`, `MODE_NEW_TOPIC`, `MODE_FOLLOWUP`, `MODE_REFERENCE` exported from `chatty.rag`
+
+### Changed
+
+- `LitkitProvider.augment()` now uses `rewrite_structured()` internally
+- Query mode always classified, even when rewriting is skipped
+- 12 new tests for mode classification and structured output
+
+### Developer Notes
+
+- 625 total tests (was 623)
+- Phase 3 (shortlist reuse) deferred to v0.4.5
+- Phase 5 (lexical boost config) deferred — litkit API in flux
+- Pre-commit hooks pass
+
+---
+
 ## [0.4.1] - 2026-01-22
 
 ### Added

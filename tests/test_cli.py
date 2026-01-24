@@ -13,6 +13,20 @@ runner = CliRunner()
 class TestChattyHelp:
     """Test that CLI commands have help text and don't crash."""
 
+    def test_version(self) -> None:
+        """chatty --version shows version."""
+        result = runner.invoke(app, ["--version"])
+        assert result.exit_code == 0
+        assert "chatty" in result.stdout
+        # Version format: chatty X.Y.Z
+        assert "0." in result.stdout or "1." in result.stdout
+
+    def test_version_short(self) -> None:
+        """chatty -V shows version (short form)."""
+        result = runner.invoke(app, ["-V"])
+        assert result.exit_code == 0
+        assert "chatty" in result.stdout
+
     def test_main_help(self) -> None:
         """chatty --help returns successfully."""
         result = runner.invoke(app, ["--help"])

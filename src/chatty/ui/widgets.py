@@ -314,8 +314,11 @@ class ChatLog(VerticalScroll):
 
     def clear_messages(self) -> None:
         """Remove all messages from the chat log."""
-        for widget in list(self.query(MessageWidget)):
-            widget.remove()
+        for msg_widget in list(self.query(MessageWidget)):
+            msg_widget.remove()
+        # Also remove citations widgets (RAG sources)
+        for citations_widget in list(self.query(CitationsWidget)):
+            citations_widget.remove()
 
     def remove_last_message(self) -> None:
         """Remove the last message (for regeneration)."""
@@ -512,6 +515,8 @@ class StatusBar(Static):
 
     def _rebuild_display(self) -> None:
         """Rebuild the status bar text from current state."""
+        parts = []
+
         # Add spinner prefix and elapsed time for active states
         if self._status in self._SPINNER_STATES:
             spinner_char = self.SPINNER_FRAMES[self._spinner_index]
@@ -524,7 +529,8 @@ class StatusBar(Static):
         else:
             status_display = self._status
 
-        parts = [status_display, f"Model: {self._model}"]
+        parts.append(status_display)
+        parts.append(f"Model: {self._model}")
         stream_str = "on" if self._streaming else "off"
         parts.append(f"Stream: {stream_str}")
         if self._rag_provider and self._rag_provider != "none":
@@ -618,9 +624,13 @@ class CitationsWidget(Static):
     Shows title, PubMed/PMC links (if available), and snippet preview.
     Long lists (>5 sources) are collapsed by default.
 
+    When the query was rewritten for retrieval, displays a line showing
+    the transformation (e.g., "🔍 Query: X → Y").
+
     CSS Classes:
         .citations-container: Main container
         .citations-header: Header line ("📚 Sources (N)")
+        .query-rewritten: Query transformation line
         .citation: Individual citation entry
         .citation-title: Paper title
         .citation-link: PMID/PMCID identifier
@@ -637,6 +647,8 @@ class CitationsWidget(Static):
         sources: list[RAGSource],
         retrieval_time_s: float = 0.0,
         chunk_count: int = 0,
+        rewritten_query: str | None = None,
+        original_query: str | None = None,
     ) -> None:
         """Initialize citations widget.
 
@@ -644,11 +656,15 @@ class CitationsWidget(Static):
             sources: List of RAGSource objects to display.
             retrieval_time_s: Time taken for retrieval in seconds.
             chunk_count: Total number of chunks retrieved.
+            rewritten_query: The rewritten query used for retrieval.
+            original_query: The user's original query text.
         """
         super().__init__(classes="citations-container")
         self._sources = sources
         self._retrieval_time_s = retrieval_time_s
         self._chunk_count = chunk_count
+        self._rewritten_query = rewritten_query
+        self._original_query = original_query
 
     def compose(self) -> ComposeResult:
         """Compose the citations display."""
@@ -661,6 +677,21 @@ class CitationsWidget(Static):
             header_text += f" · {self._retrieval_time_s:.1f}s"
 
         yield Static(header_text, classes="citations-header")
+
+        # Show query rewriting info if query was rewritten (collapsible)
+        if (
+            self._rewritten_query
+            and self._original_query
+            and self._rewritten_query != self._original_query
+        ):
+            # Build content with clear labels
+            content = f"Original: {self._original_query}\n" f"Searched: {self._rewritten_query}"
+            yield Collapsible(
+                Static(content, classes="query-rewritten-content"),
+                title="🔍 Query Rewritten",
+                collapsed=True,
+                classes="query-rewritten",
+            )
 
         # Build citation entries
         citation_widgets = []
@@ -724,7 +755,11 @@ class CitationsWidget(Static):
         return collapsible
 
     @classmethod
-    def from_metadata(cls, metadata: RAGMetadata | None) -> CitationsWidget | None:
+    def from_metadata(
+        cls,
+        metadata: RAGMetadata | None,
+        original_query: str | None = None,
+    ) -> CitationsWidget | None:
         """Create CitationsWidget from RAGMetadata.
 
         Factory method to create widget from metadata, returning None
@@ -732,6 +767,7 @@ class CitationsWidget(Static):
 
         Args:
             metadata: RAGMetadata object with sources and retrieval info.
+            original_query: The user's original query text.
 
         Returns:
             CitationsWidget instance, or None if no sources.
@@ -743,4 +779,6 @@ class CitationsWidget(Static):
             sources=metadata.sources,
             retrieval_time_s=metadata.retrieval_time_s,
             chunk_count=metadata.chunk_count,
+            rewritten_query=metadata.rewritten_query,
+            original_query=original_query,
         )

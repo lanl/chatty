@@ -195,3 +195,55 @@ def test_transcript_error_messages(enabled_config: Config) -> None:
 
     assert data["role"] == "error"
     assert data["content"] == "Something went wrong"
+
+
+def test_transcript_logs_rag_metadata(enabled_config: Config) -> None:
+    """User messages include RAG metadata when provided."""
+    from chatty.rag.provider import RAGMetadata
+
+    logger = TranscriptLogger(enabled_config)
+    file_path = logger.start_session()
+
+    rag_metadata = RAGMetadata(
+        sources=[],
+        retrieval_time_s=1.23,
+        chunk_count=5,
+        rewritten_query="What are the side effects of HIV treatments?",
+        query_mode="FOLLOWUP",
+    )
+
+    logger.log_message(
+        "user",
+        "What about side effects?",
+        rag_metadata=rag_metadata,
+    )
+    logger.close()
+
+    assert file_path is not None
+    content = file_path.read_text()
+    data = json.loads(content.strip())
+
+    assert data["role"] == "user"
+    assert data["content"] == "What about side effects?"
+    assert data["query_mode"] == "FOLLOWUP"
+    assert data["rewritten_query"] == "What are the side effects of HIV treatments?"
+    assert data["retrieval_time_s"] == 1.23
+    assert data["chunk_count"] == 5
+
+
+def test_transcript_rag_metadata_omitted_when_none(enabled_config: Config) -> None:
+    """RAG metadata fields omitted when not provided."""
+    logger = TranscriptLogger(enabled_config)
+    file_path = logger.start_session()
+
+    logger.log_message("user", "Simple question")
+    logger.close()
+
+    assert file_path is not None
+    content = file_path.read_text()
+    data = json.loads(content.strip())
+
+    assert "query_mode" not in data
+    assert "rewritten_query" not in data
+    assert "retrieval_time_s" not in data
+    assert "chunk_count" not in data

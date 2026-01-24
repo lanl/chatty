@@ -178,8 +178,13 @@ async def send_message(app: ChatApp) -> None:  # noqa: C901
     try:
         # Use RAG provider to augment messages with context
         # NullProvider passes through unchanged; LitkitProvider adds context
-        messages, rag_metadata = await app.rag_provider.augment(app.conversation, user_text)
+        messages, rag_metadata = await app.rag_provider.augment(
+            app.conversation, user_text, client=app.client
+        )
         app.last_rag_metadata = rag_metadata
+
+        # Log user message with RAG metadata (after augment has metadata)
+        app.transcript.log_message("user", user_text, rag_metadata=rag_metadata)
 
         # Update status after RAG retrieval completes
         if is_rag_enabled:
@@ -206,7 +211,8 @@ async def send_message(app: ChatApp) -> None:  # noqa: C901
 
             # Display citations widget if RAG returned sources
             # Show ALL sources to preserve numbering that LLM used in its response
-            citations_widget = CitationsWidget.from_metadata(rag_metadata)
+            # Pass original_query to show query rewriting info
+            citations_widget = CitationsWidget.from_metadata(rag_metadata, original_query=user_text)
             if citations_widget:
                 chat_log.mount(citations_widget)
                 chat_log.scroll_end(animate=False)
@@ -238,7 +244,8 @@ async def send_message(app: ChatApp) -> None:  # noqa: C901
 
             # Display citations widget if RAG returned sources
             # Show ALL sources to preserve numbering that LLM used in its response
-            citations_widget = CitationsWidget.from_metadata(rag_metadata)
+            # Pass original_query to show query rewriting info
+            citations_widget = CitationsWidget.from_metadata(rag_metadata, original_query=user_text)
             if citations_widget:
                 chat_log.mount(citations_widget)
                 chat_log.scroll_end(animate=False)
