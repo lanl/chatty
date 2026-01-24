@@ -380,7 +380,7 @@ class TestLitkitProviderFormatting:
 
     def test_format_context_empty(self, provider: Any) -> None:
         """_format_context returns empty string for empty chunks."""
-        result = provider._format_context([])
+        result = provider._format_context([], turn=1)
         assert result == ""
 
     def test_format_context_with_chunks(self, provider: Any) -> None:
@@ -403,13 +403,14 @@ class TestLitkitProviderFormatting:
                 score=0.8,
             ),
         ]
-        result = provider._format_context(chunks)
+        result = provider._format_context(chunks, turn=1)
 
-        assert "[1] Paper A (PMID: 12345)" in result
+        # Uses [T.N] format where T is turn number
+        assert "[1.1] Paper A (PMID: 12345)" in result
         assert "Test content about HIV." in result
-        assert "[2] Paper B (PMCID: PMC67890)" in result
+        assert "[1.2] Paper B (PMCID: PMC67890)" in result
         assert "More content about treatments." in result
-        assert "Cite sources by number" in result
+        assert "[T.N]" in result  # Citation format explanation
 
     def test_build_metadata(self, provider: Any) -> None:
         """_build_metadata creates RAGMetadata with RAGSource objects."""

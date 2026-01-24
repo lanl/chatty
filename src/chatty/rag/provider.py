@@ -40,6 +40,8 @@ class RAGMetadata:
             or None if query was unchanged.
         query_mode: Query intent classification (NEW_TOPIC, FOLLOWUP,
             REFERENCE), or None if not classified.
+        turn_number: Retrieval turn number for citation disambiguation.
+            Citations use [T.N] format where T is turn number.
     """
 
     sources: list[RAGSource] = field(default_factory=list)
@@ -47,6 +49,7 @@ class RAGMetadata:
     chunk_count: int = 0
     rewritten_query: str | None = None
     query_mode: str | None = None
+    turn_number: int = 1
 
 
 class RAGProvider(Protocol):

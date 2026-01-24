@@ -15,14 +15,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
 
 # Default system prompt when RAG is enabled (litkit-style)
-# Instructs the LLM to cite sources using bracketed references [1], [2], etc.
+# Instructs the LLM to cite sources using turn-prefixed format [T.N]
 RAG_DEFAULT_SYSTEM_PROMPT = (
     "You are a precise scientific assistant. Answer questions using ONLY "
     "the provided context chunks—do not use prior knowledge. Each chunk "
-    "is numbered [1], [2], etc. You MUST cite sources using these numbers "
-    "in your response. When multiple chunks support a claim, cite all of "
-    "them. If sources conflict, acknowledge the disagreement. If the "
-    "context is insufficient to answer, say so briefly."
+    "is numbered [T.N] where T is the turn number and N is the source "
+    "number (e.g., [1.3] means turn 1, source 3). You MUST cite sources "
+    "using these [T.N] numbers in your response. When multiple chunks "
+    "support a claim, cite all of them. If sources conflict, acknowledge "
+    "the disagreement. If the context is insufficient to answer, say so "
+    "briefly."
 )
 
 

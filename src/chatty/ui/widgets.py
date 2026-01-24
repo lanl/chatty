@@ -649,6 +649,7 @@ class CitationsWidget(Static):
         chunk_count: int = 0,
         rewritten_query: str | None = None,
         original_query: str | None = None,
+        turn_number: int = 1,
     ) -> None:
         """Initialize citations widget.
 
@@ -658,6 +659,7 @@ class CitationsWidget(Static):
             chunk_count: Total number of chunks retrieved.
             rewritten_query: The rewritten query used for retrieval.
             original_query: The user's original query text.
+            turn_number: Retrieval turn number for [T.N] citation format.
         """
         super().__init__(classes="citations-container")
         self._sources = sources
@@ -665,6 +667,7 @@ class CitationsWidget(Static):
         self._chunk_count = chunk_count
         self._rewritten_query = rewritten_query
         self._original_query = original_query
+        self._turn_number = turn_number
 
     def compose(self) -> ComposeResult:
         """Compose the citations display."""
@@ -716,6 +719,8 @@ class CitationsWidget(Static):
     def _build_citation(self, index: int, source: RAGSource) -> Collapsible:
         """Build a single expandable citation entry.
 
+        Uses [T.N] format where T is turn number and N is source index.
+
         Args:
             index: Citation number (1-based).
             source: RAGSource object.
@@ -723,9 +728,9 @@ class CitationsWidget(Static):
         Returns:
             Collapsible widget with title showing preview, expanded showing full text.
         """
-        # Build citation title: [N] PMID:xxx | Title
-        # PMID/PMCID comes FIRST so it's always visible (user can widen terminal for full title)
-        title_parts = [f"[{index}]"]
+        # Build citation title: [T.N] PMID:xxx | Title
+        # Use turn-prefixed format for disambiguation across turns
+        title_parts = [f"[{self._turn_number}.{index}]"]
 
         # Add identifier first (plain text - Collapsible titles don't support Rich links)
         if source.pmid:
@@ -781,4 +786,5 @@ class CitationsWidget(Static):
             chunk_count=metadata.chunk_count,
             rewritten_query=metadata.rewritten_query,
             original_query=original_query,
+            turn_number=metadata.turn_number,
         )

@@ -162,6 +162,10 @@ class LitkitProvider:
 
     Note: Retrieval runs in a completely isolated subprocess (via subprocess.run
     with close_fds=True) to avoid fd inheritance issues with Textual's terminal I/O.
+
+    Citation numbering uses turn-prefixed format [T.N] where T is the turn number
+    and N is the chunk number within that turn. This ensures citation references
+    remain unambiguous across multi-turn conversations.
     """
 
     def __init__(
@@ -189,6 +193,7 @@ class LitkitProvider:
         self._top_papers = top_papers
         self._top_chunks = top_chunks
         self._rewriter = QueryRewriter(enabled=rewrite_enabled)
+        self._turn_number = 0  # Track retrieval turn for citation numbering
 
         # Verify litkit is available
         self._check_litkit_installed()
@@ -487,11 +492,16 @@ class LitkitProvider:
                 return text
             return text[: max_chars - 3].rstrip() + "..."
 
-    def _format_context(self, chunks: list[RetrievedChunk]) -> str:
+    def _format_context(self, chunks: list[RetrievedChunk], turn: int) -> str:
         """Format retrieved chunks as context for the LLM.
+
+        Uses turn-prefixed citation format [T.N] where T is turn number
+        and N is chunk number within the turn. This ensures citation
+        references remain unambiguous across multi-turn conversations.
 
         Args:
             chunks: List of retrieved chunks.
+            turn: Current retrieval turn number.
 
         Returns:
             Formatted context string to prepend to user message.
@@ -499,12 +509,11 @@ class LitkitProvider:
         if not chunks:
             return ""
 
-        context_parts = [
-            "The following excerpts from scientific papers may be relevant to your question:\n"
-        ]
+        context_parts = ["The following excerpts from scientific papers may be relevant:\n"]
 
         for i, chunk in enumerate(chunks, 1):
-            source_info = f"[{i}] {chunk.paper_title}"
+            # Use [T.N] format for turn-disambiguated citations
+            source_info = f"[{turn}.{i}] {chunk.paper_title}"
             if chunk.pmid:
                 source_info += f" (PMID: {chunk.pmid})"
             elif chunk.pmcid:
@@ -513,8 +522,8 @@ class LitkitProvider:
             context_parts.append(f"{source_info}\n{chunk.text}\n")
 
         context_parts.append(
-            "---\nPlease use the above context to inform your response. "
-            "Cite sources by number when appropriate.\n"
+            "---\nCite sources using [T.N] format (e.g., [1.3] for turn 1, "
+            "source 3). Use the above context to inform your response.\n"
         )
 
         return "\n".join(context_parts)
@@ -631,16 +640,21 @@ class LitkitProvider:
         # Fit chunks to budget
         fitted_chunks = self._fit_to_budget(chunks, available_tokens)
 
+        # Increment turn number for citation disambiguation
+        self._turn_number += 1
+        turn = self._turn_number
+
         # Format context and build augmented message
-        context = self._format_context(fitted_chunks)
+        context = self._format_context(fitted_chunks, turn)
         augmented_text = f"{context}\nQuestion: {user_text}" if context else user_text
 
         # Build messages list
         messages = list(conversation.messages) + [Message(role="user", content=augmented_text)]
 
-        # Build metadata with rewritten query and mode
+        # Build metadata with rewritten query, mode, and turn number
         metadata = self._build_metadata(fitted_chunks, total_chunks, retrieval_time_s)
         metadata.rewritten_query = rewritten_query
         metadata.query_mode = query_mode
+        metadata.turn_number = turn
 
         return messages, metadata

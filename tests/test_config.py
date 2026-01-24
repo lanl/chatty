@@ -466,7 +466,8 @@ def test_rag_default_system_prompt_content() -> None:
     from chatty.config import RAG_DEFAULT_SYSTEM_PROMPT
 
     assert "ONLY" in RAG_DEFAULT_SYSTEM_PROMPT
-    assert "[1]" in RAG_DEFAULT_SYSTEM_PROMPT
-    assert "[2]" in RAG_DEFAULT_SYSTEM_PROMPT
+    # Uses [T.N] turn-prefixed format for citations
+    assert "[T.N]" in RAG_DEFAULT_SYSTEM_PROMPT
+    assert "[1.3]" in RAG_DEFAULT_SYSTEM_PROMPT  # Example in prompt
     assert "cite" in RAG_DEFAULT_SYSTEM_PROMPT.lower()
     assert "context" in RAG_DEFAULT_SYSTEM_PROMPT.lower()
