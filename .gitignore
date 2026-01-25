@@ -1,6 +1,12 @@
 # Repo-local config (may contain API keys)
 chatty.toml
 
+# Task prompt (re-used for new sessions, not part of codebase)
+prompt.md
+
+# Test artifacts
+snapshot_report.html
+
 # Transcripts (local conversation logs)
 # Supported locations (set transcript_path in chatty.toml):
 #   transcript_path = "./transcripts"             # repo-local
@@ -90,3 +96,4 @@ wheelhouse/
 # OS
 .DS_Store
 Thumbs.db
+coverage.json

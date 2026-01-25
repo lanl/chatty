@@ -14,7 +14,7 @@
 # Example:
 #   ./scripts/build-wheelhouse.sh
 #   # Creates wheelhouse/ directory
-#   # Transfer wheelhouse/ + requirements.lock to air-gapped machine
+#   # Transfer wheelhouse/ to air-gapped machine (requirements.lock is in scripts/)
 #
 # See: docs/DEVELOPER_GUIDE.md for full offline install instructions
 
@@ -23,7 +23,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 WHEELHOUSE="${1:-${PROJECT_ROOT}/wheelhouse}"
-REQUIREMENTS="${PROJECT_ROOT}/requirements.lock"
+REQUIREMENTS="${SCRIPT_DIR}/requirements.lock"
 
 # --- Prerequisite checks ---
 
@@ -82,5 +82,5 @@ fi
 
 echo ""
 echo "To install on air-gapped machine:"
-echo "  1. Transfer wheelhouse/ and requirements.lock to target"
+echo "  1. Transfer wheelhouse/ to target (requirements.lock is in scripts/)"
 echo "  2. Run: ./scripts/install-offline.sh"

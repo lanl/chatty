@@ -10,7 +10,7 @@
 # Prerequisites:
 #   - uv installed on target machine
 #   - wheelhouse/ directory transferred from connected machine
-#   - requirements.lock transferred from connected machine
+#   - scripts/requirements.lock exists (part of repo)
 #
 # See: docs/DEVELOPER_GUIDE.md for full offline install instructions
 
@@ -19,7 +19,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 WHEELHOUSE="${1:-${PROJECT_ROOT}/wheelhouse}"
-REQUIREMENTS="${PROJECT_ROOT}/requirements.lock"
+REQUIREMENTS="${SCRIPT_DIR}/requirements.lock"
 
 # Check for wheelhouse directory
 if [[ ! -d "$WHEELHOUSE" ]]; then
