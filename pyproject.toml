@@ -1,6 +1,6 @@
 [project]
 name = "chatty"
-version = "0.4.3"
+version = "0.4.5"
 description = "A terminal UI chatbot for OpenAI-compatible endpoints"
 readme = "README.md"
 license = { text = "TBD" }
@@ -137,3 +137,4 @@ exclude_lines = [
 
 [tool.uv.sources]
 litkit = { path = "../litkit", editable = true }
+

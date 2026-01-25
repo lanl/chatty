@@ -38,7 +38,7 @@ def load_session_file(app: ChatApp) -> None:
     Args:
         app: The ChatApp instance.
     """
-    from chatty.ui.widgets import ChatLog
+    from chatty.ui.widgets import ChatLog, StatusBar
 
     if not app.session_file:
         return
@@ -71,6 +71,13 @@ def load_session_file(app: ChatApp) -> None:
             f"Loaded session: {session.metadata.name}\n"
             f"Messages: {session.metadata.message_count}",
         )
+
+        # Update status bar with token count
+        if app.conversation:
+            app.query_one("#status-bar", StatusBar).update_status(
+                status="Ready",
+                tokens=app.conversation.get_token_display(),
+            )
 
     except Exception as e:
         chat_log.add_message("error", f"Failed to load session: {e}")

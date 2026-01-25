@@ -14,6 +14,10 @@ if TYPE_CHECKING:
 def build_sync_client(config: Config, *, timeout: float = 60.0) -> httpx.Client:
     """Build a synchronous httpx client with TLS/proxy settings.
 
+    When no explicit proxy is configured (http_proxy is None), httpx uses
+    trust_env=True (the default) to read HTTP_PROXY/HTTPS_PROXY/NO_PROXY
+    from environment variables.
+
     Args:
         config: Configuration object with TLS/proxy settings
         timeout: Request timeout in seconds
@@ -28,18 +32,26 @@ def build_sync_client(config: Config, *, timeout: float = 60.0) -> httpx.Client:
     if not config.verify_tls:
         verify = False
 
-    # Proxy configuration
-    proxy = config.http_proxy if config.http_proxy else None
-
+    # Only pass proxy= when explicitly configured (CHATTY_HTTP_PROXY or TOML)
+    # Omitting proxy= lets httpx use trust_env to read HTTP_PROXY/HTTPS_PROXY/NO_PROXY
+    if config.http_proxy:
+        return httpx.Client(
+            verify=verify,
+            proxy=config.http_proxy,
+            timeout=httpx.Timeout(timeout),
+        )
     return httpx.Client(
         verify=verify,
-        proxy=proxy,
         timeout=httpx.Timeout(timeout),
     )
 
 
 def build_async_client(config: Config, *, timeout: float = 60.0) -> httpx.AsyncClient:
     """Build an asynchronous httpx client with TLS/proxy settings.
+
+    When no explicit proxy is configured (http_proxy is None), httpx uses
+    trust_env=True (the default) to read HTTP_PROXY/HTTPS_PROXY/NO_PROXY
+    from environment variables.
 
     Args:
         config: Configuration object with TLS/proxy settings
@@ -55,11 +67,15 @@ def build_async_client(config: Config, *, timeout: float = 60.0) -> httpx.AsyncC
     if not config.verify_tls:
         verify = False
 
-    # Proxy configuration
-    proxy = config.http_proxy if config.http_proxy else None
-
+    # Only pass proxy= when explicitly configured (CHATTY_HTTP_PROXY or TOML)
+    # Omitting proxy= lets httpx use trust_env to read HTTP_PROXY/HTTPS_PROXY/NO_PROXY
+    if config.http_proxy:
+        return httpx.AsyncClient(
+            verify=verify,
+            proxy=config.http_proxy,
+            timeout=httpx.Timeout(timeout),
+        )
     return httpx.AsyncClient(
         verify=verify,
-        proxy=proxy,
         timeout=httpx.Timeout(timeout),
     )

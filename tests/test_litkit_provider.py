@@ -141,11 +141,12 @@ class TestLitkitProviderRetrieve:
         return tmp_path
 
     def test_retrieve_chunks_empty_result(self, valid_workspace: Path) -> None:
-        """_retrieve_chunks handles empty paper shortlist (returns [])."""
+        """_retrieve_chunks handles empty paper shortlist (returns empty tuple)."""
+        import json
 
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = "[]"
+        mock_result.stdout = json.dumps({"chunks": [], "paper_ids": []})
         mock_result.stderr = ""
 
         with (
@@ -155,35 +156,39 @@ class TestLitkitProviderRetrieve:
             from chatty.rag.litkit_provider import LitkitProvider
 
             provider = LitkitProvider(workspace=valid_workspace)
-            chunks = provider._retrieve_chunks("test query")
+            chunks, paper_ids = provider._retrieve_chunks("test query")
 
             assert chunks == []
+            assert paper_ids == []
 
     def test_retrieve_chunks_success(self, valid_workspace: Path) -> None:
-        """_retrieve_chunks returns RetrievedChunk objects with metadata."""
+        """_retrieve_chunks returns RetrievedChunk objects with metadata and paper_ids."""
         import json
 
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_result.stdout = json.dumps(
-            [
-                {
-                    "chunk_id": 10,
-                    "text": "Chunk 1 text about HIV treatments.",
-                    "paper_title": "Paper A",
-                    "pmid": "12345",
-                    "pmcid": None,
-                    "score": 0.9,
-                },
-                {
-                    "chunk_id": 20,
-                    "text": "Chunk 2 text about side effects.",
-                    "paper_title": "Paper B",
-                    "pmid": None,
-                    "pmcid": "PMC67890",
-                    "score": 0.8,
-                },
-            ]
+            {
+                "chunks": [
+                    {
+                        "chunk_id": 10,
+                        "text": "Chunk 1 text about HIV treatments.",
+                        "paper_title": "Paper A",
+                        "pmid": "12345",
+                        "pmcid": None,
+                        "score": 0.9,
+                    },
+                    {
+                        "chunk_id": 20,
+                        "text": "Chunk 2 text about side effects.",
+                        "paper_title": "Paper B",
+                        "pmid": None,
+                        "pmcid": "PMC67890",
+                        "score": 0.8,
+                    },
+                ],
+                "paper_ids": [100, 200, 300],
+            }
         )
         mock_result.stderr = ""
 
@@ -194,7 +199,7 @@ class TestLitkitProviderRetrieve:
             from chatty.rag.litkit_provider import LitkitProvider
 
             provider = LitkitProvider(workspace=valid_workspace)
-            chunks = provider._retrieve_chunks("HIV treatments")
+            chunks, paper_ids = provider._retrieve_chunks("HIV treatments")
 
             assert len(chunks) == 2
             assert chunks[0].chunk_id == 10
@@ -208,6 +213,9 @@ class TestLitkitProviderRetrieve:
             assert chunks[1].paper_title == "Paper B"
             assert chunks[1].pmcid == "PMC67890"
             assert chunks[1].score == 0.8
+
+            # Also verify paper_ids returned
+            assert paper_ids == [100, 200, 300]
 
     def test_retrieve_chunks_subprocess_error(self, valid_workspace: Path) -> None:
         """_retrieve_chunks raises LitkitError on subprocess failure."""
@@ -248,6 +256,31 @@ class TestLitkitProviderRetrieve:
                 provider._retrieve_chunks("test query")
 
             assert "timed out" in str(exc_info.value)
+
+    def test_retrieve_chunks_with_reuse_paper_ids(self, valid_workspace: Path) -> None:
+        """_retrieve_chunks passes paper_ids to subprocess for reuse."""
+        import json
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = json.dumps({"chunks": [], "paper_ids": [1, 2, 3]})
+        mock_result.stderr = ""
+
+        with (
+            patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"),
+            patch(
+                "chatty.rag.litkit_provider.subprocess.run", return_value=mock_result
+            ) as mock_run,
+        ):
+            from chatty.rag.litkit_provider import LitkitProvider
+
+            provider = LitkitProvider(workspace=valid_workspace)
+            provider._retrieve_chunks("test query", reuse_paper_ids=[1, 2, 3])
+
+            # Check that paper_ids were passed as JSON in subprocess args
+            call_args = mock_run.call_args[0][0]
+            # Last argument should be JSON-encoded paper_ids
+            assert json.loads(call_args[-1]) == [1, 2, 3]
 
 
 class TestLitkitProviderTokenBudget:
@@ -500,7 +533,7 @@ class TestLitkitProviderAugment:
     @pytest.mark.asyncio
     async def test_augment_no_chunks_found(self, provider: Any, conversation: Conversation) -> None:
         """augment returns original messages when no chunks found."""
-        with patch.object(provider, "_retrieve_chunks", return_value=[]):
+        with patch.object(provider, "_retrieve_chunks", return_value=([], [])):
             messages, metadata = await provider.augment(conversation, "new question")
 
         # Should have original messages plus new user message
@@ -526,7 +559,7 @@ class TestLitkitProviderAugment:
             ),
         ]
         with (
-            patch.object(provider, "_retrieve_chunks", return_value=chunks),
+            patch.object(provider, "_retrieve_chunks", return_value=(chunks, [100])),
             patch.object(provider, "_fit_to_budget", return_value=chunks),
         ):
             messages, metadata = await provider.augment(conversation, "new question")
@@ -562,12 +595,12 @@ class TestLitkitProviderAugment:
 
         fit_called_with: list[tuple[Any, ...]] = []
 
-        def mock_fit(chunks: list[Any], available: int) -> list[Any]:
-            fit_called_with.append((chunks, available))
-            return chunks
+        def mock_fit(chunks_arg: list[Any], available: int) -> list[Any]:
+            fit_called_with.append((chunks_arg, available))
+            return chunks_arg
 
         with (
-            patch.object(provider, "_retrieve_chunks", return_value=chunks),
+            patch.object(provider, "_retrieve_chunks", return_value=(chunks, [100])),
             patch.object(provider, "_fit_to_budget", side_effect=mock_fit),
         ):
             await provider.augment(conversation, "question")
@@ -628,24 +661,28 @@ class TestLitkitProviderRewriter:
             return_value=AssistantMessage(content="What are the side effects of HIV treatments?")
         )
 
-        with patch.object(provider, "_retrieve_chunks", return_value=[]) as mock_retrieve:
+        with patch.object(provider, "_retrieve_chunks", return_value=([], [])) as mock_retrieve:
             await provider.augment(conversation, "What about side effects?", client=client)
 
             # Rewriter should have been called (client.chat was called)
             client.chat.assert_called_once()
-            # Retrieval should use rewritten query
-            mock_retrieve.assert_called_once_with("What are the side effects of HIV treatments?")
+            # Retrieval should use rewritten query (with None for reuse_paper_ids)
+            mock_retrieve.assert_called_once()
+            call_args = mock_retrieve.call_args
+            assert call_args[0][0] == "What are the side effects of HIV treatments?"
 
     @pytest.mark.asyncio
     async def test_augment_skips_rewrite_without_client(
         self, provider: Any, conversation: Conversation
     ) -> None:
         """augment() skips rewriting when no client provided."""
-        with patch.object(provider, "_retrieve_chunks", return_value=[]) as mock_retrieve:
+        with patch.object(provider, "_retrieve_chunks", return_value=([], [])) as mock_retrieve:
             await provider.augment(conversation, "What about side effects?")
 
             # Retrieval should use original query (no rewriting)
-            mock_retrieve.assert_called_once_with("What about side effects?")
+            mock_retrieve.assert_called_once()
+            call_args = mock_retrieve.call_args
+            assert call_args[0][0] == "What about side effects?"
 
     @pytest.mark.asyncio
     async def test_augment_skips_rewrite_for_long_query(
@@ -657,13 +694,15 @@ class TestLitkitProviderRewriter:
 
         long_query = "x" * 900  # > 800 chars threshold
 
-        with patch.object(provider, "_retrieve_chunks", return_value=[]) as mock_retrieve:
+        with patch.object(provider, "_retrieve_chunks", return_value=([], [])) as mock_retrieve:
             await provider.augment(conversation, long_query, client=client)
 
             # Rewriter should NOT have been called
             client.chat.assert_not_called()
             # Retrieval should use original query
-            mock_retrieve.assert_called_once_with(long_query)
+            mock_retrieve.assert_called_once()
+            call_args = mock_retrieve.call_args
+            assert call_args[0][0] == long_query
 
     @pytest.mark.asyncio
     async def test_augment_skips_rewrite_when_disabled(
@@ -674,14 +713,16 @@ class TestLitkitProviderRewriter:
         client.chat = AsyncMock()
 
         with patch.object(
-            provider_rewrite_disabled, "_retrieve_chunks", return_value=[]
+            provider_rewrite_disabled, "_retrieve_chunks", return_value=([], [])
         ) as mock_retrieve:
             await provider_rewrite_disabled.augment(conversation, "What about it?", client=client)
 
             # Rewriter should NOT have been called
             client.chat.assert_not_called()
             # Retrieval should use original query
-            mock_retrieve.assert_called_once_with("What about it?")
+            mock_retrieve.assert_called_once()
+            call_args = mock_retrieve.call_args
+            assert call_args[0][0] == "What about it?"
 
     @pytest.mark.asyncio
     async def test_augment_falls_back_on_rewrite_error(
@@ -694,13 +735,15 @@ class TestLitkitProviderRewriter:
         client = MagicMock(spec=OpenAIClient)
         client.chat = AsyncMock(side_effect=Exception("LLM error"))
 
-        with patch.object(provider, "_retrieve_chunks", return_value=[]) as mock_retrieve:
+        with patch.object(provider, "_retrieve_chunks", return_value=([], [])) as mock_retrieve:
             await provider.augment(conversation, "What about it?", client=client)
 
             # Rewriter was called but failed
             client.chat.assert_called_once()
             # Retrieval should use original query (fallback)
-            mock_retrieve.assert_called_once_with("What about it?")
+            mock_retrieve.assert_called_once()
+            call_args = mock_retrieve.call_args
+            assert call_args[0][0] == "What about it?"
 
     def test_init_with_rewrite_enabled(self, tmp_path: Path) -> None:
         """LitkitProvider accepts rewrite_enabled parameter."""
@@ -717,6 +760,482 @@ class TestLitkitProviderRewriter:
 
             provider_disabled = LitkitProvider(workspace=tmp_path, rewrite_enabled=False)
             assert provider_disabled._rewriter.enabled is False
+
+
+class TestLitkitProviderReranking:
+    """Tests for LitkitProvider LLM reranking functionality."""
+
+    @pytest.fixture
+    def provider(self, tmp_path: Path) -> Any:
+        """Create a LitkitProvider for testing."""
+        (tmp_path / "indices").mkdir()
+        (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "sqlite").mkdir()
+        (tmp_path / "sqlite" / "litkit.sqlite3").touch()
+
+        with patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"):
+            from chatty.rag.litkit_provider import LitkitProvider
+
+            return LitkitProvider(workspace=tmp_path, rerank=True, rerank_top_n=5)
+
+    @pytest.fixture
+    def provider_rerank_disabled(self, tmp_path: Path) -> Any:
+        """Create a LitkitProvider with reranking disabled."""
+        (tmp_path / "indices").mkdir()
+        (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "sqlite").mkdir()
+        (tmp_path / "sqlite" / "litkit.sqlite3").touch()
+
+        with patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"):
+            from chatty.rag.litkit_provider import LitkitProvider
+
+            return LitkitProvider(workspace=tmp_path, rerank=False)
+
+    def test_parse_rerank_scores_valid_json(self, provider: Any) -> None:
+        """_parse_rerank_scores parses valid JSON array."""
+        scores = provider._parse_rerank_scores("[5, 4, 3, 2, 1]", 5)
+        assert scores == [5, 4, 3, 2, 1]
+
+    def test_parse_rerank_scores_with_whitespace(self, provider: Any) -> None:
+        """_parse_rerank_scores handles whitespace in response."""
+        scores = provider._parse_rerank_scores("  [5, 4, 3]  \n", 3)
+        assert scores == [5, 4, 3]
+
+    def test_parse_rerank_scores_with_markdown_fence(self, provider: Any) -> None:
+        """_parse_rerank_scores strips markdown code fences."""
+        response = "```json\n[5, 4, 3]\n```"
+        scores = provider._parse_rerank_scores(response, 3)
+        assert scores == [5, 4, 3]
+
+    def test_parse_rerank_scores_clamps_values(self, provider: Any) -> None:
+        """_parse_rerank_scores clamps scores to 1-5 range."""
+        scores = provider._parse_rerank_scores("[10, 0, -5, 3]", 4)
+        assert scores == [5, 1, 1, 3]  # 10->5, 0->1, -5->1
+
+    def test_parse_rerank_scores_fills_missing(self, provider: Any) -> None:
+        """_parse_rerank_scores fills missing scores with default (3)."""
+        scores = provider._parse_rerank_scores("[5, 4]", 5)
+        assert scores == [5, 4, 3, 3, 3]
+
+    def test_parse_rerank_scores_handles_invalid_entries(self, provider: Any) -> None:
+        """_parse_rerank_scores replaces invalid entries with default."""
+        scores = provider._parse_rerank_scores('[5, "bad", null, 2]', 4)
+        assert scores == [5, 3, 3, 2]
+
+    def test_parse_rerank_scores_invalid_json_raises(self, provider: Any) -> None:
+        """_parse_rerank_scores raises ValueError for invalid JSON."""
+        with pytest.raises(ValueError, match="Invalid JSON"):
+            provider._parse_rerank_scores("not json", 3)
+
+    def test_parse_rerank_scores_non_array_raises(self, provider: Any) -> None:
+        """_parse_rerank_scores raises ValueError for non-array JSON."""
+        with pytest.raises(ValueError, match="Expected JSON array"):
+            provider._parse_rerank_scores('{"scores": [1,2,3]}', 3)
+
+    @pytest.mark.asyncio
+    async def test_rerank_chunks_empty_list(self, provider: Any) -> None:
+        """_rerank_chunks returns empty list for empty input."""
+        client = MagicMock()
+        result = await provider._rerank_chunks("query", [], client, top_n=5)
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_rerank_chunks_fewer_than_top_n(self, provider: Any) -> None:
+        """_rerank_chunks returns all chunks if fewer than top_n."""
+        from chatty.rag.litkit_provider import RetrievedChunk
+
+        chunks = [
+            RetrievedChunk(chunk_id=1, text="Chunk 1", paper_title="Paper", score=0.5),
+            RetrievedChunk(chunk_id=2, text="Chunk 2", paper_title="Paper", score=0.4),
+        ]
+        client = MagicMock()
+        # Should not call client.chat since chunks < top_n
+        result = await provider._rerank_chunks("query", chunks, client, top_n=5)
+        assert len(result) == 2
+        client.chat.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_rerank_chunks_sorts_by_score(self, provider: Any) -> None:
+        """_rerank_chunks sorts chunks by LLM-assigned scores."""
+        from chatty.client.openai_client import AssistantMessage, OpenAIClient
+        from chatty.rag.litkit_provider import RetrievedChunk
+
+        chunks = [
+            RetrievedChunk(chunk_id=1, text="Chunk 1", paper_title="P1", score=0.9),
+            RetrievedChunk(chunk_id=2, text="Chunk 2", paper_title="P2", score=0.8),
+            RetrievedChunk(chunk_id=3, text="Chunk 3", paper_title="P3", score=0.7),
+            RetrievedChunk(chunk_id=4, text="Chunk 4", paper_title="P4", score=0.6),
+            RetrievedChunk(chunk_id=5, text="Chunk 5", paper_title="P5", score=0.5),
+            RetrievedChunk(chunk_id=6, text="Chunk 6", paper_title="P6", score=0.4),
+        ]
+
+        # LLM scores: chunk 3 is best (5), chunk 1 is worst (1)
+        client = MagicMock(spec=OpenAIClient)
+        client.chat = AsyncMock(return_value=AssistantMessage(content="[1, 2, 5, 3, 4, 2]"))
+
+        result = await provider._rerank_chunks("query", chunks, client, top_n=3)
+
+        # Should return top 3 by LLM score: chunk 3 (5), chunk 5 (4), chunk 4 (3)
+        assert len(result) == 3
+        assert result[0].chunk_id == 3  # Score 5
+        assert result[1].chunk_id == 5  # Score 4
+        assert result[2].chunk_id == 4  # Score 3
+
+    @pytest.mark.asyncio
+    async def test_rerank_chunks_fallback_on_error(self, provider: Any) -> None:
+        """_rerank_chunks falls back to original order on LLM error."""
+        from chatty.client.openai_client import OpenAIClient
+        from chatty.rag.litkit_provider import RetrievedChunk
+
+        chunks = [
+            RetrievedChunk(chunk_id=1, text="Chunk 1", paper_title="P1", score=0.9),
+            RetrievedChunk(chunk_id=2, text="Chunk 2", paper_title="P2", score=0.8),
+            RetrievedChunk(chunk_id=3, text="Chunk 3", paper_title="P3", score=0.7),
+            RetrievedChunk(chunk_id=4, text="Chunk 4", paper_title="P4", score=0.6),
+        ]
+
+        client = MagicMock(spec=OpenAIClient)
+        client.chat = AsyncMock(side_effect=Exception("LLM error"))
+
+        result = await provider._rerank_chunks("query", chunks, client, top_n=2)
+
+        # Should return first 2 chunks (fallback to original order)
+        assert len(result) == 2
+        assert result[0].chunk_id == 1
+        assert result[1].chunk_id == 2
+
+    @pytest.mark.asyncio
+    async def test_rerank_chunks_fallback_on_parse_error(self, provider: Any) -> None:
+        """_rerank_chunks falls back on JSON parse error."""
+        from chatty.client.openai_client import AssistantMessage, OpenAIClient
+        from chatty.rag.litkit_provider import RetrievedChunk
+
+        chunks = [
+            RetrievedChunk(chunk_id=1, text="Chunk 1", paper_title="P1", score=0.9),
+            RetrievedChunk(chunk_id=2, text="Chunk 2", paper_title="P2", score=0.8),
+            RetrievedChunk(chunk_id=3, text="Chunk 3", paper_title="P3", score=0.7),
+        ]
+
+        client = MagicMock(spec=OpenAIClient)
+        client.chat = AsyncMock(return_value=AssistantMessage(content="invalid json response"))
+
+        result = await provider._rerank_chunks("query", chunks, client, top_n=2)
+
+        # Should return first 2 chunks (fallback)
+        assert len(result) == 2
+        assert result[0].chunk_id == 1
+        assert result[1].chunk_id == 2
+
+    def test_init_with_rerank_enabled(self, tmp_path: Path) -> None:
+        """LitkitProvider accepts rerank and rerank_top_n parameters."""
+        (tmp_path / "indices").mkdir()
+        (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "sqlite").mkdir()
+        (tmp_path / "sqlite" / "litkit.sqlite3").touch()
+
+        with patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"):
+            from chatty.rag.litkit_provider import LitkitProvider
+
+            provider = LitkitProvider(workspace=tmp_path, rerank=True, rerank_top_n=15)
+            assert provider._rerank is True
+            assert provider._rerank_top_n == 15
+
+            provider_disabled = LitkitProvider(workspace=tmp_path, rerank=False)
+            assert provider_disabled._rerank is False
+
+    @pytest.mark.asyncio
+    async def test_augment_applies_reranking_when_enabled(self, provider: Any) -> None:
+        """augment() calls _rerank_chunks when rerank=True and client provided."""
+        from chatty.client.openai_client import AssistantMessage, OpenAIClient
+        from chatty.rag.litkit_provider import RetrievedChunk
+
+        chunks = [
+            RetrievedChunk(chunk_id=i, text=f"C{i}", paper_title="P", score=0.9 - i * 0.1)
+            for i in range(10)
+        ]
+
+        conversation = Conversation(model="gpt-4")
+        conversation.add_system_message("System")
+
+        client = MagicMock(spec=OpenAIClient)
+        # Return scores for reranking
+        client.chat = AsyncMock(return_value=AssistantMessage(content="[5,4,3,2,1,5,4,3,2,1]"))
+
+        with (
+            patch.object(provider, "_retrieve_chunks", return_value=(chunks, [100])),
+            patch.object(provider, "_rerank_chunks", wraps=provider._rerank_chunks),
+        ):
+            await provider.augment(conversation, "test query", client=client)
+            # _rerank_chunks should have been called
+            provider._rerank_chunks.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_augment_skips_reranking_without_client(self, provider: Any) -> None:
+        """augment() skips reranking when no client provided."""
+        from chatty.rag.litkit_provider import RetrievedChunk
+
+        chunks = [
+            RetrievedChunk(chunk_id=i, text=f"C{i}", paper_title="P", score=0.9 - i * 0.1)
+            for i in range(10)
+        ]
+
+        conversation = Conversation(model="gpt-4")
+        conversation.add_system_message("System")
+
+        with (
+            patch.object(provider, "_retrieve_chunks", return_value=(chunks, [100])),
+            patch.object(provider, "_rerank_chunks") as mock_rerank,
+        ):
+            await provider.augment(conversation, "test query", client=None)
+            # _rerank_chunks should NOT have been called
+            mock_rerank.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_augment_skips_reranking_when_disabled(
+        self, provider_rerank_disabled: Any
+    ) -> None:
+        """augment() skips reranking when rerank=False."""
+        from chatty.client.openai_client import OpenAIClient
+        from chatty.rag.litkit_provider import RetrievedChunk
+
+        chunks = [
+            RetrievedChunk(chunk_id=i, text=f"C{i}", paper_title="P", score=0.9 - i * 0.1)
+            for i in range(10)
+        ]
+
+        conversation = Conversation(model="gpt-4")
+        conversation.add_system_message("System")
+
+        client = MagicMock(spec=OpenAIClient)
+
+        with (
+            patch.object(
+                provider_rerank_disabled, "_retrieve_chunks", return_value=(chunks, [100])
+            ),
+            patch.object(provider_rerank_disabled, "_rerank_chunks") as mock_rerank,
+        ):
+            await provider_rerank_disabled.augment(conversation, "test query", client=client)
+            # _rerank_chunks should NOT have been called
+            mock_rerank.assert_not_called()
+
+
+class TestLitkitProviderMultiQuery:
+    """Tests for LitkitProvider multi-query retrieval functionality."""
+
+    @pytest.fixture
+    def provider(self, tmp_path: Path) -> Any:
+        """Create a LitkitProvider with multi-query enabled."""
+        (tmp_path / "indices").mkdir()
+        (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "sqlite").mkdir()
+        (tmp_path / "sqlite" / "litkit.sqlite3").touch()
+
+        with patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"):
+            from chatty.rag.litkit_provider import LitkitProvider
+
+            return LitkitProvider(workspace=tmp_path, multi_query=True, multi_query_count=3)
+
+    @pytest.fixture
+    def provider_multi_disabled(self, tmp_path: Path) -> Any:
+        """Create a LitkitProvider with multi-query disabled."""
+        (tmp_path / "indices").mkdir()
+        (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "sqlite").mkdir()
+        (tmp_path / "sqlite" / "litkit.sqlite3").touch()
+
+        with patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"):
+            from chatty.rag.litkit_provider import LitkitProvider
+
+            return LitkitProvider(workspace=tmp_path, multi_query=False)
+
+    def test_init_with_multi_query_enabled(self, tmp_path: Path) -> None:
+        """LitkitProvider accepts multi_query and multi_query_count."""
+        (tmp_path / "indices").mkdir()
+        (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "sqlite").mkdir()
+        (tmp_path / "sqlite" / "litkit.sqlite3").touch()
+
+        with patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"):
+            from chatty.rag.litkit_provider import LitkitProvider
+
+            provider = LitkitProvider(workspace=tmp_path, multi_query=True, multi_query_count=5)
+            assert provider._multi_query is True
+            assert provider._multi_query_count == 5
+
+    def test_deduplicate_by_chunk_id(self, provider: Any) -> None:
+        """_deduplicate_by_chunk_id removes duplicates by chunk_id."""
+        from chatty.rag.litkit_provider import RetrievedChunk
+
+        chunks = [
+            RetrievedChunk(chunk_id=1, text="C1", paper_title="P1", score=0.9),
+            RetrievedChunk(chunk_id=2, text="C2", paper_title="P2", score=0.8),
+            RetrievedChunk(chunk_id=1, text="C1 dup", paper_title="P1", score=0.7),
+            RetrievedChunk(chunk_id=3, text="C3", paper_title="P3", score=0.6),
+        ]
+
+        result = provider._deduplicate_by_chunk_id(chunks)
+
+        assert len(result) == 3
+        chunk_ids = [c.chunk_id for c in result]
+        assert 1 in chunk_ids
+        assert 2 in chunk_ids
+        assert 3 in chunk_ids
+
+    def test_deduplicate_keeps_highest_score(self, provider: Any) -> None:
+        """_deduplicate_by_chunk_id keeps highest score per chunk_id."""
+        from chatty.rag.litkit_provider import RetrievedChunk
+
+        chunks = [
+            RetrievedChunk(chunk_id=1, text="C1 low", paper_title="P1", score=0.5),
+            RetrievedChunk(chunk_id=1, text="C1 high", paper_title="P1", score=0.9),
+            RetrievedChunk(chunk_id=1, text="C1 mid", paper_title="P1", score=0.7),
+        ]
+
+        result = provider._deduplicate_by_chunk_id(chunks)
+
+        assert len(result) == 1
+        assert result[0].score == 0.9
+
+    @pytest.mark.asyncio
+    async def test_multi_query_retrieve_generates_variants(self, provider: Any) -> None:
+        """_multi_query_retrieve generates variants and retrieves for each."""
+        from chatty.client.openai_client import AssistantMessage, OpenAIClient
+        from chatty.rag.litkit_provider import RetrievedChunk
+
+        conversation = Conversation(model="gpt-4")
+        conversation.add_system_message("System")
+
+        # Mock variant generation
+        client = MagicMock(spec=OpenAIClient)
+        client.chat = AsyncMock(return_value=AssistantMessage(content='["variant 1", "variant 2"]'))
+
+        chunks = [
+            RetrievedChunk(chunk_id=i, text=f"C{i}", paper_title="P", score=0.5) for i in range(3)
+        ]
+
+        retrieve_calls: list[str] = []
+
+        def mock_retrieve(query: str, _reuse_ids: Any = None) -> tuple[Any, list[int]]:
+            retrieve_calls.append(query)
+            return chunks, [100]
+
+        with patch.object(provider, "_retrieve_chunks", side_effect=mock_retrieve):
+            result_chunks, result_ids = await provider._multi_query_retrieve(
+                "original query", conversation, client
+            )
+
+            # Should have called retrieve for original + variants
+            assert len(retrieve_calls) >= 2
+            assert "original query" in retrieve_calls
+
+    @pytest.mark.asyncio
+    async def test_multi_query_retrieve_deduplicates(self, provider: Any) -> None:
+        """_multi_query_retrieve deduplicates chunks across variants."""
+        from chatty.client.openai_client import AssistantMessage, OpenAIClient
+        from chatty.rag.litkit_provider import RetrievedChunk
+
+        conversation = Conversation(model="gpt-4")
+        conversation.add_system_message("System")
+
+        client = MagicMock(spec=OpenAIClient)
+        client.chat = AsyncMock(return_value=AssistantMessage(content='["variant 1"]'))
+
+        call_count = [0]
+
+        def mock_retrieve(_query: str, _reuse_ids: Any = None) -> tuple[Any, list[int]]:
+            call_count[0] += 1
+            # Return overlapping chunks
+            return [
+                RetrievedChunk(chunk_id=1, text="C1", paper_title="P", score=0.9),
+                RetrievedChunk(chunk_id=2, text="C2", paper_title="P", score=0.8),
+            ], [100]
+
+        with patch.object(provider, "_retrieve_chunks", side_effect=mock_retrieve):
+            result_chunks, _ = await provider._multi_query_retrieve("query", conversation, client)
+
+            # Should be deduplicated (only 2 unique chunk_ids)
+            assert len(result_chunks) == 2
+
+    @pytest.mark.asyncio
+    async def test_multi_query_retrieve_fallback_on_error(self, provider: Any) -> None:
+        """_multi_query_retrieve falls back on error."""
+        from chatty.client.openai_client import OpenAIClient
+        from chatty.rag.litkit_provider import RetrievedChunk
+
+        conversation = Conversation(model="gpt-4")
+        conversation.add_system_message("System")
+
+        client = MagicMock(spec=OpenAIClient)
+        client.chat = AsyncMock(side_effect=Exception("LLM error"))
+
+        chunks = [RetrievedChunk(chunk_id=1, text="C1", paper_title="P", score=0.9)]
+
+        with patch.object(provider, "_retrieve_chunks", return_value=(chunks, [100])):
+            result_chunks, _ = await provider._multi_query_retrieve("query", conversation, client)
+
+            # Should fall back to single-query result
+            assert len(result_chunks) == 1
+
+    @pytest.mark.asyncio
+    async def test_augment_uses_multi_query_when_enabled(self, provider: Any) -> None:
+        """augment() uses _multi_query_retrieve when enabled and client provided."""
+        from chatty.client.openai_client import AssistantMessage, OpenAIClient
+        from chatty.rag.litkit_provider import RetrievedChunk
+
+        conversation = Conversation(model="gpt-4")
+        conversation.add_system_message("System")
+
+        client = MagicMock(spec=OpenAIClient)
+        client.chat = AsyncMock(return_value=AssistantMessage(content='["variant"]'))
+
+        chunks = [RetrievedChunk(chunk_id=1, text="C1", paper_title="P", score=0.9)]
+
+        with (
+            patch.object(
+                provider, "_multi_query_retrieve", return_value=(chunks, [100])
+            ) as mock_multi,
+            patch.object(provider, "_retrieve_chunks"),
+        ):
+            await provider.augment(conversation, "test query", client=client)
+            mock_multi.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_augment_skips_multi_query_without_client(self, provider: Any) -> None:
+        """augment() skips multi-query when no client provided."""
+        from chatty.rag.litkit_provider import RetrievedChunk
+
+        conversation = Conversation(model="gpt-4")
+        conversation.add_system_message("System")
+
+        chunks = [RetrievedChunk(chunk_id=1, text="C1", paper_title="P", score=0.9)]
+
+        with (
+            patch.object(provider, "_multi_query_retrieve") as mock_multi,
+            patch.object(provider, "_retrieve_chunks", return_value=(chunks, [100])),
+        ):
+            await provider.augment(conversation, "test query", client=None)
+            mock_multi.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_augment_skips_multi_query_when_disabled(
+        self, provider_multi_disabled: Any
+    ) -> None:
+        """augment() skips multi-query when multi_query=False."""
+        from chatty.client.openai_client import OpenAIClient
+        from chatty.rag.litkit_provider import RetrievedChunk
+
+        conversation = Conversation(model="gpt-4")
+        conversation.add_system_message("System")
+
+        client = MagicMock(spec=OpenAIClient)
+        chunks = [RetrievedChunk(chunk_id=1, text="C1", paper_title="P", score=0.9)]
+
+        with (
+            patch.object(provider_multi_disabled, "_multi_query_retrieve") as mock_multi,
+            patch.object(provider_multi_disabled, "_retrieve_chunks", return_value=(chunks, [100])),
+        ):
+            await provider_multi_disabled.augment(conversation, "test query", client=client)
+            mock_multi.assert_not_called()
 
 
 class TestLitkitErrorClasses:

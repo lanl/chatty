@@ -131,8 +131,12 @@ class Config(BaseSettings):
     # Network / TLS
     ca_bundle: str | None = None
     verify_tls: bool = True
+    # Explicit proxy override (CHATTY_HTTP_PROXY or http_proxy in TOML only)
+    # NOTE: HTTPS_PROXY/HTTP_PROXY/NO_PROXY are handled by httpx via trust_env.
+    # Only use this field for explicit overrides that should bypass NO_PROXY.
+    # No validation_alias - only reads from CHATTY_HTTP_PROXY (via env_prefix)
+    # and http_proxy in TOML (direct field name).
     http_proxy: str | None = None
-    no_proxy: str = "localhost,127.0.0.1"
 
     # Context Window
     # "auto" = fetch from /models endpoint
@@ -197,7 +201,16 @@ class Config(BaseSettings):
     )
     rag_top_papers: int = 500  # Stage 1: papers to shortlist
     rag_top_chunks: int = 30  # Stage 2: chunks for LLM context
-    rag_rewrite_enabled: bool = True  # v0.4.2: LLM-based query rewriting for multi-turn RAG
+    # v0.4.2: LLM-based query rewriting for multi-turn RAG
+    rag_rewrite_enabled: bool = True
+    # v0.4.5: Expand queries with domain synonyms for improved recall
+    rag_expand_synonyms: bool = True
+    # v0.4.5: LLM reranking for improved precision (opt-in, adds latency)
+    rag_rerank: bool = False
+    rag_rerank_top_n: int = 10  # Chunks to keep after reranking
+    # v0.4.5: Multi-query retrieval for improved recall (opt-in, adds latency)
+    rag_multi_query: bool = False
+    rag_multi_query_count: int = 3  # Number of query variants to generate
 
     @field_validator("rag_top_papers")
     @classmethod
@@ -337,7 +350,6 @@ _CONFIG_FIELDS = [
     "ca_bundle",
     "verify_tls",
     "http_proxy",
-    "no_proxy",
     "context_window",
     "temperature",
     "stream",
@@ -351,6 +363,11 @@ _CONFIG_FIELDS = [
     "rag_top_papers",
     "rag_top_chunks",
     "rag_rewrite_enabled",
+    "rag_expand_synonyms",
+    "rag_rerank",
+    "rag_rerank_top_n",
+    "rag_multi_query",
+    "rag_multi_query_count",
     "session_path",
     "copy_fallback_path",
     "export_path",
@@ -364,8 +381,7 @@ _ENV_MAPPINGS = {
     "model": ["CHATTY_MODEL"],
     "ca_bundle": ["CHATTY_CA_BUNDLE"],
     "verify_tls": ["CHATTY_VERIFY_TLS"],
-    "http_proxy": ["HTTPS_PROXY", "CHATTY_HTTP_PROXY"],
-    "no_proxy": ["NO_PROXY", "CHATTY_NO_PROXY"],
+    "http_proxy": ["CHATTY_HTTP_PROXY"],
     "context_window": ["CHATTY_CONTEXT_WINDOW"],
     "temperature": ["CHATTY_TEMPERATURE"],
     "stream": ["CHATTY_STREAM"],
@@ -379,6 +395,11 @@ _ENV_MAPPINGS = {
     "rag_top_papers": ["CHATTY_RAG_TOP_PAPERS"],
     "rag_top_chunks": ["CHATTY_RAG_TOP_CHUNKS"],
     "rag_rewrite_enabled": ["CHATTY_RAG_REWRITE_ENABLED"],
+    "rag_expand_synonyms": ["CHATTY_RAG_EXPAND_SYNONYMS"],
+    "rag_rerank": ["CHATTY_RAG_RERANK"],
+    "rag_rerank_top_n": ["CHATTY_RAG_RERANK_TOP_N"],
+    "rag_multi_query": ["CHATTY_RAG_MULTI_QUERY"],
+    "rag_multi_query_count": ["CHATTY_RAG_MULTI_QUERY_COUNT"],
     "session_path": ["CHATTY_SESSION_PATH"],
     "copy_fallback_path": ["CHATTY_COPY_FALLBACK_PATH"],
     "export_path": ["CHATTY_EXPORT_PATH"],
@@ -479,7 +500,6 @@ def format_config_with_sources(config_with_sources: ConfigWithSources) -> str:
         "ca_bundle": config.ca_bundle or "system",
         "verify_tls": str(config.verify_tls),
         "http_proxy": config.http_proxy or "(not set)",
-        "no_proxy": config.no_proxy,
         "context_window": str(config.context_window),
         "temperature": str(config.temperature),
         "stream": str(config.stream),
@@ -504,5 +524,18 @@ def format_config_with_sources(config_with_sources: ConfigWithSources) -> str:
     for key, value in display_values.items():
         source = sources.get(key, "unknown")
         lines.append(f"  {key}: {value} (from: {source})")
+
+    # Show environment proxy variables (handled by httpx via trust_env)
+    # These are not in chatty's config but affect HTTP client behavior
+    https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+    http_proxy_env = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
+    no_proxy = os.environ.get("NO_PROXY") or os.environ.get("no_proxy")
+
+    if https_proxy or http_proxy_env or no_proxy:
+        lines.append("")
+        lines.append("Environment proxy settings (used by httpx):")
+        lines.append(f"  HTTPS_PROXY: {https_proxy or '(not set)'}")
+        lines.append(f"  HTTP_PROXY: {http_proxy_env or '(not set)'}")
+        lines.append(f"  NO_PROXY: {no_proxy or '(not set)'}")
 
     return "\n".join(lines)

@@ -927,6 +927,125 @@ class TestFirstSaveFlow:
             assert len(sessions) == 0
 
 
+class TestRAGPromptPersistence:
+    """Tests for RAG prompt persistence across session operations.
+
+    These tests verify that RAG-enabled sessions maintain the correct
+    system prompt after action_new_session() and compression operations.
+    """
+
+    async def test_new_session_preserves_rag_prompt(self, tmp_path: Path) -> None:
+        """action_new_session uses get_effective_system_prompt for RAG sessions."""
+
+        # Create RAG-enabled config
+        config = Config(
+            base_url="http://test.local/v1",
+            api_key=SecretStr("test-key"),
+            model="test-model",
+            rag_provider="litkit",  # RAG enabled
+            session_path=str(tmp_path / "sessions"),
+            export_path=str(tmp_path / "exports"),
+            copy_fallback_path=str(tmp_path / "copies"),
+            transcript_enabled=False,
+        )
+        config_with_sources = ConfigWithSources(config=config, sources={})
+
+        app = ChatApp(config_with_sources=config_with_sources)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.conversation is not None
+
+            # Initial system prompt should be RAG prompt
+            initial_messages = [m for m in app.conversation.messages if m.role == "system"]
+            assert len(initial_messages) > 0
+            assert "cite" in initial_messages[0].content.lower()
+
+            # Add some conversation
+            app.conversation.add_user_message("Test question")
+            app.conversation.add_assistant_message("Test answer")
+
+            # New session - should preserve RAG prompt
+            app.action_new_session()
+            await pilot.pause()
+
+            # Verify RAG system prompt is still present
+            new_messages = [m for m in app.conversation.messages if m.role == "system"]
+            assert len(new_messages) > 0
+            # Should contain citation instructions (key part of RAG prompt)
+            system_content = new_messages[0].content.lower()
+            assert "cite" in system_content or "context" in system_content
+
+    async def test_compression_preserves_rag_prompt(self, tmp_path: Path) -> None:
+        """_handle_compression_choice uses get_effective_system_prompt for RAG sessions."""
+
+        # Create RAG-enabled config
+        config = Config(
+            base_url="http://test.local/v1",
+            api_key=SecretStr("test-key"),
+            model="test-model",
+            rag_provider="litkit",  # RAG enabled
+            session_path=str(tmp_path / "sessions"),
+            export_path=str(tmp_path / "exports"),
+            copy_fallback_path=str(tmp_path / "copies"),
+            transcript_enabled=False,
+        )
+        config_with_sources = ConfigWithSources(config=config, sources={})
+
+        app = ChatApp(config_with_sources=config_with_sources)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.conversation is not None
+
+            # Directly call _handle_compression_choice with apply=True
+            # This simulates user accepting compression with a summary
+            app._pending_summary = "Summary of the conversation"
+            app._handle_compression_choice(True)
+            await pilot.pause()
+
+            # Verify RAG system prompt is still present after compression
+            system_messages = [m for m in app.conversation.messages if m.role == "system"]
+            # Should have at least one system message with RAG prompt
+            assert len(system_messages) > 0
+            # First system message should be effective prompt (RAG)
+            first_system = system_messages[0].content.lower()
+            assert "cite" in first_system or "context" in first_system
+
+    async def test_non_rag_session_uses_default_prompt(self, tmp_path: Path) -> None:
+        """Non-RAG sessions use default system prompt after new session."""
+        # Create non-RAG config
+        config = Config(
+            base_url="http://test.local/v1",
+            api_key=SecretStr("test-key"),
+            model="test-model",
+            rag_provider="none",  # RAG disabled
+            session_path=str(tmp_path / "sessions"),
+            export_path=str(tmp_path / "exports"),
+            copy_fallback_path=str(tmp_path / "copies"),
+            transcript_enabled=False,
+        )
+        config_with_sources = ConfigWithSources(config=config, sources={})
+
+        app = ChatApp(config_with_sources=config_with_sources)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.conversation is not None
+
+            # Add conversation
+            app.conversation.add_user_message("Hello")
+            app.conversation.add_assistant_message("Hi")
+
+            # New session
+            app.action_new_session()
+            await pilot.pause()
+
+            # Should have default prompt, not RAG prompt
+            system_messages = [m for m in app.conversation.messages if m.role == "system"]
+            if system_messages:
+                # Should be default "helpful assistant", not RAG citation prompt
+                content = system_messages[0].content.lower()
+                assert "precise scientific" not in content
+
+
 class TestConversationState:
     """Tests for conversation state management."""
 

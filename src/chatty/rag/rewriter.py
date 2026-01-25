@@ -94,6 +94,7 @@ NEW_TOPIC_PATTERNS = [
 ]
 
 # Rewrite prompt template - improved for better domain term handling
+# Used when expand_synonyms is False (legacy behavior)
 REWRITE_PROMPT = """You are a query rewriter for a scientific literature search.
 
 Your task: Rewrite the follow-up question as a standalone query
@@ -122,6 +123,77 @@ Follow-up question: "{query}"
 Output ONLY the rewritten standalone query, no explanation:"""
 
 
+# Multi-query variant generation prompt (v0.4.5+)
+# Generates N diverse query variants for improved recall
+MULTI_QUERY_PROMPT = """\
+Generate {count} diverse search query variants for a scientific literature search.
+
+Your task: Create {count} different ways to search for the same information,
+each emphasizing different aspects, synonyms, or phrasings.
+
+RULES:
+1. Each variant should capture the same intent but use different terms
+2. Include domain synonyms and related concepts
+3. Vary the query structure (e.g., noun-focused vs verb-focused)
+4. Keep each variant under 50 words
+5. Output ONLY a JSON array of query strings, no explanation
+
+Example for "HIV treatment side effects":
+["HIV antiretroviral therapy adverse events toxicity",
+ "AIDS medication side effects complications",
+ "human immunodeficiency virus drug treatment safety profile"]
+
+Conversation context:
+{conversation_summary}
+
+Original query: "{query}"
+
+Output ONLY a JSON array of {count} query variants:"""
+
+
+# Rewrite prompt with synonym expansion for improved retrieval recall
+# Used when expand_synonyms is True (default in v0.4.5+)
+REWRITE_PROMPT_WITH_EXPANSION = """\
+You are a query rewriter for a scientific literature search.
+
+Your task: Rewrite the follow-up question as a standalone query
+suitable for semantic search in a biomedical/scientific database.
+EXPAND the query with synonyms and related terms to improve retrieval.
+
+CRITICAL RULES:
+1. EXPAND common acronyms with their full forms:
+   - "HIV" -> "HIV human immunodeficiency virus"
+   - "AIDS" -> "AIDS acquired immunodeficiency syndrome"
+   - "mRNA" -> "mRNA messenger RNA"
+   - "FDC" -> "FDC follicular dendritic cells" (if context confirms)
+2. ADD domain synonyms for key medical/scientific terms:
+   - "treatments" -> "treatments therapies medications drugs"
+   - "side effects" -> "side effects adverse events toxicity"
+   - "efficacy" -> "efficacy effectiveness therapeutic effect"
+   - "patients" -> "patients subjects individuals"
+3. KEEP the expanded query under 200 words
+4. DO NOT invent constraints that weren't mentioned:
+   - NO date restrictions unless user specified them
+   - NO author names unless user mentioned them
+   - NO exclusions unless user asked to exclude something
+5. Incorporate context from the conversation to make the query standalone
+
+Example transformations:
+- "HIV treatments" -> "HIV human immunodeficiency virus treatments
+  therapies antiretroviral medications ART"
+- "What are the side effects?" -> "side effects adverse events
+  toxicity of [topic from context]"
+- "mRNA vaccine efficacy" -> "mRNA messenger RNA vaccine efficacy
+  effectiveness immunogenicity"
+
+Conversation context:
+{conversation_summary}
+
+Follow-up question: "{query}"
+
+Output ONLY the expanded standalone query, no explanation:"""
+
+
 class QueryRewriter:
     """LLM-based query rewriter for multi-turn RAG.
 
@@ -131,15 +203,23 @@ class QueryRewriter:
 
     Attributes:
         enabled: Whether rewriting is enabled.
+        expand_synonyms: Whether to expand queries with domain synonyms.
     """
 
-    def __init__(self, enabled: bool = True) -> None:
+    def __init__(
+        self,
+        enabled: bool = True,
+        expand_synonyms: bool = True,
+    ) -> None:
         """Initialize the rewriter.
 
         Args:
             enabled: Whether to enable query rewriting.
+            expand_synonyms: Whether to expand queries with domain synonyms
+                for improved retrieval recall. Default True (v0.4.5+).
         """
         self.enabled = enabled
+        self.expand_synonyms = expand_synonyms
         self._compiled_patterns = [re.compile(p, re.IGNORECASE) for p in FOLLOWUP_PATTERNS]
         self._compiled_reference = [re.compile(p, re.IGNORECASE) for p in REFERENCE_PATTERNS]
         self._compiled_new_topic = [re.compile(p, re.IGNORECASE) for p in NEW_TOPIC_PATTERNS]
@@ -286,8 +366,11 @@ class QueryRewriter:
             # Build conversation summary (last 2-3 exchanges)
             summary = self._build_conversation_summary(conversation)
 
-            # Build prompt
-            prompt = REWRITE_PROMPT.format(
+            # Select prompt based on expand_synonyms setting
+            prompt_template = (
+                REWRITE_PROMPT_WITH_EXPANSION if self.expand_synonyms else REWRITE_PROMPT
+            )
+            prompt = prompt_template.format(
                 conversation_summary=summary,
                 query=query,
             )
@@ -369,7 +452,121 @@ class QueryRewriter:
         for msg in recent:
             role = msg.role.capitalize()
             # Truncate long messages
-            content = msg.content[:500] + "..." if len(msg.content) > 500 else msg.content
+            content = msg.content
+            if len(content) > 500:
+                content = content[:500] + "..."
             lines.append(f"{role}: {content}")
 
         return "\n".join(lines)
+
+    async def generate_query_variants(
+        self,
+        query: str,
+        conversation: Conversation,
+        client: OpenAIClient,
+        count: int = 3,
+    ) -> list[str]:
+        """Generate multiple query variants for multi-query retrieval.
+
+        Creates diverse search queries capturing the same intent with
+        different terms, synonyms, and phrasings. This improves recall
+        by retrieving documents that match any variant.
+
+        Args:
+            query: The original query to generate variants for.
+            conversation: Conversation history for context.
+            client: OpenAI client for LLM call.
+            count: Number of variants to generate (default: 3).
+
+        Returns:
+            List of query variants. Falls back to [query] on error.
+        """
+
+        from chatty.client.openai_client import AssistantMessage, Message
+
+        try:
+            # Build conversation summary for context
+            summary = self._build_conversation_summary(conversation)
+
+            prompt = MULTI_QUERY_PROMPT.format(
+                count=count,
+                conversation_summary=summary,
+                query=query,
+            )
+
+            # Make non-streaming LLM call
+            messages = [Message(role="user", content=prompt)]
+            response = await client.chat(messages, stream=False)
+
+            if not isinstance(response, AssistantMessage):
+                logger.debug("Unexpected response type for variants")
+                return [query]
+
+            # Parse JSON array from response
+            variants = self._parse_query_variants(response.content, count)
+
+            if variants:
+                logger.debug(
+                    "Generated %d variants for: %.50s",
+                    len(variants),
+                    query[:50],
+                )
+                return variants
+
+            logger.debug("No valid variants parsed, using original")
+            return [query]
+
+        except Exception:
+            logger.debug(
+                "Variant generation failed, using original",
+                exc_info=True,
+            )
+            return [query]
+
+    def _parse_query_variants(
+        self,
+        response: str,
+        expected_count: int,
+    ) -> list[str]:
+        """Parse LLM response into list of query variants.
+
+        Expects JSON array format: ["variant 1", "variant 2", ...]
+
+        Args:
+            response: LLM response text (should be JSON array).
+            expected_count: Expected number of variants.
+
+        Returns:
+            List of query strings. Empty list if parsing fails.
+        """
+        import json
+
+        # Clean response - remove markdown code blocks if present
+        cleaned = response.strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.split("\n")
+            content_lines = []
+            in_fence = False
+            for line in lines:
+                if line.startswith("```"):
+                    in_fence = not in_fence
+                    continue
+                if in_fence or not line.startswith("```"):
+                    content_lines.append(line)
+            cleaned = "\n".join(content_lines).strip()
+
+        try:
+            variants = json.loads(cleaned)
+        except json.JSONDecodeError:
+            logger.debug("Failed to parse variants JSON: %.100s", cleaned)
+            return []
+
+        if not isinstance(variants, list):
+            logger.debug("Variants response is not a list")
+            return []
+
+        # Filter to valid non-empty strings
+        valid_variants = [str(v).strip() for v in variants if isinstance(v, str) and v.strip()]
+
+        # Limit to expected count
+        return valid_variants[:expected_count]

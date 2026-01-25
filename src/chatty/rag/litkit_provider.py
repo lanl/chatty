@@ -17,11 +17,39 @@ from chatty.rag.provider import RAGMetadata, RAGSource
 from chatty.rag.rewriter import QueryRewriter
 
 if TYPE_CHECKING:
-    pass
+    from chatty.client.openai_client import OpenAIClient
+
+
+# Reranking prompt - scores chunks 1-5 for relevance to query
+RERANK_PROMPT = """\
+Score each chunk's relevance to the query on a scale of 1-5:
+1 = Not relevant at all
+2 = Slightly relevant, tangential information
+3 = Moderately relevant, some useful information
+4 = Highly relevant, directly addresses query
+5 = Perfectly relevant, essential information
+
+Query: {query}
+
+Chunks to score:
+{chunks}
+
+Output ONLY a JSON array of scores in order, e.g., [4, 2, 5, 3, 1]
+No explanation, just the array:"""
 
 
 # Retrieval script template that runs in a completely isolated subprocess
 # This avoids all fd inheritance issues with Textual's terminal I/O
+#
+# Arguments:
+#   1: workspace path
+#   2: db_path
+#   3: top_papers (for stage-1)
+#   4: top_chunks (for stage-2)
+#   5: query
+#   6: (optional) JSON list of paper_ids to reuse (skips stage-1 if provided)
+#
+# Output: JSON with chunks and paper_ids used for potential reuse
 _RETRIEVAL_SCRIPT = textwrap.dedent("""
 import json
 import os
@@ -43,22 +71,33 @@ try:
     top_chunks = int(sys.argv[4])
     query = sys.argv[5]
 
+    # Check for optional paper_ids to reuse (skips stage-1)
+    reuse_paper_ids = None
+    if len(sys.argv) > 6 and sys.argv[6]:
+        reuse_paper_ids = json.loads(sys.argv[6])
+
     conn = connect_db(db_path)
-    paper_ids = shortlist_papers(query, top_papers)
+
+    # Stage 1: Shortlist papers (skip if reusing paper_ids)
+    if reuse_paper_ids:
+        paper_ids = reuse_paper_ids
+    else:
+        paper_ids = shortlist_papers(query, top_papers)
 
     if not paper_ids:
-        print(json.dumps([]))
+        print(json.dumps({"chunks": [], "paper_ids": []}))
         sys.exit(0)
 
+    # Stage 2: Search chunks within papers
     chunk_ids, scores = search_chunks_constrained(query, paper_ids, top_chunks)
 
     if not chunk_ids:
-        print(json.dumps([]))
+        print(json.dumps({"chunks": [], "paper_ids": paper_ids}))
         sys.exit(0)
 
     chunks_data = get_chunks(conn, chunk_ids)
 
-    result = []
+    chunks = []
     for i, chunk_data in enumerate(chunks_data):
         if isinstance(chunk_data, dict):
             chunk_id = chunk_data.get("id", chunk_ids[i] if i < len(chunk_ids) else 0)
@@ -75,7 +114,7 @@ try:
 
         score = scores[i] if i < len(scores) else 0.0
 
-        result.append({
+        chunks.append({
             "chunk_id": int(chunk_id) if chunk_id else 0,
             "text": str(text),
             "paper_title": str(paper_title),
@@ -84,7 +123,8 @@ try:
             "score": float(score),
         })
 
-    print(json.dumps(result))
+    # Return chunks AND paper_ids for potential reuse in next turn
+    print(json.dumps({"chunks": chunks, "paper_ids": paper_ids}))
 
 except Exception as e:
     # Output error as JSON for parsing
@@ -174,6 +214,11 @@ class LitkitProvider:
         top_papers: int = 500,
         top_chunks: int = 30,
         rewrite_enabled: bool = True,
+        expand_synonyms: bool = True,
+        rerank: bool = False,
+        rerank_top_n: int = 10,
+        multi_query: bool = False,
+        multi_query_count: int = 3,
     ) -> None:
         """Initialize the LitkitProvider.
 
@@ -181,7 +226,17 @@ class LitkitProvider:
             workspace: Path to litkit workspace containing indices and database.
             top_papers: Number of papers to shortlist in stage 1 (default: 500).
             top_chunks: Number of chunks to retrieve in stage 2 (default: 30).
-            rewrite_enabled: Whether to enable LLM-based query rewriting (default: True).
+            rewrite_enabled: Whether to enable LLM-based query rewriting.
+            expand_synonyms: Whether to expand queries with domain synonyms
+                for improved recall (default: True, v0.4.5+).
+            rerank: Whether to use LLM reranking for improved precision
+                (default: False, opt-in, v0.4.5+). Adds one LLM call.
+            rerank_top_n: Number of top chunks to keep after reranking
+                (default: 10, v0.4.5+).
+            multi_query: Whether to use multi-query retrieval for improved
+                recall (default: False, opt-in, v0.4.5+). Adds one LLM call.
+            multi_query_count: Number of query variants to generate
+                (default: 3, v0.4.5+).
 
         Raises:
             LitkitNotInstalledError: If litkit package is not installed.
@@ -192,8 +247,16 @@ class LitkitProvider:
         self._workspace = workspace
         self._top_papers = top_papers
         self._top_chunks = top_chunks
-        self._rewriter = QueryRewriter(enabled=rewrite_enabled)
+        self._rewriter = QueryRewriter(
+            enabled=rewrite_enabled,
+            expand_synonyms=expand_synonyms,
+        )
         self._turn_number = 0  # Track retrieval turn for citation numbering
+        self._last_paper_ids: list[int] | None = None  # For shortlist reuse
+        self._rerank = rerank
+        self._rerank_top_n = rerank_top_n
+        self._multi_query = multi_query
+        self._multi_query_count = multi_query_count
 
         # Verify litkit is available
         self._check_litkit_installed()
@@ -256,12 +319,18 @@ class LitkitProvider:
     def reset(self) -> None:
         """Reset provider state for a new session.
 
-        Resets the turn counter so citation numbers start fresh.
+        Resets the turn counter and shortlist cache so citation numbers
+        start fresh and retrieval doesn't reuse stale paper IDs.
         Called by ChatApp.action_new_session().
         """
         self._turn_number = 0
+        self._last_paper_ids = None
 
-    def _retrieve_chunks(self, query: str) -> list[RetrievedChunk]:
+    def _retrieve_chunks(
+        self,
+        query: str,
+        reuse_paper_ids: list[int] | None = None,
+    ) -> tuple[list[RetrievedChunk], list[int]]:
         """Retrieve relevant chunks using litkit in a subprocess.
 
         Runs retrieval in a completely isolated subprocess using subprocess.run()
@@ -270,26 +339,37 @@ class LitkitProvider:
 
         Args:
             query: The search query.
+            reuse_paper_ids: Optional list of paper IDs to reuse (skips stage-1).
 
         Returns:
-            List of retrieved chunks with metadata.
+            Tuple of (list of retrieved chunks, list of paper IDs used).
+            Paper IDs can be cached for shortlist reuse in follow-up queries.
 
         Raises:
             LitkitError: If retrieval fails.
         """
         try:
+            # Build command args
+            cmd = [
+                sys.executable,
+                "-c",
+                _RETRIEVAL_SCRIPT,
+                str(self._workspace),
+                str(self._db_path),
+                str(self._top_papers),
+                str(self._top_chunks),
+                query,
+            ]
+
+            # Add optional paper_ids for shortlist reuse
+            if reuse_paper_ids:
+                cmd.append(json.dumps(reuse_paper_ids))
+            else:
+                cmd.append("")  # Empty string = run stage-1
+
             # Run retrieval script in isolated subprocess
             result = subprocess.run(
-                [
-                    sys.executable,
-                    "-c",
-                    _RETRIEVAL_SCRIPT,
-                    str(self._workspace),
-                    str(self._db_path),
-                    str(self._top_papers),
-                    str(self._top_chunks),
-                    query,
-                ],
+                cmd,
                 capture_output=True,
                 text=True,
                 close_fds=True,  # Close all fds - avoids inheritance issues
@@ -310,12 +390,16 @@ class LitkitProvider:
 
             # Parse JSON output
             if not result.stdout.strip():
-                return []
+                return [], []
 
-            chunk_dicts = json.loads(result.stdout)
+            output = json.loads(result.stdout)
+
+            # Handle new output format: {"chunks": [...], "paper_ids": [...]}
+            chunk_dicts = output.get("chunks", [])
+            paper_ids = output.get("paper_ids", [])
 
             # Convert to RetrievedChunk objects
-            return [
+            chunks = [
                 RetrievedChunk(
                     chunk_id=d["chunk_id"],
                     text=d["text"],
@@ -326,6 +410,8 @@ class LitkitProvider:
                 )
                 for d in chunk_dicts
             ]
+
+            return chunks, paper_ids
 
         except subprocess.TimeoutExpired:
             raise LitkitError("Retrieval timed out after 120 seconds") from None
@@ -536,6 +622,212 @@ class LitkitProvider:
 
         return "\n".join(context_parts)
 
+    async def _rerank_chunks(
+        self,
+        query: str,
+        chunks: list[RetrievedChunk],
+        client: OpenAIClient,
+        top_n: int = 10,
+    ) -> list[RetrievedChunk]:
+        """Rerank chunks using LLM scoring for improved precision.
+
+        Uses a batch scoring approach where all chunks are sent to the LLM
+        in a single request. Each chunk is scored 1-5 for relevance:
+        1 = Not relevant at all
+        5 = Perfectly relevant, essential information
+
+        Args:
+            query: The search query to rank against.
+            chunks: List of chunks to rerank.
+            client: OpenAI client for LLM scoring.
+            top_n: Number of top-scoring chunks to return.
+
+        Returns:
+            List of top_n chunks sorted by LLM-assigned relevance score.
+            Falls back to original chunks (by retrieval score) on error.
+        """
+        if not chunks:
+            return []
+
+        if len(chunks) <= top_n:
+            # No need to rerank if we have fewer chunks than top_n
+            return chunks
+
+        # Build chunk previews for scoring (truncate to ~500 chars each)
+        chunk_previews = []
+        for i, chunk in enumerate(chunks):
+            preview = chunk.text[:500] + "..." if len(chunk.text) > 500 else chunk.text
+            chunk_previews.append(f"[{i + 1}] {preview}")
+
+        chunks_text = "\n\n".join(chunk_previews)
+        prompt = RERANK_PROMPT.format(query=query, chunks=chunks_text)
+
+        try:
+            from chatty.client.openai_client import AssistantMessage
+
+            # Single LLM call to score all chunks
+            response = await client.chat(
+                [Message(role="user", content=prompt)],
+                stream=False,
+            )
+
+            # Check response type (stream=False returns AssistantMessage)
+            if not isinstance(response, AssistantMessage):
+                return chunks[:top_n]
+
+            # Parse JSON array of scores from response
+            scores = self._parse_rerank_scores(response.content, len(chunks))
+
+            # Pair chunks with scores and sort by score descending
+            scored_chunks = list(zip(chunks, scores, strict=False))
+            scored_chunks.sort(key=lambda x: x[1], reverse=True)
+
+            # Return top_n chunks, preserving RetrievedChunk objects
+            return [chunk for chunk, _score in scored_chunks[:top_n]]
+
+        except Exception:
+            # On any error (LLM failure, parse error), fall back to original order
+            # Original chunks are already sorted by retrieval score
+            return chunks[:top_n]
+
+    def _parse_rerank_scores(self, response: str, expected_count: int) -> list[int]:
+        """Parse LLM response into list of integer scores.
+
+        Expects JSON array format: [4, 2, 5, 3, 1]
+
+        Args:
+            response: LLM response text (should be JSON array).
+            expected_count: Expected number of scores.
+
+        Returns:
+            List of integer scores (1-5). Returns default score of 3
+            for any missing or invalid entries.
+
+        Raises:
+            ValueError: If response is not valid JSON array.
+        """
+        # Clean response - remove any markdown code blocks
+        cleaned = response.strip()
+        if cleaned.startswith("```"):
+            # Remove markdown code fence
+            lines = cleaned.split("\n")
+            # Find content between fences
+            content_lines = []
+            in_fence = False
+            for line in lines:
+                if line.startswith("```"):
+                    in_fence = not in_fence
+                    continue
+                if in_fence or not line.startswith("```"):
+                    content_lines.append(line)
+            cleaned = "\n".join(content_lines).strip()
+
+        # Parse JSON array
+        try:
+            scores = json.loads(cleaned)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in rerank response: {e}") from e
+
+        if not isinstance(scores, list):
+            raise ValueError(f"Expected JSON array, got {type(scores).__name__}")
+
+        # Validate and normalize scores
+        result: list[int] = []
+        for i in range(expected_count):
+            if i < len(scores):
+                try:
+                    score = int(scores[i])
+                    # Clamp to valid range 1-5
+                    score = max(1, min(5, score))
+                    result.append(score)
+                except (ValueError, TypeError):
+                    # Invalid score, use default
+                    result.append(3)
+            else:
+                # Missing score, use default
+                result.append(3)
+
+        return result
+
+    def _deduplicate_by_chunk_id(
+        self,
+        chunks: list[RetrievedChunk],
+    ) -> list[RetrievedChunk]:
+        """Remove duplicate chunks by chunk_id.
+
+        Used for multi-query retrieval where the same chunk may be
+        returned by multiple query variants. Preserves first occurrence
+        and keeps highest score for each chunk_id.
+
+        Args:
+            chunks: List of retrieved chunks (may contain duplicates).
+
+        Returns:
+            Deduplicated list with highest score per chunk_id.
+        """
+        seen: dict[int, RetrievedChunk] = {}
+        for chunk in chunks:
+            if chunk.chunk_id not in seen:
+                seen[chunk.chunk_id] = chunk
+            elif chunk.score > seen[chunk.chunk_id].score:
+                # Keep the higher-scoring version
+                seen[chunk.chunk_id] = chunk
+        return list(seen.values())
+
+    async def _multi_query_retrieve(
+        self,
+        query: str,
+        conversation: Conversation,
+        client: OpenAIClient,
+        reuse_paper_ids: list[int] | None = None,
+    ) -> tuple[list[RetrievedChunk], list[int]]:
+        """Retrieve using multiple query variants for improved recall.
+
+        Generates N query variants using LLM, runs retrieval for each,
+        and unions the results with deduplication.
+
+        Args:
+            query: The primary search query.
+            conversation: Conversation history for variant generation.
+            client: OpenAI client for generating variants.
+            reuse_paper_ids: Optional paper IDs to reuse across all variants.
+
+        Returns:
+            Tuple of (deduplicated chunks, paper_ids).
+            Falls back to single-query retrieval on error.
+        """
+        try:
+            # Generate query variants
+            variants = await self._rewriter.generate_query_variants(
+                query, conversation, client, count=self._multi_query_count
+            )
+
+            # Collect all chunks from all variants
+            all_chunks: list[RetrievedChunk] = []
+            all_paper_ids: set[int] = set()
+
+            # Run retrieval for each variant (including original query)
+            queries = [query] + [v for v in variants if v != query]
+
+            for q in queries:
+                chunks, paper_ids = await asyncio.to_thread(
+                    self._retrieve_chunks, q, reuse_paper_ids
+                )
+                all_chunks.extend(chunks)
+                all_paper_ids.update(paper_ids)
+
+            # Deduplicate by chunk_id, keeping highest scores
+            unique_chunks = self._deduplicate_by_chunk_id(all_chunks)
+
+            # Sort by score descending
+            unique_chunks.sort(key=lambda c: c.score, reverse=True)
+
+            return unique_chunks, list(all_paper_ids)
+
+        except Exception:
+            # Fall back to single-query retrieval
+            return await asyncio.to_thread(self._retrieve_chunks, query, reuse_paper_ids)
+
     def _build_metadata(
         self,
         chunks: list[RetrievedChunk],
@@ -620,11 +912,40 @@ class LitkitProvider:
             # Classify mode even when not rewriting
             query_mode = self._rewriter.classify_mode(user_text, conversation)
 
+        # Determine retrieval strategy based on query mode
+        # - NEW_TOPIC: Fresh retrieval (clear cached paper_ids)
+        # - FOLLOWUP/REFERENCE: Reuse cached paper_ids if available (skip stage-1)
+        reuse_paper_ids: list[int] | None = None
+        if query_mode == "NEW_TOPIC":
+            # Clear cache for new topic
+            self._last_paper_ids = None
+        elif self._last_paper_ids and query_mode in ("FOLLOWUP", "REFERENCE"):
+            # Reuse previous paper shortlist for follow-up questions
+            reuse_paper_ids = self._last_paper_ids
+
         # Run subprocess retrieval in thread pool to avoid blocking event loop
         # The subprocess itself is completely isolated (close_fds=True)
         start_time = time.monotonic()
-        chunks = await asyncio.to_thread(self._retrieve_chunks, retrieval_query)
+
+        # Optional: Multi-query retrieval for improved recall (v0.4.5+)
+        # Generates query variants and unions results
+        if self._multi_query and openai_client:
+            chunks, paper_ids = await self._multi_query_retrieve(
+                retrieval_query,
+                conversation,
+                openai_client,
+                reuse_paper_ids,
+            )
+        else:
+            chunks, paper_ids = await asyncio.to_thread(
+                self._retrieve_chunks, retrieval_query, reuse_paper_ids
+            )
+
         retrieval_time_s = time.monotonic() - start_time
+
+        # Cache paper_ids for potential reuse in next turn
+        if paper_ids:
+            self._last_paper_ids = paper_ids
 
         if not chunks:
             # No relevant chunks found, return messages unchanged
@@ -637,6 +958,16 @@ class LitkitProvider:
             )
 
         total_chunks = len(chunks)
+
+        # Optional: LLM reranking for improved precision (v0.4.5+)
+        # Reranking uses an extra LLM call to score chunks by relevance
+        if self._rerank and openai_client:
+            chunks = await self._rerank_chunks(
+                retrieval_query,
+                chunks,
+                openai_client,
+                top_n=self._rerank_top_n,
+            )
 
         # Calculate available token budget
         # Reserve 2000 tokens for response, use remaining for context

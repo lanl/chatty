@@ -252,10 +252,15 @@ class OpenAIClient:
 
                 # Retryable errors
                 if response.status_code in RETRY_STATUS_CODES:
-                    # Check Retry-After header
+                    # Check Retry-After header (can be seconds or HTTP-date)
                     retry_after = response.headers.get("Retry-After")
                     if retry_after:
-                        wait_time = float(retry_after)
+                        try:
+                            wait_time = float(retry_after)
+                        except ValueError:
+                            # HTTP-date format (e.g., "Fri, 31 Dec 1999 23:59:59 GMT")
+                            # Fall back to exponential backoff
+                            wait_time = BASE_BACKOFF_SECONDS * (2**attempt)
                     else:
                         wait_time = BASE_BACKOFF_SECONDS * (2**attempt)
 

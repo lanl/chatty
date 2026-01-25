@@ -182,6 +182,8 @@ def test_save_session_creates_directory(tmp_path: Path) -> None:
 
 def test_save_session_updates_timestamp(tmp_path: Path) -> None:
     """Test save_session updates updated_at timestamp."""
+    from datetime import datetime
+
     metadata = SessionMetadata.create("Test", "gpt-4.1", 0)
     # Manually set an old timestamp
     metadata.updated_at = "2020-01-01T00:00:00"
@@ -191,7 +193,8 @@ def test_save_session_updates_timestamp(tmp_path: Path) -> None:
 
     # Metadata should be updated to current time
     assert session.metadata.updated_at != "2020-01-01T00:00:00"
-    assert session.metadata.updated_at.startswith("2026-")  # Current year
+    current_year = str(datetime.now().year)
+    assert session.metadata.updated_at.startswith(current_year)
 
 
 def test_load_session_not_found(tmp_path: Path) -> None:

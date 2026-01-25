@@ -88,6 +88,11 @@ def _create_litkit_provider(config: Config) -> RAGProvider:
             top_papers=config.rag_top_papers,
             top_chunks=config.rag_top_chunks,
             rewrite_enabled=config.rag_rewrite_enabled,
+            expand_synonyms=config.rag_expand_synonyms,
+            rerank=config.rag_rerank,
+            rerank_top_n=config.rag_rerank_top_n,
+            multi_query=config.rag_multi_query,
+            multi_query_count=config.rag_multi_query_count,
         )
     except LitkitNotInstalledError:
         raise ConfigurationError(

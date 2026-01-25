@@ -307,6 +307,49 @@ class TestOpenAIClientRetry:
 
         await client.close()
 
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_retry_with_http_date_retry_after(
+        self, client: OpenAIClient, sample_messages: list[Message]
+    ) -> None:
+        """Test retry handles HTTP-date format Retry-After header.
+
+        Some servers return Retry-After as an HTTP-date instead of seconds.
+        The client should fall back to exponential backoff when it can't
+        parse the value as a float.
+        """
+        call_count = 0
+
+        def http_date_then_succeed(_request: httpx.Request) -> httpx.Response:
+            nonlocal call_count
+            call_count += 1
+            if call_count < 2:
+                # HTTP-date format (RFC 7231)
+                return httpx.Response(
+                    429,
+                    headers={"Retry-After": "Sat, 25 Jan 2026 12:00:00 GMT"},
+                )
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": "OK"}}]},
+            )
+
+        respx.post("https://api.test.com/v1/chat/completions").mock(
+            side_effect=http_date_then_succeed
+        )
+
+        # Patch sleep to speed up test and verify it was called
+        with patch("chatty.client.openai_client.asyncio.sleep", new=AsyncMock()) as mock_sleep:
+            result = await client.chat(sample_messages, stream=False)
+
+        assert isinstance(result, AssistantMessage)
+        assert result.content == "OK"
+        assert call_count == 2
+        # Should have slept (exponential backoff fallback)
+        mock_sleep.assert_called()
+
+        await client.close()
+
 
 class TestOpenAIClientErrors:
     """Tests for error handling."""

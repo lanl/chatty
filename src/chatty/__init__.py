@@ -1,3 +1,3 @@
 """chatty - A terminal UI chatbot for OpenAI-compatible endpoints."""
 
-__version__ = "0.4.4"
+__version__ = "0.4.5"

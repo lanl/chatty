@@ -471,3 +471,40 @@ def test_rag_default_system_prompt_content() -> None:
     assert "[1.3]" in RAG_DEFAULT_SYSTEM_PROMPT  # Example in prompt
     assert "cite" in RAG_DEFAULT_SYSTEM_PROMPT.lower()
     assert "context" in RAG_DEFAULT_SYSTEM_PROMPT.lower()
+
+
+# ============================================================================
+# Proxy Environment Variable Tests (v0.4.4)
+# ============================================================================
+
+
+def test_http_proxy_from_chatty_http_proxy_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test http_proxy reads from CHATTY_HTTP_PROXY env var."""
+    monkeypatch.setenv("CHATTY_HTTP_PROXY", "http://proxy.example.com:8080")
+
+    config = Config()
+    assert config.http_proxy == "http://proxy.example.com:8080"
+
+
+def test_http_proxy_not_from_https_proxy_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test http_proxy does NOT read from HTTPS_PROXY (httpx handles via trust_env)."""
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example.com:8080")
+
+    config = Config()
+    # HTTPS_PROXY should not populate http_proxy - httpx handles it via trust_env
+    assert config.http_proxy is None
+
+
+def test_http_proxy_not_from_http_proxy_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test http_proxy does NOT read from HTTP_PROXY (httpx handles via trust_env)."""
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.example.com:8080")
+
+    config = Config()
+    # HTTP_PROXY should not populate http_proxy - httpx handles it via trust_env
+    assert config.http_proxy is None
+
+
+def test_http_proxy_default_none() -> None:
+    """Test http_proxy defaults to None."""
+    config = Config()
+    assert config.http_proxy is None

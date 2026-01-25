@@ -441,8 +441,76 @@ class TestSendMessage:
 # ============================================================================
 
 
+class TestExtractCitations:
+    """Tests for extract_citations function (supports [N] and [T.N] formats)."""
+
+    def test_empty_text(self) -> None:
+        """Returns empty list for empty text."""
+        from chatty.ui.workers import extract_citations
+
+        assert extract_citations("") == []
+
+    def test_no_citations(self) -> None:
+        """Returns empty list when no citations present."""
+        from chatty.ui.workers import extract_citations
+
+        text = "This is a response with no citations."
+        assert extract_citations(text) == []
+
+    def test_simple_citation(self) -> None:
+        """Extracts simple [N] citation."""
+        from chatty.ui.workers import extract_citations
+
+        text = "This claim is supported by evidence [1]."
+        assert extract_citations(text) == [(None, 1)]
+
+    def test_turn_prefixed_citation(self) -> None:
+        """Extracts turn-prefixed [T.N] citation."""
+        from chatty.ui.workers import extract_citations
+
+        text = "According to source [2.3], this is correct."
+        assert extract_citations(text) == [(2, 3)]
+
+    def test_multiple_turn_prefixed(self) -> None:
+        """Extracts multiple turn-prefixed citations."""
+        from chatty.ui.workers import extract_citations
+
+        text = "Sources [1.1] and [1.2] support this, also [2.1]."
+        assert extract_citations(text) == [(1, 1), (1, 2), (2, 1)]
+
+    def test_mixed_formats(self) -> None:
+        """Extracts both simple and turn-prefixed citations (T.N first)."""
+        from chatty.ui.workers import extract_citations
+
+        text = "See [1], [2.3], and [4] for more info."
+        # Turn-prefixed citations come first due to processing order
+        result = extract_citations(text)
+        assert result == [(2, 3), (None, 1), (None, 4)]
+
+    def test_comma_separated_simple(self) -> None:
+        """Extracts comma-separated simple citations."""
+        from chatty.ui.workers import extract_citations
+
+        text = "Multiple sources [1, 2, 3] support this."
+        assert extract_citations(text) == [(None, 1), (None, 2), (None, 3)]
+
+    def test_duplicate_removal(self) -> None:
+        """Removes duplicate citations."""
+        from chatty.ui.workers import extract_citations
+
+        text = "First [1.2], second [1.2], third [3]."
+        assert extract_citations(text) == [(1, 2), (None, 3)]
+
+    def test_double_digit_turn_and_index(self) -> None:
+        """Handles double-digit turn and index numbers."""
+        from chatty.ui.workers import extract_citations
+
+        text = "See sources [10.15] and [20.25]."
+        assert extract_citations(text) == [(10, 15), (20, 25)]
+
+
 class TestExtractCitedIndices:
-    """Tests for extract_cited_indices function."""
+    """Tests for extract_cited_indices function (legacy, simple [N] only)."""
 
     def test_empty_text(self) -> None:
         """Returns empty set for empty text."""

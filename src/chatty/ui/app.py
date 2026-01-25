@@ -627,9 +627,10 @@ class ChatApp(App[None]):
 
         if self.conversation:
             self.conversation.clear()
-            # Re-add system prompt if configured
-            if self.config.system_prompt:
-                self.conversation.add_system_message(self.config.system_prompt)
+            # Re-add system prompt if configured (use effective prompt for RAG)
+            system_prompt = self.config.get_effective_system_prompt()
+            if system_prompt:
+                self.conversation.add_system_message(system_prompt)
 
         # Reset RAG provider state (turn counter for citations)
         if hasattr(self.rag_provider, "reset"):
@@ -791,6 +792,10 @@ class ChatApp(App[None]):
         # Also update config.model so client uses new model
         # This is a runtime-only change; config file is not modified
         self.config.model = model
+
+        # Update conversation model for accurate token estimation
+        if self.conversation:
+            self.conversation.model = model
 
         # Update status bar
         self.query_one("#status-bar", StatusBar).update_status(model=model)
@@ -958,8 +963,10 @@ class ChatApp(App[None]):
 
         # Replace conversation with summary
         self.conversation.clear()
-        if self.config.system_prompt:
-            self.conversation.add_system_message(self.config.system_prompt)
+        # Re-add system prompt if configured (use effective prompt for RAG)
+        system_prompt = self.config.get_effective_system_prompt()
+        if system_prompt:
+            self.conversation.add_system_message(system_prompt)
         self.conversation.add_system_message(f"[Conversation summary]\n{summary}")
 
         # Update chat log display

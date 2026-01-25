@@ -137,6 +137,23 @@ export_path = "./exports"
 # for multi-turn conversations where follow-up questions reference prior context.
 # rag_rewrite_enabled = true
 
+# Query expansion with domain synonyms (v0.4.5+)
+# Expands queries with synonyms/acronyms for improved recall, e.g.,
+# "HIV treatments" → "HIV human immunodeficiency virus treatments therapies antiretroviral"
+# rag_expand_synonyms = true
+
+# LLM reranking for improved precision (v0.4.5+, opt-in)
+# Adds one LLM call to score and rerank chunks by relevance (1-5 scale)
+# Improves precision by +20-30% but adds latency
+# rag_rerank = false
+# rag_rerank_top_n = 10
+
+# Multi-query retrieval for improved recall (v0.4.5+, opt-in)
+# Generates multiple query variants and unions results
+# Improves recall by +20-30% but adds 2-3x latency
+# rag_multi_query = false
+# rag_multi_query_count = 3
+
 # Environment variables (alternative to config file):
 #   CHATTY_RAG_PROVIDER   - "none" or "litkit"
 #   CHATTY_RAG_WORKSPACE  - path to litkit workspace
@@ -144,3 +161,6 @@ export_path = "./exports"
 #   CHATTY_RAG_TOP_PAPERS - stage 1 paper count
 #   CHATTY_RAG_TOP_CHUNKS - stage 2 chunk count
 #   CHATTY_RAG_REWRITE_ENABLED - enable/disable query rewriting
+#   CHATTY_RAG_EXPAND_SYNONYMS - enable/disable synonym expansion
+#   CHATTY_RAG_RERANK, CHATTY_RAG_RERANK_TOP_N - reranking settings
+#   CHATTY_RAG_MULTI_QUERY, CHATTY_RAG_MULTI_QUERY_COUNT - multi-query settings

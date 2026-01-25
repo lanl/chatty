@@ -46,6 +46,61 @@ def extract_cited_indices(text: str) -> set[int]:
     return cited
 
 
+def extract_citations(text: str) -> list[tuple[int | None, int]]:
+    """Extract unique citations from LLM response text.
+
+    Parses both simple [N] and turn-prefixed [T.N] citation formats:
+    - [1], [2], [3] - simple citations (turn=None)
+    - [1.1], [1.2], [2.3] - turn-prefixed citations (turn, index)
+    - [1, 2, 3] - comma-separated simple citations
+
+    Note: [T.N] citations are collected first, then [N] citations.
+    Output order may not match text appearance order. Duplicates are removed.
+
+    Args:
+        text: LLM response text containing citations.
+
+    Returns:
+        Deduplicated list of (turn, index) tuples. Turn is None for simple
+        [N] format. [T.N] citations appear before [N] citations in output.
+
+    Examples:
+        >>> extract_citations("See [1] and [2.3]")
+        [(2, 3), (None, 1)]
+        >>> extract_citations("Sources [1, 2]")
+        [(None, 1), (None, 2)]
+    """
+    citations: list[tuple[int | None, int]] = []
+    seen: set[tuple[int | None, int]] = set()
+
+    # Match [T.N] format (turn-prefixed)
+    for match in re.finditer(r"\[(\d+)\.(\d+)\]", text):
+        turn = int(match.group(1))
+        index = int(match.group(2))
+        turn_citation: tuple[int | None, int] = (turn, index)
+        if turn_citation not in seen:
+            citations.append(turn_citation)
+            seen.add(turn_citation)
+
+    # Match [N] format (simple) and [N, N, N] format (comma-separated)
+    # Exclude matches that are part of [T.N] format
+    for match in re.finditer(r"\[(\d+(?:\s*,\s*\d+)*)\]", text):
+        content = match.group(1)
+        # Skip if this looks like T.N format (already handled above)
+        if "." in text[match.start() : match.end()]:
+            continue
+        # Parse comma-separated numbers
+        for num_str in content.split(","):
+            num_str = num_str.strip()
+            if num_str.isdigit():
+                simple_citation: tuple[int | None, int] = (None, int(num_str))
+                if simple_citation not in seen:
+                    citations.append(simple_citation)
+                    seen.add(simple_citation)
+
+    return citations
+
+
 async def fetch_context_window(app: ChatApp) -> None:
     """Fetch context window from /models endpoint.
 

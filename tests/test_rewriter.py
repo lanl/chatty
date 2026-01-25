@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -380,6 +381,94 @@ class TestQueryRewriterInit:
         rewriter = QueryRewriter()
         assert len(rewriter._compiled_new_topic) > 0
 
+    def test_expand_synonyms_default_true(self) -> None:
+        """expand_synonyms is True by default (v0.4.5+)."""
+        rewriter = QueryRewriter()
+        assert rewriter.expand_synonyms is True
+
+    def test_can_disable_expand_synonyms(self) -> None:
+        """expand_synonyms can be disabled."""
+        rewriter = QueryRewriter(expand_synonyms=False)
+        assert rewriter.expand_synonyms is False
+
+    def test_can_configure_both_enabled_and_expand(self) -> None:
+        """Both enabled and expand_synonyms can be configured."""
+        rewriter = QueryRewriter(enabled=True, expand_synonyms=False)
+        assert rewriter.enabled is True
+        assert rewriter.expand_synonyms is False
+
+        rewriter2 = QueryRewriter(enabled=False, expand_synonyms=True)
+        assert rewriter2.enabled is False
+        assert rewriter2.expand_synonyms is True
+
+
+class TestExpandSynonymsPromptSelection:
+    """Tests for prompt selection based on expand_synonyms setting."""
+
+    @pytest.mark.asyncio
+    async def test_uses_expansion_prompt_when_enabled(self) -> None:
+        """Uses REWRITE_PROMPT_WITH_EXPANSION when expand_synonyms=True."""
+        from chatty.client.openai_client import AssistantMessage
+
+        rewriter = QueryRewriter(enabled=True, expand_synonyms=True)
+
+        conv = MagicMock()
+        conv.messages = [
+            MagicMock(role="user", content="Tell me about HIV"),
+            MagicMock(role="assistant", content="HIV is..."),
+        ]
+
+        captured_messages: list[Any] = []
+
+        async def capture_chat(messages: list[Any], stream: bool = True) -> AssistantMessage:
+            del stream  # Unused but required by interface
+            captured_messages.extend(messages)
+            return AssistantMessage(content="Expanded query")
+
+        client = MagicMock()
+        client.chat = capture_chat
+
+        await rewriter.rewrite_structured("Side effects?", conv, client)
+
+        # Verify expansion prompt was used
+        assert len(captured_messages) == 1
+        prompt_content = captured_messages[0].content
+        assert "EXPAND" in prompt_content
+        assert "synonyms" in prompt_content.lower()
+
+    @pytest.mark.asyncio
+    async def test_uses_basic_prompt_when_disabled(self) -> None:
+        """Uses REWRITE_PROMPT when expand_synonyms=False."""
+        from chatty.client.openai_client import AssistantMessage
+
+        rewriter = QueryRewriter(enabled=True, expand_synonyms=False)
+
+        conv = MagicMock()
+        conv.messages = [
+            MagicMock(role="user", content="Tell me about HIV"),
+            MagicMock(role="assistant", content="HIV is..."),
+        ]
+
+        captured_messages: list[Any] = []
+
+        async def capture_chat(messages: list[Any], stream: bool = True) -> AssistantMessage:
+            del stream  # Unused but required by interface
+            captured_messages.extend(messages)
+            return AssistantMessage(content="Basic rewritten query")
+
+        client = MagicMock()
+        client.chat = capture_chat
+
+        await rewriter.rewrite_structured("Side effects?", conv, client)
+
+        # Verify basic prompt was used (PRESERVE, not EXPAND)
+        assert len(captured_messages) == 1
+        prompt_content = captured_messages[0].content
+        assert "PRESERVE" in prompt_content
+        # The expansion prompt uses "EXPAND common acronyms"
+        # Basic prompt uses "PRESERVE domain-specific terms"
+        assert "domain-specific" in prompt_content.lower()
+
 
 class TestRewriteStructured:
     """Tests for rewrite_structured() returning RewriteResult."""
@@ -551,3 +640,134 @@ class TestModeClassification:
         conv.messages = [MagicMock()]
         assert rewriter.classify_mode("PAPER 1 says what?", conv) == MODE_REFERENCE
         assert rewriter.classify_mode("The FIRST article", conv) == MODE_REFERENCE
+
+
+class TestGenerateQueryVariants:
+    """Tests for generate_query_variants() method."""
+
+    @pytest.mark.asyncio
+    async def test_returns_list_of_variants(self) -> None:
+        """generate_query_variants returns list of query strings."""
+        from chatty.client.openai_client import AssistantMessage
+
+        rewriter = QueryRewriter(enabled=True)
+
+        conv = MagicMock()
+        conv.messages = [MagicMock(role="user", content="HIV treatments")]
+
+        client = MagicMock()
+        client.chat = AsyncMock(
+            return_value=AssistantMessage(
+                content='["HIV antiretroviral therapy", "AIDS medication"]'
+            )
+        )
+
+        result = await rewriter.generate_query_variants("HIV treatments", conv, client, count=2)
+
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert result[0] == "HIV antiretroviral therapy"
+        assert result[1] == "AIDS medication"
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_error(self) -> None:
+        """Falls back to [query] on LLM error."""
+        rewriter = QueryRewriter(enabled=True)
+
+        conv = MagicMock()
+        conv.messages = [MagicMock(role="user", content="Test")]
+
+        client = MagicMock()
+        client.chat = AsyncMock(side_effect=Exception("LLM error"))
+
+        result = await rewriter.generate_query_variants("original query", conv, client)
+
+        assert result == ["original query"]
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_invalid_json(self) -> None:
+        """Falls back to [query] on invalid JSON response."""
+        from chatty.client.openai_client import AssistantMessage
+
+        rewriter = QueryRewriter(enabled=True)
+
+        conv = MagicMock()
+        conv.messages = [MagicMock(role="user", content="Test")]
+
+        client = MagicMock()
+        client.chat = AsyncMock(return_value=AssistantMessage(content="not valid json"))
+
+        result = await rewriter.generate_query_variants("original query", conv, client)
+
+        assert result == ["original query"]
+
+    @pytest.mark.asyncio
+    async def test_handles_markdown_fence(self) -> None:
+        """Strips markdown code fences from response."""
+        from chatty.client.openai_client import AssistantMessage
+
+        rewriter = QueryRewriter(enabled=True)
+
+        conv = MagicMock()
+        conv.messages = [MagicMock(role="user", content="Test")]
+
+        client = MagicMock()
+        client.chat = AsyncMock(
+            return_value=AssistantMessage(content='```json\n["variant 1", "variant 2"]\n```')
+        )
+
+        result = await rewriter.generate_query_variants("query", conv, client, count=2)
+
+        assert result == ["variant 1", "variant 2"]
+
+    @pytest.mark.asyncio
+    async def test_limits_to_count(self) -> None:
+        """Limits returned variants to count parameter."""
+        from chatty.client.openai_client import AssistantMessage
+
+        rewriter = QueryRewriter(enabled=True)
+
+        conv = MagicMock()
+        conv.messages = [MagicMock(role="user", content="Test")]
+
+        client = MagicMock()
+        # LLM returns more than requested
+        client.chat = AsyncMock(
+            return_value=AssistantMessage(content='["v1", "v2", "v3", "v4", "v5"]')
+        )
+
+        result = await rewriter.generate_query_variants("query", conv, client, count=2)
+
+        assert len(result) == 2
+
+    def test_parse_query_variants_valid_json(self) -> None:
+        """_parse_query_variants parses valid JSON array."""
+        rewriter = QueryRewriter(enabled=True)
+
+        result = rewriter._parse_query_variants('["variant 1", "variant 2"]', 3)
+
+        assert result == ["variant 1", "variant 2"]
+
+    def test_parse_query_variants_filters_empty(self) -> None:
+        """_parse_query_variants filters empty strings."""
+        rewriter = QueryRewriter(enabled=True)
+
+        result = rewriter._parse_query_variants('["valid", "", "  ", "also valid"]', 5)
+
+        assert result == ["valid", "also valid"]
+
+    def test_parse_query_variants_invalid_json_returns_empty(self) -> None:
+        """_parse_query_variants returns empty on invalid JSON."""
+        rewriter = QueryRewriter(enabled=True)
+
+        result = rewriter._parse_query_variants("not json", 3)
+
+        assert result == []
+
+    def test_parse_query_variants_non_list_returns_empty(self) -> None:
+        """_parse_query_variants returns empty for non-list JSON."""
+        rewriter = QueryRewriter(enabled=True)
+
+        result = rewriter._parse_query_variants('{"key": "value"}', 3)
+
+        assert result == []

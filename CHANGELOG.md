@@ -5,6 +5,73 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.5] - 2026-01-24
+
+### Added
+
+**Phase 1: Query Expansion with Domain Synonyms**
+- New `REWRITE_PROMPT_WITH_EXPANSION` prompt for improved retrieval recall
+- Expands common acronyms with full forms (HIV → HIV human immunodeficiency virus)
+- Adds domain synonyms for medical/scientific terms
+- Keeps expanded queries under 200 words to avoid noise
+- Example: "HIV treatments" → "HIV human immunodeficiency virus treatments therapies antiretroviral medications ART"
+
+**Phase 2: LLM Reranking (opt-in)**
+- `_rerank_chunks()` method uses LLM to score chunks 1-5 for relevance
+- Batch scoring: all chunks scored in single LLM call for efficiency
+- `_parse_rerank_scores()` handles JSON array parsing with fallback
+- Graceful fallback to original retrieval order on LLM error
+- Expected precision improvement: +20-30%
+- Latency: +1 LLM call when enabled
+
+**Phase 3: Multi-Query Retrieval (opt-in)**
+- `generate_query_variants()` creates diverse search queries
+- `_multi_query_retrieve()` runs retrieval for original + N variants
+- `_deduplicate_by_chunk_id()` unions results, keeps highest score per chunk
+- `MULTI_QUERY_PROMPT` generates N query variants via LLM
+- Expected recall improvement: +20-30%
+- Latency: +1 LLM call + 2-3x retrieval when enabled
+
+**New Config Options**
+- `rag_expand_synonyms` — Enable/disable synonym expansion (default: `true`)
+- `rag_rerank` — Enable LLM reranking (default: `false`, opt-in)
+- `rag_rerank_top_n` — Chunks to keep after reranking (default: `10`)
+- `rag_multi_query` — Enable multi-query retrieval (default: `false`, opt-in)
+- `rag_multi_query_count` — Number of query variants (default: `3`)
+- Environment variables: `CHATTY_RAG_EXPAND_SYNONYMS`, `CHATTY_RAG_RERANK`, `CHATTY_RAG_RERANK_TOP_N`, `CHATTY_RAG_MULTI_QUERY`, `CHATTY_RAG_MULTI_QUERY_COUNT`
+
+**QueryRewriter Enhancements**
+- `expand_synonyms` parameter in `QueryRewriter.__init__()`
+- `generate_query_variants()` method for multi-query retrieval
+- `_parse_query_variants()` parses LLM JSON response
+- Selects appropriate prompt template based on setting
+
+### Changed
+
+- `LitkitProvider.__init__()` accepts `expand_synonyms`, `rerank`, `rerank_top_n`, `multi_query`, `multi_query_count` parameters
+- `LitkitProvider.augment()` integrates reranking after retrieval
+- `LitkitProvider.augment()` integrates multi-query before reranking
+- RAG factory passes all new config options to provider
+- ~30 new tests for reranking and multi-query functionality
+
+### Performance Impact (Expected)
+
+| Feature | Recall | Precision | Latency | Default |
+|---------|--------|-----------|---------|---------|
+| Synonyms | +10-20% | Neutral | Minimal | ON |
+| Reranking | Neutral | +20-30% | +1 LLM call | OFF |
+| Multi-query | +20-30% | -5% | 2-3x | OFF |
+
+### Developer Notes
+
+- 87 rewriter tests (was 70)
+- 66 litkit_provider tests (was 40)
+- All phases complete: synonym expansion, LLM reranking, multi-query retrieval
+- Each feature can be enabled independently
+- Pre-commit hooks pass
+
+---
+
 ## [0.4.4] - 2026-01-24
 
 ### Added
