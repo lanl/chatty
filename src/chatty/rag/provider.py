@@ -81,7 +81,7 @@ class NullProvider:
         self,
         conversation: Conversation,
         user_text: str,
-        _client: object | None = None,
+        client: object | None = None,  # noqa: ARG002
     ) -> tuple[list[Message], RAGMetadata]:
         """Return messages unchanged with empty metadata."""
         messages = list(conversation.messages) + [Message(role="user", content=user_text)]
