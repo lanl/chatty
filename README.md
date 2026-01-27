@@ -466,6 +466,64 @@ Models that expose chain-of-thought reasoning (DeepSeek R1, QwQ, Apriel Thinker,
 
 **Workaround:** Use non-reasoning variants of models (e.g., `gpt-4.1` instead of `o3-mini`) if you want cleaner output.
 
+## Windows Support (Experimental)
+
+Chatty should work on Windows, but **has not been tested**. Feedback and bug reports from Windows users are welcome.
+
+### Requirements
+
+- Windows 10 or 11
+- **Windows Terminal** (required for proper rendering — legacy `cmd.exe` won't work)
+- PowerShell 7+ (recommended) or Windows PowerShell 5.1
+- Python 3.12+
+- [uv](https://github.com/astral-sh/uv) package manager
+
+### Installation
+
+```powershell
+git clone <repo-url>
+cd chatty
+uv sync
+chatty chat
+```
+
+### Configuration
+
+**Environment variables** (PowerShell syntax):
+
+```powershell
+$env:OPENAI_BASE_URL = "https://your-endpoint/v1"
+$env:OPENAI_API_KEY = "your-api-key"
+$env:CHATTY_MODEL = "gpt-4.1"
+```
+
+**Config file location:**
+
+```
+%USERPROFILE%\.config\chatty\config.toml
+```
+
+Or use `chatty.toml` in the project directory.
+
+### Known Caveats
+
+1. **Not tested** — There may be edge cases with terminal I/O, keyboard shortcuts, or clipboard handling
+2. **Offline install scripts are bash-only** — For air-gapped Windows systems, use WSL or manually install from the wheelhouse:
+   ```powershell
+   pip install --no-index --find-links=wheelhouse chatty
+   ```
+3. **Keyboard shortcuts** — Some shortcuts may conflict with PowerShell defaults (e.g., `Ctrl+C` for copy vs interrupt)
+4. **Path separators** — Config file paths in `chatty.toml` should use forward slashes (`/`) or escaped backslashes (`\\`)
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| Garbled display / missing colors | Use Windows Terminal, not `cmd.exe` |
+| `faiss-cpu` fails to install | Install [Visual C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) |
+| Clipboard not working | Chatty will fallback to file-based copy (see `copy_fallback_path` config) |
+| `chatty` command not found | Ensure uv's bin directory is in `$env:PATH` |
+
 ## License
 
 TBD
