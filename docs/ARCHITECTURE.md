@@ -506,7 +506,7 @@ LitkitError: "FAISS index not found at /path/to/indices. Run `litkit --build-onl
 LitkitError: "SQLite database not found at /path/to/db. Index may be corrupted."
 
 # litkit not installed (when rag_provider="litkit")
-ConfigError: "litkit package not installed. Run `uv add litkit` or set `rag_provider = none`."
+ConfigError: "litkit package not installed. Run `uv sync --extra litkit` or set `rag_provider = none`."
 ```
 
 All errors appear inline as styled message cards—never silent fallback to non-RAG mode.

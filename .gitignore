@@ -4,6 +4,9 @@ chatty.toml
 # Task prompt (re-used for new sessions, not part of codebase)
 prompt.md
 
+# Developer planning docs (version plans, roadmap, code reviews)
+dev/
+
 # Test artifacts
 snapshot_report.html
 

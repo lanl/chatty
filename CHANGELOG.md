@@ -280,7 +280,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Developer Notes
 
 - 421 total tests (was 410)
-- Dirty flag state transitions documented in v0.2.15-plan.md
 - All acceptance criteria met
 
 ---

@@ -71,7 +71,7 @@ def _create_litkit_provider(config: Config) -> RAGProvider:
     except ImportError:
         raise ConfigurationError(
             "litkit package not installed. "
-            "Run `uv add litkit` or set `rag_provider = 'none'` in config."
+            "Run `uv sync --extra litkit` or set `rag_provider = 'none'` in config."
         ) from None
 
     # Resolve workspace path
@@ -97,7 +97,7 @@ def _create_litkit_provider(config: Config) -> RAGProvider:
     except LitkitNotInstalledError:
         raise ConfigurationError(
             "litkit package not installed. "
-            "Run `uv add litkit` or set `rag_provider = 'none'` in config."
+            "Run `uv sync --extra litkit` or set `rag_provider = 'none'` in config."
         ) from None
     except LitkitError as e:
         # Re-raise litkit errors as configuration errors with clear messages

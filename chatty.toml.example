@@ -114,7 +114,7 @@ export_path = "./exports"
 
 # RAG provider: "none" (default) or "litkit"
 # When set to "litkit", chatty will use litkit for corpus-grounded responses.
-# Requires: litkit package installed (`uv add litkit` or `uv sync --extra litkit`)
+# Requires: litkit package installed (`uv sync --extra litkit`)
 # rag_provider = "none"
 
 # litkit workspace path

@@ -106,7 +106,6 @@ source = { editable = "." }
 dependencies = [
     { name = "httpx" },
     { name = "httpx-sse" },
-    { name = "litkit" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pyperclip" },
@@ -142,8 +141,7 @@ requires-dist = [
     { name = "faiss-cpu", marker = "extra == 'rag'", specifier = ">=1.8,<1.9" },
     { name = "httpx", specifier = ">=0.25" },
     { name = "httpx-sse", specifier = ">=0.4" },
-    { name = "litkit", editable = "../litkit" },
-    { name = "litkit", marker = "extra == 'litkit'", editable = "../litkit" },
+    { name = "litkit", marker = "extra == 'litkit'", git = "https://github.com/lanl/litkit.git" },
     { name = "numpy", marker = "extra == 'rag'", specifier = "<2" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
@@ -592,7 +590,7 @@ wheels = [
 [[package]]
 name = "litkit"
 version = "0.3.35"
-source = { editable = "../litkit" }
+source = { git = "https://github.com/lanl/litkit.git#20f1b827a6f26e07cc75133417f8b63b0ae70a7f" }
 dependencies = [
     { name = "faiss-cpu" },
     { name = "lxml" },
@@ -604,24 +602,6 @@ dependencies = [
     { name = "torch" },
     { name = "transformers" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "black", marker = "extra == 'dev'" },
-    { name = "faiss-cpu", specifier = ">=1.8,<1.9" },
-    { name = "lxml", specifier = ">=5.2,<6" },
-    { name = "mypy", marker = "extra == 'dev'" },
-    { name = "numpy", specifier = "<2" },
-    { name = "openai", specifier = ">=1,<2" },
-    { name = "pytest", marker = "extra == 'dev'" },
-    { name = "ruff", marker = "extra == 'dev'" },
-    { name = "safetensors", specifier = ">=0.4,<1" },
-    { name = "sentence-transformers", specifier = ">=3.1,<4" },
-    { name = "sympy", specifier = "==1.13.1" },
-    { name = "torch", specifier = ">=2.5.1" },
-    { name = "transformers", specifier = ">=4.44,<5" },
-]
-provides-extras = ["dev"]
 
 [[package]]
 name = "lxml"

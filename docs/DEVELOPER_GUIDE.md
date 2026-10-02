@@ -26,7 +26,7 @@ For other installation methods, see the [uv documentation](https://docs.astral.s
 ### 1. Clone the Repository
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/lanl/chatty.git
 cd chatty
 ```
 
@@ -238,12 +238,6 @@ Both files must have matching version numbers.
 | `CHANGELOG.md` | Add new version entry at top with date and changes |
 | `README.md` | Update if new features affect user-facing docs |
 
-### 3. Roadmap (If Applicable)
-
-| File | What to Update |
-|------|----------------|
-| `docs/ROADMAP.md` | Mark milestone as complete (add ✅, update status, check tasks) |
-
 ### Version Bump Checklist
 
 ```bash
@@ -258,13 +252,11 @@ Both files must have matching version numbers.
 
 # 4. Update README if needed
 
-# 5. Mark ROADMAP milestone complete (if applicable)
-
-# 6. Run pre-commit and tests
+# 5. Run pre-commit and tests
 uv run pre-commit run --all-files
 uv run pytest
 
-# 7. Commit all changes together
+# 6. Commit all changes together
 git add -A
 git commit -m "v0.2.9: Short description of release"
 ```
@@ -477,7 +469,7 @@ chatty integrates with litkit for RAG functionality. Here's how to develop and t
 ```bash
 # Clone litkit alongside chatty
 cd ~/Code
-git clone <litkit-repository-url> litkit
+git clone https://github.com/lanl/litkit.git
 
 # Set up litkit virtualenv
 cd litkit

@@ -9,7 +9,7 @@ Designed for laptop and HPC environments where browser-based UIs aren't practica
 ### Standard (connected network)
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/lanl/chatty.git
 cd chatty
 uv sync
 ```
@@ -202,7 +202,7 @@ When transcript logging is enabled, chatty shows the transcript file path on sta
 
 chatty can query a pre-built scientific literature corpus to ground LLM responses in source documents. This feature is **optional** and requires:
 
-1. **litkit** — The retrieval engine (separate package)
+1. **[litkit](https://github.com/lanl/litkit)** — The retrieval engine (separate package)
 2. **A pre-built vector store** — FAISS indices + SQLite database
 
 > **Important:** chatty only **queries** existing indices. Building indices is done via the `litkit` CLI (see [Building a Vector Store](#building-a-vector-store)).
@@ -210,16 +210,13 @@ chatty can query a pre-built scientific literature corpus to ground LLM response
 ### Installing RAG Dependencies
 
 ```bash
-# Install chatty with RAG dependencies (faiss-cpu, numpy)
-uv add chatty[rag]
+# From your chatty checkout: install RAG dependencies (faiss-cpu, numpy) and litkit
+uv sync --extra rag --extra litkit
 
-# Then install litkit (choose based on your access):
-
-# Option A: Local development (editable install)
-cd ~/Code/litkit && uv pip install -e .
-
-# Option B: Public GitHub (coming soon)
-# uv add litkit
+# Or, for litkit development, use an editable local clone instead:
+git clone https://github.com/lanl/litkit.git ~/Code/litkit
+uv sync --extra rag
+uv pip install -e ~/Code/litkit
 ```
 
 ### Configuring RAG
@@ -265,9 +262,9 @@ ls ~/litkit/workspace/sqlite/
 # Should show: litkit.sqlite3
 ```
 
-For detailed litkit documentation, see the litkit repository:
-- `LITKIT_MAC_GUIDE.md` — Mac/workstation setup
-- `LITKIT_CLUSTER_GUIDE.md` — HPC cluster deployment
+For detailed litkit documentation, see:
+- [LITKIT_MAC_GUIDE.md](https://github.com/lanl/litkit/blob/main/LITKIT_MAC_GUIDE.md) — Mac/workstation setup
+- [LITKIT_CLUSTER_GUIDE.md](https://github.com/lanl/litkit/blob/main/LITKIT_CLUSTER_GUIDE.md) — HPC cluster deployment
 
 ### Using RAG
 
@@ -481,7 +478,7 @@ Chatty should work on Windows, but **has not been tested**. Feedback and bug rep
 ### Installation
 
 ```powershell
-git clone <repo-url>
+git clone https://github.com/lanl/chatty.git
 cd chatty
 uv sync
 chatty chat
