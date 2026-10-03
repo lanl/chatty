@@ -68,6 +68,9 @@ wheels/
 venv/
 ENV/
 
+# Local coding-assistant settings and worktrees (may contain API keys)
+.claude/
+
 # IDE
 .idea/
 .vscode/
