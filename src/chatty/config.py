@@ -11,6 +11,10 @@ from typing import Any
 from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Windows has no POSIX group/other bits: stat() reports 0o666 for any writable file
+# whatever chmod set, so the mode check would reject every API key file there.
+CHECK_KEY_FILE_MODE = os.name != "nt"
+
 # Default system prompt for non-RAG mode
 DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
 
@@ -261,7 +265,7 @@ class Config(BaseSettings):
                 raise ValueError(f"API key file not found: {self.api_key_file}")
             # Check file permissions (should be 600)
             mode = path.stat().st_mode & 0o777
-            if mode & 0o077:
+            if CHECK_KEY_FILE_MODE and mode & 0o077:
                 raise ValueError(
                     f"{path} is readable by group/others (mode {oct(mode)}). Run: chmod 600 {path}"
                 )

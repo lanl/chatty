@@ -357,10 +357,11 @@ class TestSaveCurrentSession:
         """Handles error when saving fails."""
         mock_app._current_session = sample_session
         mock_app.conversation.messages = sample_session.messages
-        # Invalid path that can't be created
-        mock_app.config.get_session_path.return_value = Path("/nonexistent/path/sessions")
-
-        save_current_session(mock_app)
+        with patch(
+            "chatty.ui.session_handlers.save_session",
+            side_effect=PermissionError("read-only directory"),
+        ):
+            save_current_session(mock_app)
 
         # Should show error message
         chat_log = mock_app.query_one("#chat-log")
@@ -404,21 +405,17 @@ class TestHandleFilePath:
 
     def test_handle_file_path_permission_error(self, mock_app: MagicMock, tmp_path: Path) -> None:
         """Shows error when permission denied."""
-        # Create a file and make it unreadable
         restricted_file = tmp_path / "restricted.txt"
         restricted_file.write_text("secret")
-        restricted_file.chmod(0o000)
 
-        try:
+        # chmod 000 does not stop reads on Windows, or for root, so raise directly
+        with patch("builtins.open", side_effect=PermissionError(13, "Permission denied")):
             handle_file_path(mock_app, str(restricted_file))
 
-            chat_log = mock_app.query_one("#chat-log")
-            error_calls = [c for c in chat_log.add_message.call_args_list if c[0][0] == "error"]
-            assert len(error_calls) == 1
-            assert "permission" in error_calls[0][0][1].lower()
-        finally:
-            # Restore permissions so tmp_path can be cleaned up
-            restricted_file.chmod(0o644)
+        chat_log = mock_app.query_one("#chat-log")
+        error_calls = [c for c in chat_log.add_message.call_args_list if c[0][0] == "error"]
+        assert len(error_calls) == 1
+        assert "permission" in error_calls[0][0][1].lower()
 
     def test_handle_file_path_empty_file(self, mock_app: MagicMock, tmp_path: Path) -> None:
         """Shows error when file is empty."""
@@ -500,10 +497,11 @@ class TestSessionDirtyFlag:
         mock_app._current_session = sample_session
         mock_app.conversation.messages = sample_session.messages
         mock_app._session_dirty = True
-        # Invalid path that can't be created
-        mock_app.config.get_session_path.return_value = Path("/nonexistent/path")
-
-        save_current_session(mock_app)
+        with patch(
+            "chatty.ui.session_handlers.save_session",
+            side_effect=PermissionError("read-only directory"),
+        ):
+            save_current_session(mock_app)
 
         # Dirty flag should still be set (save failed)
         assert mock_app._session_dirty is True

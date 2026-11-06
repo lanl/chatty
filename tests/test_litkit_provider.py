@@ -1265,7 +1265,7 @@ class TestLitkitErrorClasses:
 
         err = WorkspaceNotFoundError(Path("/test/workspace"))
         msg = str(err)
-        assert "/test/workspace" in msg
+        assert str(Path("/test/workspace")) in msg
         assert "rag_workspace" in msg
 
     def test_faiss_index_not_found_error_message(self) -> None:
@@ -1274,7 +1274,7 @@ class TestLitkitErrorClasses:
 
         err = FAISSIndexNotFoundError(Path("/test/workspace"))
         msg = str(err)
-        assert "/test/workspace" in msg
+        assert str(Path("/test/workspace")) in msg
         assert "litkit --build-only" in msg
 
     def test_database_not_found_error_message(self) -> None:
@@ -1283,5 +1283,5 @@ class TestLitkitErrorClasses:
 
         err = DatabaseNotFoundError(Path("/test/litkit.db"))
         msg = str(err)
-        assert "/test/litkit.db" in msg
+        assert str(Path("/test/litkit.db")) in msg
         assert "Rebuild" in msg

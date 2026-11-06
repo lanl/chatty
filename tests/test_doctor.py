@@ -1,5 +1,6 @@
 """Tests for diagnostics/doctor command."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -104,6 +105,7 @@ def test_check_config_api_key_file(tmp_path: Path) -> None:
     assert "api_key_file" in (api_key_check.detail or "")
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows has no POSIX file modes")
 def test_check_config_api_key_file_bad_permissions(tmp_path: Path) -> None:
     """Test config check with insecure api_key_file."""
     key_file = tmp_path / "api-key"
@@ -117,6 +119,21 @@ def test_check_config_api_key_file_bad_permissions(tmp_path: Path) -> None:
     api_key_check = next(r for r in results if "api_key_file" in r.message)
     assert api_key_check.passed is False
     assert "Insecure permissions" in (api_key_check.detail or "")
+
+
+def test_check_config_api_key_file_mode_not_checked_on_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On Windows, where stat() reports 0o666 whatever chmod set, the mode is not checked."""
+    key_file = tmp_path / "api-key"
+    key_file.write_text("secret-key")
+    key_file.chmod(0o644)
+    monkeypatch.setattr("chatty.diagnostics.CHECK_KEY_FILE_MODE", False)
+
+    config = Config(base_url="https://api.test.com/v1", api_key_file=key_file)
+    results = check_config(ConfigWithSources(config=config, sources={}))
+    api_key_check = next(r for r in results if "api_key" in r.message)
+    assert api_key_check.passed is True
 
 
 def test_check_config_api_key_file_not_found() -> None:
@@ -145,7 +162,7 @@ def test_check_config_api_key_file_tilde_expansion(
     monkeypatch.setattr(
         Path,
         "expanduser",
-        lambda self: fake_home / str(self)[2:] if str(self).startswith("~/") else self,
+        lambda self: fake_home.joinpath(*self.parts[1:]) if self.parts[:1] == ("~",) else self,
     )
 
     config = Config(base_url="https://api.test.com/v1", api_key_file=Path("~/.api_key"))

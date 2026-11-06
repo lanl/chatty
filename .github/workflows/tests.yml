@@ -3,10 +3,6 @@ name: tests
 # The test suite on every push to main and every pull request. No paths filter:
 # a filter that skips a PR is how a regression lands unseen.
 #
-# Windows is untested (README, "Windows Support"), so its leg reports but does not
-# gate: continue-on-error keeps a red Windows run from failing the PR. Make it
-# required once the suite passes there.
-#
 # stdin is closed for pytest. The integration tests drive Textual apps, and with an
 # open stdin a run stalled partway through them. --timeout fails a hung test
 # with its stack instead of leaving the job to run until timeout-minutes.
@@ -28,17 +24,14 @@ jobs:
     name: pytest (${{ matrix.os }}, py${{ matrix.python }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
-    continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
         python: ["3.12", "3.13"]
-        experimental: [false]
         include:
           - os: windows-latest
             python: "3.13"
-            experimental: true
     steps:
       - uses: actions/checkout@v7
 
