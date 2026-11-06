@@ -1,13 +1,26 @@
 """Smoke tests for the CLI commands."""
 
+import re
 from pathlib import Path
 
 import pytest
+from click.testing import Result
 from typer.testing import CliRunner
 
 from chatty.cli import app
 
 runner = CliRunner()
+
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def plain(result: Result) -> str:
+    """Return stdout without ANSI styling.
+
+    Typer forces Rich color on when GITHUB_ACTIONS or FORCE_COLOR is set, and the
+    escape codes split option names such as `--query-file` in help output.
+    """
+    return _ANSI.sub("", result.stdout)
 
 
 class TestChattyHelp:
@@ -17,45 +30,45 @@ class TestChattyHelp:
         """chatty --version shows version."""
         result = runner.invoke(app, ["--version"])
         assert result.exit_code == 0
-        assert "chatty" in result.stdout
+        assert "chatty" in plain(result)
         # Version format: chatty X.Y.Z
-        assert "0." in result.stdout or "1." in result.stdout
+        assert "0." in plain(result) or "1." in plain(result)
 
     def test_version_short(self) -> None:
         """chatty -V shows version (short form)."""
         result = runner.invoke(app, ["-V"])
         assert result.exit_code == 0
-        assert "chatty" in result.stdout
+        assert "chatty" in plain(result)
 
     def test_main_help(self) -> None:
         """chatty --help returns successfully."""
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
-        assert "chatty" in result.stdout.lower()
-        assert "chat" in result.stdout
-        assert "doctor" in result.stdout
-        assert "print-config" in result.stdout
+        assert "chatty" in plain(result).lower()
+        assert "chat" in plain(result)
+        assert "doctor" in plain(result)
+        assert "print-config" in plain(result)
 
     def test_chat_help(self) -> None:
         """chatty chat --help returns successfully."""
         result = runner.invoke(app, ["chat", "--help"])
         assert result.exit_code == 0
-        assert "--query-file" in result.stdout
-        assert "--base-url" in result.stdout
-        assert "--model" in result.stdout
+        assert "--query-file" in plain(result)
+        assert "--base-url" in plain(result)
+        assert "--model" in plain(result)
 
     def test_doctor_help(self) -> None:
         """chatty doctor --help returns successfully."""
         result = runner.invoke(app, ["doctor", "--help"])
         assert result.exit_code == 0
-        assert "--verbose" in result.stdout
-        assert "--skip-connectivity" in result.stdout
+        assert "--verbose" in plain(result)
+        assert "--skip-connectivity" in plain(result)
 
     def test_print_config_help(self) -> None:
         """chatty print-config --help returns successfully."""
         result = runner.invoke(app, ["print-config", "--help"])
         assert result.exit_code == 0
-        assert "--sources" in result.stdout
+        assert "--sources" in plain(result)
 
 
 class TestPrintConfig:
@@ -69,8 +82,8 @@ class TestPrintConfig:
 
         result = runner.invoke(app, ["print-config"])
         assert result.exit_code == 0
-        assert "Configuration:" in result.stdout
-        assert "base_url" in result.stdout
+        assert "Configuration:" in plain(result)
+        assert "base_url" in plain(result)
 
 
 class TestDoctor:
@@ -84,7 +97,7 @@ class TestDoctor:
 
         result = runner.invoke(app, ["doctor", "--skip-connectivity"])
         # Should fail but not crash
-        assert result.exit_code != 0 or "base_url" in result.stdout.lower()
+        assert result.exit_code != 0 or "base_url" in plain(result).lower()
 
     def test_doctor_verbose(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """doctor --verbose shows detailed output."""
@@ -92,7 +105,7 @@ class TestDoctor:
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
         result = runner.invoke(app, ["doctor", "--verbose", "--skip-connectivity"])
-        assert "base_url" in result.stdout.lower()
+        assert "base_url" in plain(result).lower()
 
 
 class TestPrintConfigDetailed:
@@ -105,7 +118,7 @@ class TestPrintConfigDetailed:
 
         result = runner.invoke(app, ["print-config", "--sources"])
         assert result.exit_code == 0
-        assert "from:" in result.stdout
+        assert "from:" in plain(result)
 
 
 class TestChatCommand:
