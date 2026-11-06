@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import httpx
 
 from chatty.client.http import build_sync_client
+from chatty.config import CHECK_KEY_FILE_MODE
 
 if TYPE_CHECKING:
     from chatty.config import ConfigWithSources
@@ -71,7 +72,7 @@ def check_config(config_with_sources: ConfigWithSources) -> list[DiagnosticResul
         if file_path.exists():
             # Check permissions
             mode = file_path.stat().st_mode & 0o777
-            if mode & 0o077:
+            if CHECK_KEY_FILE_MODE and mode & 0o077:
                 results.append(
                     DiagnosticResult(
                         passed=False,

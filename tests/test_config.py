@@ -114,6 +114,7 @@ def test_get_api_key_from_file(tmp_path: Path) -> None:
     assert config.get_api_key() == "file-api-key"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows has no POSIX file modes")
 def test_get_api_key_file_bad_permissions(tmp_path: Path) -> None:
     """Test API key file with insecure permissions fails."""
     key_file = tmp_path / "api-key"
@@ -123,6 +124,19 @@ def test_get_api_key_file_bad_permissions(tmp_path: Path) -> None:
     config = Config(api_key_file=key_file)
     with pytest.raises(ValueError, match="readable by group/others"):
         config.get_api_key()
+
+
+def test_get_api_key_file_mode_not_checked_on_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On Windows, where stat() reports 0o666 whatever chmod set, the mode is not checked."""
+    key_file = tmp_path / "api-key"
+    key_file.write_text("file-api-key\n")
+    key_file.chmod(0o644)
+    monkeypatch.setattr("chatty.config.CHECK_KEY_FILE_MODE", False)
+
+    config = Config(api_key_file=key_file)
+    assert config.get_api_key() == "file-api-key"
 
 
 def test_get_api_key_file_not_found() -> None:

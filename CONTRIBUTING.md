@@ -54,10 +54,10 @@ tests. UI changes may need the Textual snapshots in `tests/__snapshots__/`
 regenerated (`uv run pytest --snapshot-update`). Look at the snapshot report
 before you commit regenerated snapshots.
 
-CI runs the suite on Linux and macOS (Python 3.12 and 3.13), runs the pre-commit
-hooks and `mypy`, and checks that every commit is signed off. Windows runs too but
-does not gate, since Windows is [untested](README.md#windows-support-experimental).
-If some tests fail on your platform before your change too, say which ones in the PR.
+CI runs the suite on Linux and macOS (Python 3.12 and 3.13) and on Windows
+(Python 3.13), runs the pre-commit hooks and `mypy`, and checks that every commit
+is signed off. If some tests fail on your platform before your change too, say
+which ones in the PR.
 
 ## Fixing bugs
 
