@@ -50,7 +50,17 @@ jobs:
       - name: Install
         run: uv sync --dev --locked
 
+      # tiktoken downloads its encodings on first use; tests/conftest.py loads them
+      # before it blocks DNS. Caching them spares each run the download.
+      - uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/tiktoken
+          key: tiktoken-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          restore-keys: tiktoken-${{ runner.os }}-
+
       - name: pytest
+        env:
+          TIKTOKEN_CACHE_DIR: ${{ runner.temp }}/tiktoken
         shell: bash
         run: uv run --no-sync pytest -n auto --timeout=120 < /dev/null
 

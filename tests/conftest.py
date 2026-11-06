@@ -1,5 +1,6 @@
 """Shared pytest fixtures for chatty tests."""
 
+import contextlib
 import os
 import socket
 import tempfile
@@ -33,6 +34,21 @@ def isolate_config(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 _LOOPBACK = {"localhost", "127.0.0.1", "::1"}
 _real_getaddrinfo = socket.getaddrinfo
+
+
+@pytest.fixture(scope="session", autouse=True)
+def tiktoken_encodings() -> None:
+    """Load the tiktoken encodings the code uses before DNS is blocked.
+
+    Session-scoped, so pytest runs it before the function-scoped block_dns.
+    tiktoken downloads them on first use and caches them, so a fresh machine needs
+    the network once. If the download fails, the tests that count tokens fail.
+    """
+    import tiktoken
+
+    for name in ("cl100k_base", "o200k_base"):
+        with contextlib.suppress(Exception):  # the tests that need it report it
+            tiktoken.get_encoding(name)
 
 
 @pytest.fixture(autouse=True)
