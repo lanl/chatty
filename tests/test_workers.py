@@ -8,8 +8,10 @@ Tests the async worker functions extracted from ChatApp:
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
-from unittest.mock import AsyncMock, MagicMock
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
@@ -215,6 +217,62 @@ class TestFetchAndShowModels:
 
 class TestSendMessage:
     """Tests for send_message function."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "error", [ChattyClientError("retrieval failed"), RuntimeError("retrieval failed")]
+    )
+    async def test_retrieval_failure_records_user_before_error(
+        self, mock_app: MagicMock, error: Exception
+    ) -> None:
+        mock_app.rag_provider.augment = AsyncMock(side_effect=error)
+
+        await send_message(mock_app)
+
+        records = mock_app.transcript.log_message.call_args_list
+        assert records[0] == call("user", "test message")
+        assert records[1].args[0] == "error"
+        assert len(records) == 2
+        mock_app.client.chat.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_retrieval_failure_writes_user_to_transcript(
+        self, mock_app: MagicMock, tmp_path: Path
+    ) -> None:
+        from chatty.config import Config
+        from chatty.core.transcript import TranscriptLogger
+
+        logger = TranscriptLogger(Config(transcript_enabled=True, transcript_path=str(tmp_path)))
+        path = logger.start_session()
+        assert path is not None
+        mock_app.transcript = logger
+        mock_app.rag_provider.augment = AsyncMock(side_effect=RuntimeError("retrieval failed"))
+
+        try:
+            await send_message(mock_app)
+        finally:
+            logger.close()
+
+        records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+        assert [(record["role"], record["content"]) for record in records] == [
+            ("user", "test message"),
+            ("error", "Unexpected error: retrieval failed"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_chat_failure_preserves_rag_metadata_without_duplicate_user(
+        self, mock_app: MagicMock
+    ) -> None:
+        metadata = RAGMetadata(chunk_count=5)
+        mock_app.rag_provider.augment = AsyncMock(return_value=([], metadata))
+        mock_app.client.chat = AsyncMock(side_effect=ChattyClientError("chat failed"))
+
+        await send_message(mock_app)
+
+        assert mock_app.transcript.log_message.call_args_list == [
+            call("user", "test message", rag_metadata=metadata),
+            call("error", "chat failed"),
+        ]
 
     @pytest.mark.asyncio
     async def test_send_message_no_client(self, mock_app: MagicMock) -> None:
