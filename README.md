@@ -445,6 +445,8 @@ timeout_s = 60
 
 ## Development
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution policy (DCO sign-off, tests, review).
+
 ```bash
 uv sync --dev
 pre-commit install
