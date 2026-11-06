@@ -1,8 +1,10 @@
 """Shared pytest fixtures for chatty tests."""
 
 import os
+import socket
 import tempfile
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 from pydantic import SecretStr
@@ -27,6 +29,29 @@ def isolate_config(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
             if var.startswith("CHATTY_") or var.startswith("OPENAI_"):
                 monkeypatch.delenv(var, raising=False)
         yield
+
+
+_LOOPBACK = {"localhost", "127.0.0.1", "::1"}
+_real_getaddrinfo = socket.getaddrinfo
+
+
+@pytest.fixture(autouse=True)
+def block_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Refuse DNS lookups for anything but loopback.
+
+    The suite must not reach a real endpoint. Without this, an app test whose
+    config leaves context_window = "auto" looks up its fake base_url host at
+    startup, and teardown waits for the lookup: about 5 s per test on macOS, where
+    a .local name goes to mDNS, and a hang on the GitHub macOS runner.
+    """
+
+    def guarded(host: Any, *args: Any, **kwargs: Any) -> Any:
+        name = host.decode() if isinstance(host, bytes) else host
+        if name not in _LOOPBACK:
+            raise socket.gaierror(socket.EAI_NONAME, f"DNS blocked in tests: {name}")
+        return _real_getaddrinfo(host, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", guarded)
 
 
 @pytest.fixture

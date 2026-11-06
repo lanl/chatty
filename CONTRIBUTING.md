@@ -42,12 +42,13 @@ uv run pre-commit install
 ## Running tests
 
 ```bash
-uv run pytest -n auto        # in parallel; a plain `pytest` takes minutes
+uv run pytest -n auto        # in parallel
 uv run ruff check . && uv run ruff format --check .
 uv run mypy src
 ```
 
-The suite must not reach a real LLM endpoint. Mock HTTP with `respx`, and use the
+The suite must not reach a real LLM endpoint, and `tests/conftest.py` refuses DNS
+lookups for anything but loopback. Mock HTTP with `respx`, and use the
 fixtures in `tests/conftest.py`, which also keep your own config out of the
 tests. UI changes may need the Textual snapshots in `tests/__snapshots__/`
 regenerated (`uv run pytest --snapshot-update`). Look at the snapshot report
