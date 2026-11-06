@@ -16,4 +16,5 @@ repos:
           - httpx>=0.25
           - typer>=0.9
           - textual>=0.40
+          - types-pyperclip
         args: [--ignore-missing-imports]

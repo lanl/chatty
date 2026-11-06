@@ -271,10 +271,10 @@ class OpenAIClient:
                     # Retries exhausted
                     if response.status_code == 429:
                         raise RateLimitError(
-                            f"Rate limited after {MAX_RETRIES + 1} attempts. " "Try again later."
+                            f"Rate limited after {MAX_RETRIES + 1} attempts. Try again later."
                         )
                     raise APIError(
-                        f"Server error {response.status_code} after " f"{MAX_RETRIES + 1} attempts."
+                        f"Server error {response.status_code} after {MAX_RETRIES + 1} attempts."
                     )
 
                 # Non-retryable error

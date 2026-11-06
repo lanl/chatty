@@ -747,7 +747,7 @@ class UnsavedChangesModal(ModalScreen[str | None]):
         with Vertical(id="unsaved-dialog"):
             yield Label("Unsaved Changes", id="unsaved-title")
             yield Label(
-                "You have unsaved changes that will be lost " "if you load a different session.",
+                "You have unsaved changes that will be lost if you load a different session.",
                 id="unsaved-message",
             )
             with Container(id="unsaved-buttons"):
@@ -877,8 +877,7 @@ class CompressionPreviewModal(ModalScreen[bool | None]):
 
             if self._has_code_blocks:
                 yield Label(
-                    "⚠ Warning: Conversation contains code blocks that "
-                    "may be lost in compression.",
+                    "⚠ Warning: Conversation contains code blocks that may be lost in compression.",
                     id="compression-warning",
                 )
 

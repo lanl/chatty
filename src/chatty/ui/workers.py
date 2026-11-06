@@ -148,7 +148,7 @@ async def fetch_context_window(app: ChatApp) -> None:
     except Exception as e:
         chat_log.add_message(
             "error",
-            f"⚠ Failed to determine context window: {e}\n\n" "Using fallback value: 128,000 tokens",
+            f"⚠ Failed to determine context window: {e}\n\nUsing fallback value: 128,000 tokens",
         )
 
 

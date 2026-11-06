@@ -134,6 +134,7 @@ dev = [
     { name = "pytest-textual-snapshot" },
     { name = "respx" },
     { name = "ruff" },
+    { name = "types-pyperclip" },
 ]
 
 [package.metadata]
@@ -164,6 +165,7 @@ dev = [
     { name = "pytest-textual-snapshot", specifier = ">=1.0.0" },
     { name = "respx", specifier = ">=0.20" },
     { name = "ruff", specifier = ">=0.1" },
+    { name = "types-pyperclip", specifier = ">=1.11.0.20260508" },
 ]
 
 [[package]]
@@ -1863,6 +1865,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/36/bf/8825b5929afd84d0dabd606c67cd57b8388cb3ec385f7ef19c5cc2202069/typer-0.21.1.tar.gz", hash = "sha256:ea835607cd752343b6b2b7ce676893e5a0324082268b48f27aa058bdb7d2145d", size = 110371, upload-time = "2026-01-06T11:21:10.989Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/1d/d9257dd49ff2ca23ea5f132edf1281a0c4f9de8a762b9ae399b670a59235/typer-0.21.1-py3-none-any.whl", hash = "sha256:7985e89081c636b88d172c2ee0cfe33c253160994d47bdfdc302defd7d1f1d01", size = 47381, upload-time = "2026-01-06T11:21:09.824Z" },
+]
+
+[[package]]
+name = "types-pyperclip"
+version = "1.11.0.20260508"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7a/ab/189f37a135df54686543ab99e8e1e6f8892efedc389beb80a72e038416e9/types_pyperclip-1.11.0.20260508.tar.gz", hash = "sha256:e5dafdc929874f3f6bf495171d06cbc22483954a9ac0699ca53abbf9eadc592d", size = 7323, upload-time = "2026-05-08T04:48:18.355Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d2/61/02207b51ce9f3967d52e72749118d77a730cc29acad1ad623aa9b49a4e2f/types_pyperclip-1.11.0.20260508-py3-none-any.whl", hash = "sha256:4c55f5d7d2224804c54d936881a0e53d8e41b909a64611333662eb04e9bfd1e4", size = 7628, upload-time = "2026-05-08T04:48:17.593Z" },
 ]
 
 [[package]]
