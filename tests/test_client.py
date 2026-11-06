@@ -211,9 +211,7 @@ class TestOpenAIClientStreaming:
     ) -> None:
         """Test streaming skips malformed JSON."""
         sse_data = (
-            b"data: not-json\n\n"
-            b'data: {"choices":[{"delta":{"content":"OK"}}]}\n\n'
-            b"data: [DONE]\n\n"
+            b'data: not-json\n\ndata: {"choices":[{"delta":{"content":"OK"}}]}\n\ndata: [DONE]\n\n'
         )
 
         respx.post("https://api.test.com/v1/chat/completions").mock(

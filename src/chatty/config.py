@@ -247,8 +247,7 @@ class Config(BaseSettings):
             mode = path.stat().st_mode & 0o777
             if mode & 0o077:
                 raise ValueError(
-                    f"{path} is readable by group/others (mode {oct(mode)}). "
-                    f"Run: chmod 600 {path}"
+                    f"{path} is readable by group/others (mode {oct(mode)}). Run: chmod 600 {path}"
                 )
             return path.read_text().strip()
         if self.api_key:

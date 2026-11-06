@@ -68,8 +68,7 @@ def load_session_file(app: ChatApp) -> None:
         # Show confirmation
         chat_log.add_message(
             "system",
-            f"Loaded session: {session.metadata.name}\n"
-            f"Messages: {session.metadata.message_count}",
+            f"Loaded session: {session.metadata.name}\nMessages: {session.metadata.message_count}",
         )
 
         # Update status bar with token count
@@ -151,8 +150,7 @@ def handle_session_load(app: ChatApp, filepath: Path | None) -> None:
         # Show confirmation
         chat_log.add_message(
             "system",
-            f"Loaded session: {session.metadata.name}\n"
-            f"Messages: {session.metadata.message_count}",
+            f"Loaded session: {session.metadata.name}\nMessages: {session.metadata.message_count}",
         )
 
         # Clear dirty flag - loaded session is "saved"
@@ -218,7 +216,7 @@ def save_current_session(app: ChatApp) -> None:
         app._session_dirty = False  # Clear dirty flag after successful save
         chat_log.add_message(
             "system",
-            f"Session saved: {app._current_session.metadata.name}\n" f"File: {filepath}",
+            f"Session saved: {app._current_session.metadata.name}\nFile: {filepath}",
         )
     except Exception as e:
         chat_log.add_message("error", f"Failed to save session: {e}")

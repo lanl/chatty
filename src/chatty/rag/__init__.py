@@ -45,7 +45,7 @@ def get_provider(config: Config) -> RAGProvider:
         return _create_litkit_provider(config)
 
     raise UnknownProviderError(
-        f"Unknown RAG provider: '{config.rag_provider}'. " f"Valid options: 'none', 'litkit'."
+        f"Unknown RAG provider: '{config.rag_provider}'. Valid options: 'none', 'litkit'."
     )
 
 

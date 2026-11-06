@@ -692,7 +692,7 @@ class CitationsWidget(Static):
             and self._rewritten_query != self._original_query
         ):
             # Build content with clear labels
-            content = f"Original: {self._original_query}\n" f"Searched: {self._rewritten_query}"
+            content = f"Original: {self._original_query}\nSearched: {self._rewritten_query}"
             yield Collapsible(
                 Static(content, classes="query-rewritten-content"),
                 title="🔍 Query Rewritten",
