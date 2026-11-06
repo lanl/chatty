@@ -228,6 +228,22 @@ class Config(BaseSettings):
             raise ValueError("rag_top_chunks must be between 1 and 100")
         return v
 
+    @field_validator("rag_rerank_top_n")
+    @classmethod
+    def validate_rag_rerank_top_n(cls, v: int) -> int:
+        """Validate reranking keeps a useful number of chunks (1-100)."""
+        if not 1 <= v <= 100:
+            raise ValueError("rag_rerank_top_n must be between 1 and 100")
+        return v
+
+    @field_validator("rag_multi_query_count")
+    @classmethod
+    def validate_rag_multi_query_count(cls, v: int) -> int:
+        """Validate multi-query retrieval requests 1-10 variants."""
+        if not 1 <= v <= 10:
+            raise ValueError("rag_multi_query_count must be between 1 and 10")
+        return v
+
     # Session Persistence
     session_path: str = "./sessions"
 

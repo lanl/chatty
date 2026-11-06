@@ -423,6 +423,32 @@ def test_timeout_negative() -> None:
         Config(timeout_s=-1)
 
 
+@pytest.mark.parametrize("value", [1, 10, 100])
+def test_rag_rerank_top_n_valid_range(value: int) -> None:
+    """Reranking accepts values inside its documented positive range."""
+    assert Config(rag_rerank_top_n=value).rag_rerank_top_n == value
+
+
+@pytest.mark.parametrize("value", [0, -1, 101])
+def test_rag_rerank_top_n_out_of_range(value: int) -> None:
+    """Reranking rejects values that would drop all or unintended chunks."""
+    with pytest.raises(ValueError, match="rag_rerank_top_n must be between 1 and 100"):
+        Config(rag_rerank_top_n=value)
+
+
+@pytest.mark.parametrize("value", [1, 3, 10])
+def test_rag_multi_query_count_valid_range(value: int) -> None:
+    """Multi-query retrieval accepts the supported number of variants."""
+    assert Config(rag_multi_query_count=value).rag_multi_query_count == value
+
+
+@pytest.mark.parametrize("value", [0, -2, 11])
+def test_rag_multi_query_count_out_of_range(value: int) -> None:
+    """Multi-query retrieval rejects non-positive and excessive variant counts."""
+    with pytest.raises(ValueError, match="rag_multi_query_count must be between 1 and 10"):
+        Config(rag_multi_query_count=value)
+
+
 # ============================================================================
 # RAG System Prompt Tests (v0.4.1)
 # ============================================================================
