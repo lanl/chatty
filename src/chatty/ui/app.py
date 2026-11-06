@@ -351,7 +351,7 @@ class ChatApp(App[None]):
                 "  ./chatty.toml\n"
                 "  ~/.config/chatty/config.toml\n\n"
                 "To fix:\n"
-                "  • Run from repo root: cd ~/Code/chatty\n"
+                "  • Run chatty from the directory that holds chatty.toml\n"
                 "  • Or set: export CHATTY_CONFIG='/path/to/chatty.toml'\n"
                 "  • Or create: ~/.config/chatty/config.toml\n\n"
                 "Run 'chatty doctor' to diagnose."
