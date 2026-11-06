@@ -1,0 +1,61 @@
+name: lint
+
+# Runs the project's pre-commit hooks (ruff, ruff-format, mypy) at the versions
+# pinned in .pre-commit-config.yaml, so CI and a local `pre-commit run` cannot
+# disagree about formatting. --all-files checks the whole tree, so a merge that
+# reintroduces drift is caught even in a file the PR did not touch.
+#
+# mypy also runs here from the locked dev environment, which has every runtime
+# dependency installed. The pre-commit hook runs mypy with --ignore-missing-imports
+# against a short list of packages, so it can miss what the full run catches.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pre-commit:
+    name: pre-commit (pinned hooks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: pre-commit run --all-files
+        run: uvx pre-commit run --all-files --show-diff-on-failure
+
+  mypy:
+    name: mypy --strict (locked env)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --dev --locked
+
+      - name: mypy src
+        run: uv run --no-sync mypy src

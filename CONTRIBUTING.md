@@ -42,7 +42,7 @@ uv run pre-commit install
 ## Running tests
 
 ```bash
-uv run pytest
+uv run pytest -n auto        # in parallel; a plain `pytest` takes minutes
 uv run ruff check . && uv run ruff format --check .
 uv run mypy src
 ```
@@ -53,9 +53,10 @@ tests. UI changes may need the Textual snapshots in `tests/__snapshots__/`
 regenerated (`uv run pytest --snapshot-update`). Look at the snapshot report
 before you commit regenerated snapshots.
 
-chatty has no CI yet, so say in the PR what you ran and on which platform. If
-some tests fail on your platform before your change too (Windows is
-[untested](README.md#windows-support-experimental)), name them.
+CI runs the suite on Linux and macOS (Python 3.12 and 3.13), runs the pre-commit
+hooks and `mypy`, and checks that every commit is signed off. Windows runs too but
+does not gate, since Windows is [untested](README.md#windows-support-experimental).
+If some tests fail on your platform before your change too, say which ones in the PR.
 
 ## Fixing bugs
 
