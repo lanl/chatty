@@ -8,7 +8,8 @@ name: tests
 # required once the suite passes there.
 #
 # stdin is closed for pytest. The integration tests drive Textual apps, and with an
-# open stdin a run stalled partway through them.
+# open stdin a run stalled partway through them. --timeout fails a hung test
+# with its stack instead of leaving the job to run until timeout-minutes.
 
 on:
   push:
@@ -51,7 +52,7 @@ jobs:
 
       - name: pytest
         shell: bash
-        run: uv run --no-sync pytest -n auto < /dev/null
+        run: uv run --no-sync pytest -n auto --timeout=120 < /dev/null
 
       # Uploaded only when the snapshot test fails, so a reviewer can see what
       # changed without reproducing it.
