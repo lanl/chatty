@@ -27,7 +27,10 @@ def mock_config(monkeypatch: MonkeyPatch, tmp_path: Path) -> ConfigWithSources:
 
     from chatty.config import Config, ConfigWithSources
 
-    # Isolate from user config
+    # Isolate from user config, and from a chatty.toml in the directory pytest runs
+    # from: the startup warning shown when no config file is found is part of the
+    # snapshot.
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
 
