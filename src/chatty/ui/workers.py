@@ -233,9 +233,13 @@ async def send_message(app: ChatApp) -> None:  # noqa: C901
     try:
         # Use RAG provider to augment messages with context
         # NullProvider passes through unchanged; LitkitProvider adds context
-        messages, rag_metadata = await app.rag_provider.augment(
-            app.conversation, user_text, client=app.client
-        )
+        try:
+            messages, rag_metadata = await app.rag_provider.augment(
+                app.conversation, user_text, client=app.client
+            )
+        except Exception:
+            app.transcript.log_message("user", user_text)
+            raise
         app.last_rag_metadata = rag_metadata
 
         # Log user message with RAG metadata (after augment has metadata)
