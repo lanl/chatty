@@ -445,7 +445,7 @@ timeout_s = 60
 
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution policy (DCO sign-off, tests, review).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution policy (DCO sign-off, tests, review) and [CONTRIBUTORS.md](CONTRIBUTORS.md) for contributor credits.
 
 ```bash
 uv sync --dev
