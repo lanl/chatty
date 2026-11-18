@@ -88,8 +88,8 @@ which ones in the PR.
 ## Credit
 
 Everyone whose code is merged is listed in [`CONTRIBUTORS.md`](CONTRIBUTORS.md),
-by name with GitHub handle — `Ada Lovelace (@alovelace)`. You are added when your
-first contribution merges. We try to get your name right from what you have
+by name with GitHub handle — `Ada Lovelace (@alovelace)`. Add your entry on your first pull request, or ask a maintainer
+to add it for you. We try to get your name right from what you have
 already made public: the name on your commits, your GitHub profile, and how you
 signed the pull request.
 
@@ -97,3 +97,15 @@ That is a best effort, and it is your name. If you want to be listed
 differently, say so on your pull request or open an issue, and we will change
 it. You can ask for another form of your name, your handle only, a different
 handle, or no listing at all.
+
+The advisory **contributors listed** check reads each PR's commit authors from
+GitHub and looks for their handles in the list. For commits GitHub cannot link
+to an account, it checks the recorded name against listed names and handles.
+It skips bots. If someone is missing, add their entry on the same PR. If the
+branch cannot be edited, a maintainer can add the entry immediately after merge.
+
+With an authenticated GitHub CLI, run `python3 ci/contributors.py check --pr NUMBER`
+for a PR (replace `NUMBER` with its number), or `python3 ci/contributors.py check --all`
+to audit the default branch against your local copy of the list. GitHub's PR
+endpoint returns up to 250 commits. Check additional commits and
+`Co-authored-by` trailers manually when assigning credit.
