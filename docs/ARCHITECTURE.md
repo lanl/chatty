@@ -514,7 +514,7 @@ All errors appear inline as styled message cards—never silent fallback to non-
 **Inspect Mode (v0.4.3):**
 Operators can preview retrieved context before LLM generation:
 - `Ctrl+I` toggles inspect mode — queries run retrieval only, no LLM call
-- Retrieved context display shows document title, relevance score, snippet
+- Retrieved context lists sources in citation order with their titles and excerpts
 - From inspect view: `Enter` proceeds to LLM, `Esc` cancels to refine query
 - `Ctrl+G` after normal response shows what context was injected
 

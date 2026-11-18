@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
+from textwrap import dedent
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -125,11 +127,7 @@ class TestLitkitProviderInit:
 
 
 class TestLitkitProviderRetrieve:
-    """Tests for LitkitProvider retrieval logic.
-
-    Note: _retrieve_chunks now runs in a subprocess for isolation from Textual.
-    Tests mock subprocess.run() instead of litkit modules directly.
-    """
+    """Tests for subprocess retrieval and its error handling."""
 
     @pytest.fixture
     def valid_workspace(self, tmp_path: Path) -> Path:
@@ -161,61 +159,49 @@ class TestLitkitProviderRetrieve:
             assert chunks == []
             assert paper_ids == []
 
-    def test_retrieve_chunks_success(self, valid_workspace: Path) -> None:
-        """_retrieve_chunks returns RetrievedChunk objects with metadata and paper_ids."""
-        import json
+    @pytest.mark.parametrize("settings", [{"nprobe": 32, "nlist": 1024}, {}], ids=["ivfpq", "flat"])
+    async def test_augment_uses_litkit_ranked_ids(
+        self, valid_workspace: Path, monkeypatch: pytest.MonkeyPatch, settings: dict[str, int]
+    ) -> None:
+        """Run the retrieval subprocess against litkit's (ranked IDs, settings) contract."""
+        from chatty.rag.litkit_provider import LitkitProvider
 
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = json.dumps(
-            {
-                "chunks": [
-                    {
-                        "chunk_id": 10,
-                        "text": "Chunk 1 text about HIV treatments.",
-                        "paper_title": "Paper A",
-                        "pmid": "12345",
-                        "pmcid": None,
-                        "score": 0.9,
-                    },
-                    {
-                        "chunk_id": 20,
-                        "text": "Chunk 2 text about side effects.",
-                        "paper_title": "Paper B",
-                        "pmid": None,
-                        "pmcid": "PMC67890",
-                        "score": 0.8,
-                    },
-                ],
-                "paper_ids": [100, 200, 300],
-            }
+        package = valid_workspace / "litkit"
+        package.mkdir()
+        (package / "__init__.py").touch()
+        (package / "db.py").write_text("def connect_db(path): return None\n")
+        (package / "cli.py").write_text(
+            dedent(f"""
+                def deps(): pass
+
+                def shortlist_papers(query, k):
+                    return [100, 200]
+
+                def search_chunks_constrained(query, paper_ids, k):
+                    return [20, 10], {settings!r}
+
+                def get_chunks(conn, ids):
+                    rows = {{
+                        10: dict(id=10, paper_title="Paper A", text="Excerpt A", pmid="12345"),
+                        20: dict(id=20, paper_title="Paper B", text="Excerpt B", pmcid="PMC67890"),
+                    }}
+                    return [rows[i] for i in ids]
+            """)
         )
-        mock_result.stderr = ""
-
-        with (
-            patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"),
-            patch("chatty.rag.litkit_provider.subprocess.run", return_value=mock_result),
-        ):
-            from chatty.rag.litkit_provider import LitkitProvider
-
+        monkeypatch.setenv("PYTHONPATH", str(valid_workspace))
+        with patch.object(LitkitProvider, "_check_litkit_installed"):
             provider = LitkitProvider(workspace=valid_workspace)
-            chunks, paper_ids = provider._retrieve_chunks("HIV treatments")
 
-            assert len(chunks) == 2
-            assert chunks[0].chunk_id == 10
-            assert chunks[0].text == "Chunk 1 text about HIV treatments."
-            assert chunks[0].paper_title == "Paper A"
-            assert chunks[0].pmid == "12345"
-            assert chunks[0].pmcid is None
-            assert chunks[0].score == 0.9
+        messages, metadata = await provider.augment(Conversation(), "test query")
 
-            assert chunks[1].chunk_id == 20
-            assert chunks[1].paper_title == "Paper B"
-            assert chunks[1].pmcid == "PMC67890"
-            assert chunks[1].score == 0.8
-
-            # Also verify paper_ids returned
-            assert paper_ids == [100, 200, 300]
+        assert provider._last_paper_ids == [100, 200]
+        assert [(s.title, s.full_text, s.pmid, s.pmcid) for s in metadata.sources] == [
+            ("Paper B", "Excerpt B", None, "PMC67890"),
+            ("Paper A", "Excerpt A", "12345", None),
+        ]
+        assert all(source.score is None for source in metadata.sources)
+        assert "[1.1] Paper B (PMCID: PMC67890)\nExcerpt B" in messages[-1].content
+        assert "[1.2] Paper A (PMID: 12345)\nExcerpt A" in messages[-1].content
 
     def test_retrieve_chunks_subprocess_error(self, valid_workspace: Path) -> None:
         """_retrieve_chunks raises LitkitError on subprocess failure."""
@@ -308,7 +294,7 @@ class TestLitkitProviderTokenBudget:
         """_fit_to_budget returns empty list for zero budget."""
         from chatty.rag.litkit_provider import RetrievedChunk
 
-        chunks = [RetrievedChunk(chunk_id=1, text="Test chunk", paper_title="Paper", score=0.9)]
+        chunks = [RetrievedChunk(chunk_id=1, text="Test chunk", paper_title="Paper")]
         result = provider._fit_to_budget(chunks, 0)
         assert result == []
 
@@ -316,7 +302,7 @@ class TestLitkitProviderTokenBudget:
         """_fit_to_budget returns empty list for negative budget."""
         from chatty.rag.litkit_provider import RetrievedChunk
 
-        chunks = [RetrievedChunk(chunk_id=1, text="Test chunk", paper_title="Paper", score=0.9)]
+        chunks = [RetrievedChunk(chunk_id=1, text="Test chunk", paper_title="Paper")]
         result = provider._fit_to_budget(chunks, -100)
         assert result == []
 
@@ -325,26 +311,21 @@ class TestLitkitProviderTokenBudget:
         from chatty.rag.litkit_provider import RetrievedChunk
 
         chunks = [
-            RetrievedChunk(chunk_id=1, text="Short text", paper_title="Paper 1", score=0.9),
-            RetrievedChunk(chunk_id=2, text="Another text", paper_title="Paper 2", score=0.8),
+            RetrievedChunk(chunk_id=1, text="Short text", paper_title="Paper 1"),
+            RetrievedChunk(chunk_id=2, text="Another text", paper_title="Paper 2"),
         ]
         # Large budget should fit all chunks
         result = provider._fit_to_budget(chunks, 10000)
         assert len(result) == 2
 
-    def test_fit_to_budget_orders_by_score(self, provider: Any) -> None:
-        """_fit_to_budget orders chunks by score (highest first)."""
+    def test_fit_to_budget_keeps_first_ranked_copy_of_text(self, provider: Any) -> None:
         from chatty.rag.litkit_provider import RetrievedChunk
 
-        chunks = [
-            RetrievedChunk(chunk_id=1, text="Low score", paper_title="Paper 1", score=0.5),
-            RetrievedChunk(chunk_id=2, text="High score", paper_title="Paper 2", score=0.9),
-            RetrievedChunk(chunk_id=3, text="Mid score", paper_title="Paper 3", score=0.7),
-        ]
-        result = provider._fit_to_budget(chunks, 10000)
-        assert result[0].score == 0.9
-        assert result[1].score == 0.7
-        assert result[2].score == 0.5
+        first = RetrievedChunk(8, "Same excerpt", "First source")
+        duplicate = RetrievedChunk(1, "Same  excerpt", "Duplicate source")
+        second = RetrievedChunk(4, "Another excerpt", "Second source")
+
+        assert provider._fit_to_budget([first, duplicate, second], 1000) == [first, second]
 
     def test_fit_to_budget_truncates_when_needed(self, provider: Any) -> None:
         """_fit_to_budget truncates chunks list when budget exceeded."""
@@ -356,7 +337,6 @@ class TestLitkitProviderTokenBudget:
                 chunk_id=i,
                 text="A" * 1000,  # ~250 tokens each
                 paper_title=f"Paper {i}",
-                score=0.9 - i * 0.1,
             )
             for i in range(10)
         ]
@@ -426,14 +406,12 @@ class TestLitkitProviderFormatting:
                 text="Test content about HIV.",
                 paper_title="Paper A",
                 pmid="12345",
-                score=0.9,
             ),
             RetrievedChunk(
                 chunk_id=2,
                 text="More content about treatments.",
                 paper_title="Paper B",
                 pmcid="PMC67890",
-                score=0.8,
             ),
         ]
         result = provider._format_context(chunks, turn=1)
@@ -455,7 +433,6 @@ class TestLitkitProviderFormatting:
                 text="Short text",
                 paper_title="Paper A",
                 pmid="12345",
-                score=0.9,
             ),
         ]
         metadata = provider._build_metadata(chunks, total_chunks=5, retrieval_time_s=1.2)
@@ -465,7 +442,7 @@ class TestLitkitProviderFormatting:
         assert isinstance(metadata.sources[0], RAGSource)
         assert metadata.sources[0].title == "Paper A"
         assert metadata.sources[0].pmid == "12345"
-        assert metadata.sources[0].score == 0.9
+        assert metadata.sources[0].score is None
         assert metadata.sources[0].snippet == "Short text"
         assert metadata.retrieval_time_s == 1.2
         assert metadata.chunk_count == 5
@@ -479,7 +456,6 @@ class TestLitkitProviderFormatting:
                 chunk_id=1,
                 text="A" * 500,  # Long text
                 paper_title="Paper A",
-                score=0.9,
             ),
         ]
         metadata = provider._build_metadata(chunks, total_chunks=1, retrieval_time_s=0.5)
@@ -496,7 +472,6 @@ class TestLitkitProviderFormatting:
                 text="Some text",
                 paper_title="Paper B",
                 pmcid="PMC12345",
-                score=0.8,
             ),
         ]
         metadata = provider._build_metadata(chunks, total_chunks=1, retrieval_time_s=0.3)
@@ -555,7 +530,6 @@ class TestLitkitProviderAugment:
                 text="Relevant content",
                 paper_title="Paper A",
                 pmid="12345",
-                score=0.9,
             ),
         ]
         with (
@@ -589,7 +563,6 @@ class TestLitkitProviderAugment:
                 chunk_id=1,
                 text="Content",
                 paper_title="Paper",
-                score=0.9,
             ),
         ]
 
@@ -845,8 +818,8 @@ class TestLitkitProviderReranking:
         from chatty.rag.litkit_provider import RetrievedChunk
 
         chunks = [
-            RetrievedChunk(chunk_id=1, text="Chunk 1", paper_title="Paper", score=0.5),
-            RetrievedChunk(chunk_id=2, text="Chunk 2", paper_title="Paper", score=0.4),
+            RetrievedChunk(chunk_id=1, text="Chunk 1", paper_title="Paper"),
+            RetrievedChunk(chunk_id=2, text="Chunk 2", paper_title="Paper"),
         ]
         client = MagicMock()
         # Should not call client.chat since chunks < top_n
@@ -861,12 +834,12 @@ class TestLitkitProviderReranking:
         from chatty.rag.litkit_provider import RetrievedChunk
 
         chunks = [
-            RetrievedChunk(chunk_id=1, text="Chunk 1", paper_title="P1", score=0.9),
-            RetrievedChunk(chunk_id=2, text="Chunk 2", paper_title="P2", score=0.8),
-            RetrievedChunk(chunk_id=3, text="Chunk 3", paper_title="P3", score=0.7),
-            RetrievedChunk(chunk_id=4, text="Chunk 4", paper_title="P4", score=0.6),
-            RetrievedChunk(chunk_id=5, text="Chunk 5", paper_title="P5", score=0.5),
-            RetrievedChunk(chunk_id=6, text="Chunk 6", paper_title="P6", score=0.4),
+            RetrievedChunk(chunk_id=1, text="Chunk 1", paper_title="P1"),
+            RetrievedChunk(chunk_id=2, text="Chunk 2", paper_title="P2"),
+            RetrievedChunk(chunk_id=3, text="Chunk 3", paper_title="P3"),
+            RetrievedChunk(chunk_id=4, text="Chunk 4", paper_title="P4"),
+            RetrievedChunk(chunk_id=5, text="Chunk 5", paper_title="P5"),
+            RetrievedChunk(chunk_id=6, text="Chunk 6", paper_title="P6"),
         ]
 
         # LLM scores: chunk 3 is best (5), chunk 1 is worst (1)
@@ -888,10 +861,10 @@ class TestLitkitProviderReranking:
         from chatty.rag.litkit_provider import RetrievedChunk
 
         chunks = [
-            RetrievedChunk(chunk_id=1, text="Chunk 1", paper_title="P1", score=0.9),
-            RetrievedChunk(chunk_id=2, text="Chunk 2", paper_title="P2", score=0.8),
-            RetrievedChunk(chunk_id=3, text="Chunk 3", paper_title="P3", score=0.7),
-            RetrievedChunk(chunk_id=4, text="Chunk 4", paper_title="P4", score=0.6),
+            RetrievedChunk(chunk_id=1, text="Chunk 1", paper_title="P1"),
+            RetrievedChunk(chunk_id=2, text="Chunk 2", paper_title="P2"),
+            RetrievedChunk(chunk_id=3, text="Chunk 3", paper_title="P3"),
+            RetrievedChunk(chunk_id=4, text="Chunk 4", paper_title="P4"),
         ]
 
         client = MagicMock(spec=OpenAIClient)
@@ -911,9 +884,9 @@ class TestLitkitProviderReranking:
         from chatty.rag.litkit_provider import RetrievedChunk
 
         chunks = [
-            RetrievedChunk(chunk_id=1, text="Chunk 1", paper_title="P1", score=0.9),
-            RetrievedChunk(chunk_id=2, text="Chunk 2", paper_title="P2", score=0.8),
-            RetrievedChunk(chunk_id=3, text="Chunk 3", paper_title="P3", score=0.7),
+            RetrievedChunk(chunk_id=1, text="Chunk 1", paper_title="P1"),
+            RetrievedChunk(chunk_id=2, text="Chunk 2", paper_title="P2"),
+            RetrievedChunk(chunk_id=3, text="Chunk 3", paper_title="P3"),
         ]
 
         client = MagicMock(spec=OpenAIClient)
@@ -944,40 +917,34 @@ class TestLitkitProviderReranking:
             assert provider_disabled._rerank is False
 
     @pytest.mark.asyncio
-    async def test_augment_applies_reranking_when_enabled(self, provider: Any) -> None:
-        """augment() calls _rerank_chunks when rerank=True and client provided."""
+    async def test_augment_fits_reranked_chunks_in_citation_order(self, provider: Any) -> None:
         from chatty.client.openai_client import AssistantMessage, OpenAIClient
         from chatty.rag.litkit_provider import RetrievedChunk
 
-        chunks = [
-            RetrievedChunk(chunk_id=i, text=f"C{i}", paper_title="P", score=0.9 - i * 0.1)
-            for i in range(10)
-        ]
+        @dataclass
+        class ScoredChunk(RetrievedChunk):
+            # A conflicting retrieval score exposes any second sort during budget fitting.
+            score: float = 0.0
 
-        conversation = Conversation(model="gpt-4")
-        conversation.add_system_message("System")
-
+        chunks = [ScoredChunk(i, f"Excerpt {i}", f"Paper {i}", score=1 / i) for i in range(1, 7)]
         client = MagicMock(spec=OpenAIClient)
-        # Return scores for reranking
-        client.chat = AsyncMock(return_value=AssistantMessage(content="[5,4,3,2,1,5,4,3,2,1]"))
+        client.chat = AsyncMock(return_value=AssistantMessage(content="[1, 3, 2, 5, 4, 2]"))
+        # Space for two excerpts after the response and formatting reservations.
+        conversation = Conversation(context_window=2310)
+        with patch.object(provider, "_retrieve_chunks", return_value=(chunks, [100])):
+            messages, metadata = await provider.augment(conversation, "test query", client=client)
 
-        with (
-            patch.object(provider, "_retrieve_chunks", return_value=(chunks, [100])),
-            patch.object(provider, "_rerank_chunks", wraps=provider._rerank_chunks),
-        ):
-            await provider.augment(conversation, "test query", client=client)
-            # _rerank_chunks should have been called
-            provider._rerank_chunks.assert_called_once()
+        assert [source.title for source in metadata.sources] == ["Paper 4", "Paper 5"]
+        assert "[1.1] Paper 4\nExcerpt 4" in messages[-1].content
+        assert "[1.2] Paper 5\nExcerpt 5" in messages[-1].content
+        assert "Paper 2" not in messages[-1].content
 
     @pytest.mark.asyncio
     async def test_augment_skips_reranking_without_client(self, provider: Any) -> None:
         """augment() skips reranking when no client provided."""
         from chatty.rag.litkit_provider import RetrievedChunk
 
-        chunks = [
-            RetrievedChunk(chunk_id=i, text=f"C{i}", paper_title="P", score=0.9 - i * 0.1)
-            for i in range(10)
-        ]
+        chunks = [RetrievedChunk(chunk_id=i, text=f"C{i}", paper_title="P") for i in range(10)]
 
         conversation = Conversation(model="gpt-4")
         conversation.add_system_message("System")
@@ -998,10 +965,7 @@ class TestLitkitProviderReranking:
         from chatty.client.openai_client import OpenAIClient
         from chatty.rag.litkit_provider import RetrievedChunk
 
-        chunks = [
-            RetrievedChunk(chunk_id=i, text=f"C{i}", paper_title="P", score=0.9 - i * 0.1)
-            for i in range(10)
-        ]
+        chunks = [RetrievedChunk(chunk_id=i, text=f"C{i}", paper_title="P") for i in range(10)]
 
         conversation = Conversation(model="gpt-4")
         conversation.add_system_message("System")
@@ -1062,40 +1026,6 @@ class TestLitkitProviderMultiQuery:
             assert provider._multi_query is True
             assert provider._multi_query_count == 5
 
-    def test_deduplicate_by_chunk_id(self, provider: Any) -> None:
-        """_deduplicate_by_chunk_id removes duplicates by chunk_id."""
-        from chatty.rag.litkit_provider import RetrievedChunk
-
-        chunks = [
-            RetrievedChunk(chunk_id=1, text="C1", paper_title="P1", score=0.9),
-            RetrievedChunk(chunk_id=2, text="C2", paper_title="P2", score=0.8),
-            RetrievedChunk(chunk_id=1, text="C1 dup", paper_title="P1", score=0.7),
-            RetrievedChunk(chunk_id=3, text="C3", paper_title="P3", score=0.6),
-        ]
-
-        result = provider._deduplicate_by_chunk_id(chunks)
-
-        assert len(result) == 3
-        chunk_ids = [c.chunk_id for c in result]
-        assert 1 in chunk_ids
-        assert 2 in chunk_ids
-        assert 3 in chunk_ids
-
-    def test_deduplicate_keeps_highest_score(self, provider: Any) -> None:
-        """_deduplicate_by_chunk_id keeps highest score per chunk_id."""
-        from chatty.rag.litkit_provider import RetrievedChunk
-
-        chunks = [
-            RetrievedChunk(chunk_id=1, text="C1 low", paper_title="P1", score=0.5),
-            RetrievedChunk(chunk_id=1, text="C1 high", paper_title="P1", score=0.9),
-            RetrievedChunk(chunk_id=1, text="C1 mid", paper_title="P1", score=0.7),
-        ]
-
-        result = provider._deduplicate_by_chunk_id(chunks)
-
-        assert len(result) == 1
-        assert result[0].score == 0.9
-
     @pytest.mark.asyncio
     async def test_multi_query_retrieve_generates_variants(self, provider: Any) -> None:
         """_multi_query_retrieve generates variants and retrieves for each."""
@@ -1109,9 +1039,7 @@ class TestLitkitProviderMultiQuery:
         client = MagicMock(spec=OpenAIClient)
         client.chat = AsyncMock(return_value=AssistantMessage(content='["variant 1", "variant 2"]'))
 
-        chunks = [
-            RetrievedChunk(chunk_id=i, text=f"C{i}", paper_title="P", score=0.5) for i in range(3)
-        ]
+        chunks = [RetrievedChunk(chunk_id=i, text=f"C{i}", paper_title="P") for i in range(3)]
 
         retrieve_calls: list[str] = []
 
@@ -1129,32 +1057,28 @@ class TestLitkitProviderMultiQuery:
             assert "original query" in retrieve_calls
 
     @pytest.mark.asyncio
-    async def test_multi_query_retrieve_deduplicates(self, provider: Any) -> None:
-        """_multi_query_retrieve deduplicates chunks across variants."""
+    async def test_multi_query_retrieve_merges_by_best_rank(self, provider: Any) -> None:
+        """A variant's top hit can outrank its lower position in the original query."""
         from chatty.client.openai_client import AssistantMessage, OpenAIClient
         from chatty.rag.litkit_provider import RetrievedChunk
 
-        conversation = Conversation(model="gpt-4")
-        conversation.add_system_message("System")
-
         client = MagicMock(spec=OpenAIClient)
-        client.chat = AsyncMock(return_value=AssistantMessage(content='["variant 1"]'))
+        client.chat = AsyncMock(return_value=AssistantMessage(content='["variant query"]'))
 
-        call_count = [0]
+        def retrieve(query: str, _reuse_ids: Any = None) -> tuple[list[RetrievedChunk], list[int]]:
+            if query == "original query":
+                ids, papers = [8, 5, 3, 7], [100]
+            else:
+                ids, papers = [3, 6, 8], [200]
+            return [RetrievedChunk(i, f"Excerpt {i}", "Paper") for i in ids], papers
 
-        def mock_retrieve(_query: str, _reuse_ids: Any = None) -> tuple[Any, list[int]]:
-            call_count[0] += 1
-            # Return overlapping chunks
-            return [
-                RetrievedChunk(chunk_id=1, text="C1", paper_title="P", score=0.9),
-                RetrievedChunk(chunk_id=2, text="C2", paper_title="P", score=0.8),
-            ], [100]
+        with patch.object(provider, "_retrieve_chunks", side_effect=retrieve):
+            chunks, papers = await provider._multi_query_retrieve(
+                "original query", Conversation(), client
+            )
 
-        with patch.object(provider, "_retrieve_chunks", side_effect=mock_retrieve):
-            result_chunks, _ = await provider._multi_query_retrieve("query", conversation, client)
-
-            # Should be deduplicated (only 2 unique chunk_ids)
-            assert len(result_chunks) == 2
+        assert [chunk.chunk_id for chunk in chunks] == [8, 3, 5, 6, 7]
+        assert set(papers) == {100, 200}
 
     @pytest.mark.asyncio
     async def test_multi_query_retrieve_fallback_on_error(self, provider: Any) -> None:
@@ -1168,7 +1092,7 @@ class TestLitkitProviderMultiQuery:
         client = MagicMock(spec=OpenAIClient)
         client.chat = AsyncMock(side_effect=Exception("LLM error"))
 
-        chunks = [RetrievedChunk(chunk_id=1, text="C1", paper_title="P", score=0.9)]
+        chunks = [RetrievedChunk(chunk_id=1, text="C1", paper_title="P")]
 
         with patch.object(provider, "_retrieve_chunks", return_value=(chunks, [100])):
             result_chunks, _ = await provider._multi_query_retrieve("query", conversation, client)
@@ -1188,7 +1112,7 @@ class TestLitkitProviderMultiQuery:
         client = MagicMock(spec=OpenAIClient)
         client.chat = AsyncMock(return_value=AssistantMessage(content='["variant"]'))
 
-        chunks = [RetrievedChunk(chunk_id=1, text="C1", paper_title="P", score=0.9)]
+        chunks = [RetrievedChunk(chunk_id=1, text="C1", paper_title="P")]
 
         with (
             patch.object(
@@ -1207,7 +1131,7 @@ class TestLitkitProviderMultiQuery:
         conversation = Conversation(model="gpt-4")
         conversation.add_system_message("System")
 
-        chunks = [RetrievedChunk(chunk_id=1, text="C1", paper_title="P", score=0.9)]
+        chunks = [RetrievedChunk(chunk_id=1, text="C1", paper_title="P")]
 
         with (
             patch.object(provider, "_multi_query_retrieve") as mock_multi,
@@ -1228,7 +1152,7 @@ class TestLitkitProviderMultiQuery:
         conversation.add_system_message("System")
 
         client = MagicMock(spec=OpenAIClient)
-        chunks = [RetrievedChunk(chunk_id=1, text="C1", paper_title="P", score=0.9)]
+        chunks = [RetrievedChunk(chunk_id=1, text="C1", paper_title="P")]
 
         with (
             patch.object(provider_multi_disabled, "_multi_query_retrieve") as mock_multi,
