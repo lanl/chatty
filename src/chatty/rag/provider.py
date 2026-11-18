@@ -17,7 +17,7 @@ class RAGSource:
         pmcid: PubMed Central ID if available.
         snippet: Preview text from the retrieved chunk (first ~200 chars).
         full_text: Complete text of the retrieved chunk.
-        score: Relevance score from retrieval (higher is better).
+        score: Relevance score if the provider supplies one (higher is better).
     """
 
     title: str
@@ -25,7 +25,7 @@ class RAGSource:
     pmcid: str | None = None
     snippet: str = ""
     full_text: str = ""
-    score: float = 0.0
+    score: float | None = None
 
 
 @dataclass

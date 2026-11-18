@@ -7,7 +7,8 @@ import json
 import subprocess
 import sys
 import textwrap
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from itertools import zip_longest
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -88,13 +89,14 @@ try:
         print(json.dumps({"chunks": [], "paper_ids": []}))
         sys.exit(0)
 
-    # Stage 2: Search chunks within papers
-    chunk_ids, scores = search_chunks_constrained(query, paper_ids, top_chunks)
+    # litkit returns ranked chunk IDs and index settings (nprobe, nlist, etc.).
+    chunk_ids, _settings = search_chunks_constrained(query, paper_ids, top_chunks)
 
     if not chunk_ids:
         print(json.dumps({"chunks": [], "paper_ids": paper_ids}))
         sys.exit(0)
 
+    # get_chunks preserves the requested ID order.
     chunks_data = get_chunks(conn, chunk_ids)
 
     chunks = []
@@ -112,15 +114,12 @@ try:
             pmid = getattr(chunk_data, "pmid", None)
             pmcid = getattr(chunk_data, "pmcid", None)
 
-        score = scores[i] if i < len(scores) else 0.0
-
         chunks.append({
             "chunk_id": int(chunk_id) if chunk_id else 0,
             "text": str(text),
             "paper_title": str(paper_title),
             "pmid": str(pmid) if pmid else None,
             "pmcid": str(pmcid) if pmcid else None,
-            "score": float(score),
         })
 
     # Return chunks AND paper_ids for potential reuse in next turn
@@ -188,7 +187,6 @@ class RetrievedChunk:
     paper_title: str
     pmid: str | None = None
     pmcid: str | None = None
-    score: float = 0.0
 
 
 class LitkitProvider:
@@ -406,7 +404,6 @@ class LitkitProvider:
                     paper_title=d["paper_title"],
                     pmid=d["pmid"],
                     pmcid=d["pmcid"],
-                    score=d["score"],
                 )
                 for d in chunk_dicts
             ]
@@ -496,11 +493,11 @@ class LitkitProvider:
     ) -> list[RetrievedChunk]:
         """Fit chunks to available token budget.
 
-        Chunks are ordered by score (best first). We include as many chunks
-        as possible while staying within the token budget.
+        Preserve retrieval or reranker order so the highest-ranked passages
+        receive the first citations and take priority when space is tight.
 
         Args:
-            chunks: List of retrieved chunks (should be sorted by score).
+            chunks: Retrieved chunks in priority order.
             available_tokens: Maximum tokens available for context.
 
         Returns:
@@ -512,9 +509,6 @@ class LitkitProvider:
         # Deduplicate chunks first (litkit may return same chunk multiple times)
         chunks = self._deduplicate_chunks(chunks)
 
-        # Sort chunks by score (highest first) to prioritize best matches
-        sorted_chunks = sorted(chunks, key=lambda c: c.score, reverse=True)
-
         # Estimate overhead for context formatting
         # "The following excerpts..." + source headers + "---\nPlease use..."
         formatting_overhead = 200  # Conservative estimate
@@ -522,7 +516,7 @@ class LitkitProvider:
         fitted_chunks: list[RetrievedChunk] = []
         total_tokens = formatting_overhead
 
-        for chunk in sorted_chunks:
+        for chunk in chunks:
             # Estimate tokens for this chunk (text + source header)
             chunk_tokens = self._estimate_tokens(chunk.text)
             # Add overhead for source info line
@@ -539,15 +533,7 @@ class LitkitProvider:
                         # Truncate text to fit
                         truncated_text = self._truncate_to_tokens(chunk.text, remaining)
                         if truncated_text:
-                            truncated_chunk = RetrievedChunk(
-                                chunk_id=chunk.chunk_id,
-                                text=truncated_text,
-                                paper_title=chunk.paper_title,
-                                pmid=chunk.pmid,
-                                pmcid=chunk.pmcid,
-                                score=chunk.score,
-                            )
-                            fitted_chunks.append(truncated_chunk)
+                            fitted_chunks.append(replace(chunk, text=truncated_text))
                 break
 
             fitted_chunks.append(chunk)
@@ -644,7 +630,7 @@ class LitkitProvider:
 
         Returns:
             List of top_n chunks sorted by LLM-assigned relevance score.
-            Falls back to original chunks (by retrieval score) on error.
+            Falls back to retrieval order on error.
         """
         if not chunks:
             return []
@@ -687,7 +673,6 @@ class LitkitProvider:
 
         except Exception:
             # On any error (LLM failure, parse error), fall back to original order
-            # Original chunks are already sorted by retrieval score
             return chunks[:top_n]
 
     def _parse_rerank_scores(self, response: str, expected_count: int) -> list[int]:
@@ -749,31 +734,6 @@ class LitkitProvider:
 
         return result
 
-    def _deduplicate_by_chunk_id(
-        self,
-        chunks: list[RetrievedChunk],
-    ) -> list[RetrievedChunk]:
-        """Remove duplicate chunks by chunk_id.
-
-        Used for multi-query retrieval where the same chunk may be
-        returned by multiple query variants. Preserves first occurrence
-        and keeps highest score for each chunk_id.
-
-        Args:
-            chunks: List of retrieved chunks (may contain duplicates).
-
-        Returns:
-            Deduplicated list with highest score per chunk_id.
-        """
-        seen: dict[int, RetrievedChunk] = {}
-        for chunk in chunks:
-            if chunk.chunk_id not in seen:
-                seen[chunk.chunk_id] = chunk
-            elif chunk.score > seen[chunk.chunk_id].score:
-                # Keep the higher-scoring version
-                seen[chunk.chunk_id] = chunk
-        return list(seen.values())
-
     async def _multi_query_retrieve(
         self,
         query: str,
@@ -784,7 +744,7 @@ class LitkitProvider:
         """Retrieve using multiple query variants for improved recall.
 
         Generates N query variants using LLM, runs retrieval for each,
-        and unions the results with deduplication.
+        and merges by best rank across queries. Ties follow query order.
 
         Args:
             query: The primary search query.
@@ -802,8 +762,7 @@ class LitkitProvider:
                 query, conversation, client, count=self._multi_query_count
             )
 
-            # Collect all chunks from all variants
-            all_chunks: list[RetrievedChunk] = []
+            ranked_lists: list[list[RetrievedChunk]] = []
             all_paper_ids: set[int] = set()
 
             # Run retrieval for each variant (including original query)
@@ -813,16 +772,18 @@ class LitkitProvider:
                 chunks, paper_ids = await asyncio.to_thread(
                     self._retrieve_chunks, q, reuse_paper_ids
                 )
-                all_chunks.extend(chunks)
+                ranked_lists.append(chunks)
                 all_paper_ids.update(paper_ids)
 
-            # Deduplicate by chunk_id, keeping highest scores
-            unique_chunks = self._deduplicate_by_chunk_id(all_chunks)
+            # Visit each query's first hit, then each second hit, and so on.
+            # The first occurrence of an ID is its best rank in any query.
+            unique_chunks: dict[int, RetrievedChunk] = {}
+            for hits_at_rank in zip_longest(*ranked_lists):
+                for chunk in hits_at_rank:
+                    if chunk is not None:
+                        unique_chunks.setdefault(chunk.chunk_id, chunk)
 
-            # Sort by score descending
-            unique_chunks.sort(key=lambda c: c.score, reverse=True)
-
-            return unique_chunks, list(all_paper_ids)
+            return list(unique_chunks.values()), list(all_paper_ids)
 
         except Exception:
             # Fall back to single-query retrieval
@@ -854,7 +815,6 @@ class LitkitProvider:
                 pmcid=chunk.pmcid,
                 snippet=snippet,
                 full_text=chunk.text,  # Store complete chunk text
-                score=chunk.score,
             )
             sources.append(source)
 

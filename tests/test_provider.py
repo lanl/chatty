@@ -16,7 +16,7 @@ def test_rag_source_minimal() -> None:
     assert source.pmid is None
     assert source.pmcid is None
     assert source.snippet == ""
-    assert source.score == 0.0
+    assert source.score is None
 
 
 def test_rag_source_full() -> None:
