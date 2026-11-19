@@ -255,6 +255,7 @@ def verify(target: str, evidence: Path) -> None:
             check_mac_destination(root, cwd, env)
             # A Bash login profile commonly sources .bashrc itself.
             (user_home / ".bash_login").write_text('. "$HOME/.bashrc"\n')
+            (user_home / ".zshenv").write_text('ZDOTDIR="$HOME/.config/zsh settings"\n')
         print(command, flush=True)
         install(command, cwd, env)
         work = cwd / "research project"

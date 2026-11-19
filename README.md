@@ -17,14 +17,14 @@ user account and internet access are sufficient.
 
 <!-- install-macos-arm64 -->
 ```bash
-(installer=$(curl -fsSL https://raw.githubusercontent.com/lanl/chatty/a42061f407b4e15487553d79778457db25e20f3d/release/install.sh) && /bin/sh -c "$installer")
+(installer=$(curl -fsSL https://raw.githubusercontent.com/lanl/chatty/aec61cf65f70cf8e434570806e76a7b0e82dd474/release/install.sh) && /bin/sh -c "$installer")
 ```
 
 **Windows x64** (64-bit Windows PowerShell 5.1 or PowerShell 7)
 
 <!-- install-windows-x64 -->
 ```powershell
-& ([scriptblock]::Create((Invoke-RestMethod -ErrorAction Stop https://raw.githubusercontent.com/lanl/chatty/a42061f407b4e15487553d79778457db25e20f3d/release/install.ps1)))
+& ([scriptblock]::Create((Invoke-RestMethod -ErrorAction Stop https://raw.githubusercontent.com/lanl/chatty/aec61cf65f70cf8e434570806e76a7b0e82dd474/release/install.ps1)))
 ```
 
 Open a fresh terminal (on Windows, close all Windows Terminal windows first).
