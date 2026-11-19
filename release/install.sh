@@ -42,14 +42,18 @@ install_suite() (
 
     active=$(readlink "$root/bin" || true)
     runtime=${active%/commands}
-    if [ -f "$runtime/manifest.sha256" ] && [ "$(cat "$runtime/manifest.sha256")" = "$manifest_sha" ] && healthy "$runtime"; then
+    if [ -n "$runtime" ] && [ -f "$runtime/manifest.sha256" ] &&
+        [ "$(cat "$runtime/manifest.sha256")" = "$manifest_sha" ] && healthy "$runtime"; then
         echo "Using installed $tag."
     else
         fetch 'https://github.com/astral-sh/uv/releases/download/0.13.9/uv-aarch64-apple-darwin.tar.gz' uv.tar.gz "$uv_sha"
         tar -xzf uv.tar.gz uv-aarch64-apple-darwin/uv
         candidate=$(mktemp -d "$root/runtimes/suite.XXXXXXXX")
         export UV_PYTHON_INSTALL_DIR="$root/python"
-        ./uv-aarch64-apple-darwin/uv venv --no-config --no-project --managed-python --python "$python_version" "$candidate"
+        # uv optionally runs install_name_tool for extension builds. On a stock Mac
+        # that executable is a shim that opens the Xcode installation dialog.
+        PATH="$tmp/uv-aarch64-apple-darwin" ./uv-aarch64-apple-darwin/uv venv --quiet \
+            --no-config --no-project --managed-python --python "$python_version" "$candidate"
         py="$candidate/bin/python"
         "$py" -I -m ensurepip
         "$py" -I -m pip --isolated --disable-pip-version-check install --no-index --only-binary=:all: --require-hashes \
