@@ -243,14 +243,16 @@ def verify(target: str, evidence: Path) -> None:
         assert runtime["python"] == manifest["python"]
         assert Path(runtime["base_prefix"]).resolve().is_relative_to(root.resolve() / "python")
         assert runtime["faiss_cpu_distribution"] == installed["faiss-cpu"]["version"]
-        run_id = os.environ.get("GITHUB_RUN_ID")
+        context = HERE / "runner.json"
+        runner = json.loads(context.read_bytes()) if context.exists() else os.environ
+        run_id = runner.get("GITHUB_RUN_ID")
         result_data = {
-            "run": f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{run_id}"
+            "run": f"https://github.com/{runner['GITHUB_REPOSITORY']}/actions/runs/{run_id}"
             if run_id
             else None,
-            "attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
-            "workflow_revision": os.environ.get("GITHUB_SHA"),
-            "runner_image": os.environ.get("ImageVersion", platform.platform()),  # noqa: SIM112
+            "attempt": runner.get("GITHUB_RUN_ATTEMPT"),
+            "workflow_revision": runner.get("GITHUB_SHA"),
+            "runner_image": runner.get("ImageVersion", platform.platform()),
             "platform": target,
             "commands": command.splitlines(),
             "cwd": str(work),

@@ -65,6 +65,15 @@ jobs:
         with:
           name: install-instructions
           path: ${{ runner.temp }}/instructions
+      - name: Record the run identity before switching users
+        shell: python
+        run: |
+          import json, os
+          from pathlib import Path
+          keys = ("GITHUB_RUN_ID", "GITHUB_REPOSITORY", "GITHUB_RUN_ATTEMPT", "GITHUB_SHA", "ImageVersion")
+          context = {key: os.environ[key] for key in keys}
+          path = Path(os.environ["RUNNER_TEMP"]) / "instructions/release/runner.json"
+          path.write_text(json.dumps(context), encoding="utf-8")
       - name: Verify as a standard macOS user
         if: runner.os == 'macOS'
         shell: bash
@@ -73,9 +82,7 @@ jobs:
           cp -R "$RUNNER_TEMP/instructions/." "$area/"
           sudo sysadminctl -addUser chattytest -password "$(uuidgen)"
           sudo chown -R chattytest "$area"
-          sudo -u chattytest -H env TMPDIR="$area" GITHUB_RUN_ID="$GITHUB_RUN_ID" \
-            GITHUB_REPOSITORY="$GITHUB_REPOSITORY" GITHUB_SHA="$GITHUB_SHA" \
-            GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" ImageVersion="$ImageVersion" \
+          sudo -u chattytest -H env TMPDIR="$area" \
             /usr/bin/python3 -u "$area/release/verify.py" macos-arm64 "$area/evidence.json"
           sudo cp "$area/evidence.json" "$RUNNER_TEMP/macos-arm64.evidence.json"
 
