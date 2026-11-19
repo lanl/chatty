@@ -32,6 +32,7 @@ print(
     json.dumps(
         {
             "executable": sys.executable,
+            "base_prefix": sys.base_prefix,
             "python": platform.python_version(),
             "machine": platform.machine(),
             "modules": paths,

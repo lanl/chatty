@@ -8,34 +8,44 @@ Designed for laptop and HPC environments where browser-based UIs aren't practica
 
 ### Laptop release (Chatty, text-fetch and LANL LitKit)
 
-With [uv](https://docs.astral.sh/uv/getting-started/installation/) on PATH, run the
-commands for your platform in a directory where you want a new `chatty-suite` environment.
-They provision CPython 3.12.12, enable its bundled pip and install the CPU suite from hash-checked wheels.
-Each requirements file names the exact GitHub Release assets for all three applications.
+Run the command for your platform from any directory. The installer downloads uv,
+provisions a private CPython 3.12.12, and verifies the release manifest, the platform
+requirements file, and every wheel before exposing the three commands. A standard
+user account and internet access are sufficient.
 
-**macOS 14 or later on Apple Silicon**
+**macOS 14 or later on Apple Silicon** (zsh or Bash)
 
 <!-- install-macos-arm64 -->
 ```bash
-uv venv --managed-python --python 3.12.12 chatty-suite
-./chatty-suite/bin/python -m ensurepip
-./chatty-suite/bin/python -m pip install --no-index --only-binary=:all: --require-hashes -r https://github.com/lanl/chatty/releases/download/laptop-2026.11.1/macos-arm64.txt
+(installer=$(curl -fsSL https://raw.githubusercontent.com/lanl/chatty/16d1fe0e429eb737fe1aaab168702fb24cbb02a3/release/install.sh) && /bin/sh -c "$installer")
 ```
 
-**Windows x64 (PowerShell)**
+**Windows x64** (64-bit Windows PowerShell 5.1 or PowerShell 7)
 
 <!-- install-windows-x64 -->
 ```powershell
-uv venv --managed-python --python 3.12.12 chatty-suite
-.\chatty-suite\Scripts\python.exe -m ensurepip
-.\chatty-suite\Scripts\python.exe -m pip install --no-index --only-binary=:all: --require-hashes -r https://github.com/lanl/chatty/releases/download/laptop-2026.11.1/windows-x64.txt
+& ([scriptblock]::Create((Invoke-RestMethod -ErrorAction Stop https://raw.githubusercontent.com/lanl/chatty/16d1fe0e429eb737fe1aaab168702fb24cbb02a3/release/install.ps1)))
 ```
 
-Run `chatty`, `text-fetch` and `litkit` from `chatty-suite/bin` (macOS)
-or `chatty-suite\Scripts` (Windows). Each accepts `--version` and `--help`.
-The [release manifest](https://github.com/lanl/chatty/releases/download/laptop-2026.11.1/manifest.json)
-records source revisions, versions, download URLs and SHA-256 hashes.
-See the [maintainer release guide](release/README.md) to reproduce the suite.
+Open a fresh terminal (on Windows, close all Windows Terminal windows first).
+From any directory, run `chatty --version`, `text-fetch --version`, and `litkit --version`.
+
+**Reinstall or upgrade.** Rerun the same command to check the installed suite. To
+upgrade, run the command documented for the newer release. The installer switches
+commands after checking the new runtime. Previous runtimes stay available to
+already-open terminals. The runtime directories live under
+`~/Library/Application Support/ChattySuite/runtimes` on macOS and
+`%LOCALAPPDATA%\ChattySuite\runtimes` on Windows.
+
+Keep your corpus and LitKit workspace (including its indices) in your own working
+directory. Chatty reads user settings from `~/.config/chatty/config.toml` and saves
+sessions in `./sessions` by default. To share sessions across working directories,
+set `session_path = "~/.config/chatty/sessions"` in that config. These locations
+are independent of the installed runtime.
+
+The [laptop-2026.11.1 manifest](https://github.com/lanl/chatty/releases/download/laptop-2026.11.1/manifest.json)
+records the source revisions and wheel hashes. See the [maintainer release guide](release/README.md)
+to reproduce the suite.
 
 ### Base Chatty from source (Python 3.12 or 3.13)
 
@@ -510,17 +520,11 @@ Chatty should work on Windows, but **has not been tested**. Feedback and bug rep
 - Windows 10 or 11
 - **Windows Terminal** (required for proper rendering — legacy `cmd.exe` won't work)
 - PowerShell 7+ (recommended) or Windows PowerShell 5.1
-- Python 3.12+
-- [uv](https://github.com/astral-sh/uv) package manager
 
 ### Installation
 
-```powershell
-git clone https://github.com/lanl/chatty.git
-cd chatty
-uv sync
-chatty chat
-```
+Use the [Windows x64 laptop installer](#laptop-release-chatty-text-fetch-and-lanl-litkit)
+above. To develop Chatty from a checkout, follow the base source installation instructions.
 
 ### Configuration
 
@@ -557,7 +561,7 @@ Or use `chatty.toml` in the project directory.
 | Garbled display / missing colors | Use Windows Terminal, not `cmd.exe` |
 | `faiss-cpu` has no compatible wheel on Python 3.13 | Use the [Python 3.12 RAG install command](#installing-rag-dependencies) |
 | Clipboard not working | Chatty will fallback to file-based copy (see `copy_fallback_path` config) |
-| `chatty` command not found | Ensure uv's bin directory is in `$env:PATH` |
+| `chatty` command not found | Close and reopen Windows Terminal after running the laptop installer |
 
 ## License
 
