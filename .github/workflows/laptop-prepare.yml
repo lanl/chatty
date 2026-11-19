@@ -1,0 +1,85 @@
+name: Prepare laptop release
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'release/.python-version'
+      - 'release/sources.json'
+      - 'release/build-requirements.txt'
+      - 'release/constraints.txt'
+      - 'release/prepare.py'
+      - '.github/workflows/laptop-prepare.yml'
+
+concurrency:
+  group: laptop-prepare-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version-file: release/.python-version
+      - run: |
+          python -m pip install --only-binary=:all: -r release/build-requirements.txt
+      - run: python release/prepare.py build dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: suite-wheels
+          path: dist/*.whl
+          if-no-files-found: error
+
+  resolve:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: macos-15, target: macos-arm64}
+          - {os: windows-2022, target: windows-x64}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: "0.13.9"
+          enable-cache: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: suite-wheels
+          path: dist
+      - working-directory: release
+        run: uv run --no-project --isolated --managed-python --with pip==25.3 python prepare.py resolve ../dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: resolution-${{ matrix.target }}
+          path: dist/${{ matrix.target }}.json
+          if-no-files-found: error
+
+  assemble:
+    needs: resolve
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version-file: release/.python-version
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - run: python release/prepare.py assemble dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: laptop-release
+          path: |
+            dist/*.whl
+            dist/manifest.json
+            dist/*.txt
+          if-no-files-found: error

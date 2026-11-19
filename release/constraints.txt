@@ -1,0 +1,7 @@
+# Start new native resolutions with the versions exercised by the upstream locks.
+# The published manifest and requirements files pin the complete installation.
+sentence-transformers==3.4.1
+torch==2.6.0
+transformers==4.57.1
+textual==7.3.0
+typer==0.21.1

@@ -1,0 +1,8 @@
+hatchling==1.27.0
+packaging==25.0
+pathspec==0.12.1
+pip==25.3
+pluggy==1.6.0
+setuptools==80.9.0
+trove-classifiers==2025.9.11.17
+wheel==0.45.1
