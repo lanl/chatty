@@ -98,7 +98,11 @@ PROFILE
         fi
     }
     # A terminal can start either shell regardless of the account's login shell.
-    add_path "${ZDOTDIR:-$HOME}/.zshrc"
+    # zsh reads .zshenv even when ZDOTDIR was never exported to this installer.
+    /bin/zsh -c 'print -r -- "${ZDOTDIR:-$HOME}" > "$1"' zsh "$tmp/zdotdir"
+    zdotdir=$(cat "$tmp/zdotdir")
+    mkdir -p "$zdotdir"
+    add_path "$zdotdir/.zshrc"
     profile="$HOME/.bash_profile"
     for name in .bash_profile .bash_login .profile; do
         if [ -f "$HOME/$name" ] && [ -r "$HOME/$name" ]; then
