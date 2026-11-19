@@ -24,21 +24,8 @@ and a fresh build environment. For example, for the first suite:
 ```bash
 uv venv --managed-python --python 3.12.12 /tmp/chatty-wheel-build
 uv pip install --python /tmp/chatty-wheel-build --only-binary=:all: -r release/build-requirements.txt
-/tmp/chatty-wheel-build/bin/python release/prepare.py build dist
 gh release download laptop-2026.11.1 -R lanl/chatty -p manifest.json -D dist
-(cd dist && sha256sum -c ../release/manifest.sha256)
-python3 - <<'PY'
-import hashlib, json
-from pathlib import Path
-from urllib.parse import urlsplit
-
-out = Path("dist")
-manifest = json.loads((out / "manifest.json").read_text())
-for project in manifest["projects"].values():
-    wheel = out / Path(urlsplit(project["url"]).path).name
-    assert hashlib.sha256(wheel.read_bytes()).hexdigest() == project["sha256"], wheel
-    print(wheel.name, project["revision"], project["sha256"])
-PY
+/tmp/chatty-wheel-build/bin/python release/prepare.py reproduce dist
 ```
 
 The builder checks out each full Git SHA in a fresh directory, uses the commit's
@@ -80,7 +67,9 @@ today's package index is only part of cutting a **new** set.
    just the README and verification inputs, runs the marked commands in a new
    temporary directory, compares pip's installation report to the manifest,
    runs `pip check`, invokes all three CLIs and probes the imports used by
-   Chatty's retrieval subprocess. Both jobs must pass for the candidate bytes.
+   Chatty's retrieval subprocess. The Linux rebuild also compares the three
+   wheel hashes with the published manifest. All three checks must pass for the
+   candidate bytes.
    If a wheel or lock needs to change, allocate a new suite tag.
 5. Download the two evidence files, inspect their CLI versions and module paths,
    and attach them to the same release. Put the manifest digest, preparation and

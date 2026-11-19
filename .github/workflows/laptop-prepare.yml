@@ -11,6 +11,10 @@ on:
       - 'release/prepare.py'
       - '.github/workflows/laptop-prepare.yml'
 
+concurrency:
+  group: laptop-prepare-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

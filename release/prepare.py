@@ -5,6 +5,7 @@ import json
 import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -34,23 +35,25 @@ def wheel_path(directory: Path, project: str) -> Path:
 def build(out: Path) -> None:
     for project, source in SOURCES["projects"].items():
         with TemporaryDirectory() as tmp:
+            checkout = Path(tmp) / "source"
+            built = Path(tmp) / "wheels"
             repo = f"https://github.com/lanl/{project}.git"
-            subprocess.run(["git", "init", "-q", tmp], check=True)
+            subprocess.run(["git", "init", "-q", str(checkout)], check=True)
             subprocess.run(
-                ["git", "fetch", "--depth=1", repo, source["revision"]], cwd=tmp, check=True
+                ["git", "fetch", "--depth=1", repo, source["revision"]], cwd=checkout, check=True
             )
             subprocess.run(
                 ["git", "-c", "core.autocrlf=false", "checkout", "--detach", "FETCH_HEAD"],
-                cwd=tmp,
+                cwd=checkout,
                 check=True,
             )
             revision = subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], cwd=tmp, text=True
+                ["git", "rev-parse", "HEAD"], cwd=checkout, text=True
             ).strip()
             if revision != source["revision"]:
                 raise ValueError(f"Unexpected {project} revision {revision}")
             epoch = subprocess.check_output(
-                ["git", "show", "-s", "--format=%ct"], cwd=tmp, text=True
+                ["git", "show", "-s", "--format=%ct"], cwd=checkout, text=True
             ).strip()
             subprocess.run(
                 [
@@ -62,14 +65,34 @@ def build(out: Path) -> None:
                     "--no-deps",
                     "--no-index",
                     "-w",
-                    str(out),
+                    str(built),
                     ".",
                 ],
-                cwd=tmp,
+                cwd=checkout,
                 env={**os.environ, "SOURCE_DATE_EPOCH": epoch, "PYTHONHASHSEED": "0", "TZ": "UTC"},
                 check=True,
             )
-            print(project, revision, digest(wheel_path(out, project)), flush=True)
+            wheel = wheel_path(built, project)
+            if list(built.glob("*.whl")) != [wheel]:
+                raise ValueError(f"{project}@{revision} did not produce {wheel.name}")
+            destination = out / wheel.name
+            shutil.copyfile(wheel, destination)
+            print(project, revision, digest(destination), flush=True)
+
+
+def reproduce(out: Path) -> None:
+    manifest_path = out / "manifest.json"
+    if digest(manifest_path) != (HERE / "manifest.sha256").read_text().split()[0]:
+        raise ValueError("Downloaded manifest differs from the reviewed digest")
+    manifest = json.loads(manifest_path.read_bytes())
+    build(out)
+    for name, source in SOURCES["projects"].items():
+        published = manifest["projects"][name]
+        if (
+            source["revision"] != published["revision"]
+            or digest(wheel_path(out, name)) != published["sha256"]
+        ):
+            raise ValueError(f"Rebuild differs from published {name} wheel")
 
 
 def resolve(out: Path) -> None:
@@ -157,9 +180,9 @@ def assemble(out: Path) -> None:
 
 
 if __name__ == "__main__":
-    commands = {"build": build, "resolve": resolve, "assemble": assemble}
+    commands = {"build": build, "resolve": resolve, "assemble": assemble, "reproduce": reproduce}
     if len(sys.argv) != 3 or sys.argv[1] not in commands:
-        sys.exit("Usage: prepare.py {build|resolve|assemble} ASSET_DIRECTORY")
+        sys.exit("Usage: prepare.py {build|resolve|assemble|reproduce} ASSET_DIRECTORY")
     if platform.python_version() != PYTHON:
         sys.exit(f"Use Python {PYTHON}")
     output = Path(sys.argv[2]).resolve()
