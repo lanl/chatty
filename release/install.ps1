@@ -31,10 +31,11 @@
     }
     function Test-Runtime($Runtime) {
         $py = Join-Path $Runtime 'Scripts\python.exe'
-        if (-not (Test-Path -LiteralPath $py)) { return $false }
+        $runtimeDll = Join-Path $Runtime 'Library\bin\msvcp140.dll'
+        if (-not (Test-Path -LiteralPath $py) -or -not (Test-Path -LiteralPath $runtimeDll)) { return $false }
         & $py -I -m pip --isolated check | Out-Host
         if ($LASTEXITCODE -ne 0) { return $false }
-        & $py -I -c 'import litkit.cli' | Out-Host
+        & $py -I -c 'from torch import tensor; from faiss import IndexFlatIP; import litkit.cli' | Out-Host
         if ($LASTEXITCODE -ne 0) { return $false }
         foreach ($name in 'chatty', 'text-fetch', 'litkit') {
             $exe = Join-Path $Runtime "commands\$name.exe"
@@ -81,6 +82,11 @@
         $py = Join-Path $candidate 'Scripts\python.exe'
         Invoke-Checked $py @('-I', '-m', 'ensurepip')
         Invoke-Checked $py @('-I', '-m', 'pip', '--isolated', '--disable-pip-version-check', 'install', '--no-index', '--only-binary=:all:', '--require-hashes', '--report', (Join-Path $candidate 'pip-report.json'), '-r', $requirements)
+        # The locked scikit-learn wheel includes the C++ runtime used by Torch.
+        # Torch searches this venv directory even on systems without the redistributable.
+        $dllDir = Join-Path $candidate 'Library\bin'
+        $null = [IO.Directory]::CreateDirectory($dllDir)
+        Copy-Item -LiteralPath (Join-Path $candidate 'Lib\site-packages\sklearn\.libs\msvcp140.dll') -Destination $dllDir
         $commands = Join-Path $candidate 'commands'
         $null = [IO.Directory]::CreateDirectory($commands)
         foreach ($name in 'chatty', 'text-fetch', 'litkit') {
