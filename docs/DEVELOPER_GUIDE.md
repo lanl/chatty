@@ -4,7 +4,7 @@ This guide covers setting up a development environment for chatty using uv.
 
 ## Prerequisites
 
-- **Python 3.11+** — Required for chatty development
+- **Python 3.12+** for base chatty development, **Python 3.12** for RAG
 - **uv** — The only supported package manager for this project
 
 ### Installing uv
@@ -35,10 +35,8 @@ cd chatty
 Create a virtual environment named `.venv`:
 
 ```bash
-uv venv --python 3.11 .venv
+uv venv --python 3.12 .venv
 ```
-
-> **Note:** uv creates the environment in `.venv/` by default. The `--python 3.11` flag ensures you're using the correct Python version.
 
 ### 3. Activate the Environment
 
@@ -489,10 +487,8 @@ For development, install litkit as an editable dependency:
 
 ```bash
 cd ~/Code/chatty
+uv sync --python 3.12 --extra rag
 source .venv/bin/activate
-
-# Install RAG dependencies first
-uv add faiss-cpu "numpy<2"
 
 # Install litkit from local clone (editable)
 uv pip install -e ~/Code/litkit
@@ -610,9 +606,7 @@ def rag_config(tmp_path):
 Ensure you have the correct Python version:
 
 ```bash
-python --version  # Should be 3.11+
-uv venv --python 3.11 .venv
-uv sync --dev
+uv sync --python 3.12 --dev
 ```
 
 ### Pre-commit hooks fail

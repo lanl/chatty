@@ -35,9 +35,11 @@ management, and requires Python ≥ 3.12.
 ```bash
 git clone https://github.com/lanl/chatty.git
 cd chatty
-uv sync --dev                     # add --extra litkit or --extra rag for RAG work
+uv sync --dev
 uv run pre-commit install
 ```
+
+For RAG development, use `uv sync --python 3.12 --extra rag --extra litkit`.
 
 ## Running tests
 

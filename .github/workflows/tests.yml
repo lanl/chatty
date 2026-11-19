@@ -40,6 +40,25 @@ jobs:
           python-version: ${{ matrix.python }}
           enable-cache: true
 
+      - name: Install RAG using the README command
+        if: matrix.os == 'macos-latest' && matrix.python == '3.13'
+        env:
+          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/chatty-rag
+        shell: bash
+        run: |
+          read -r -a install_command < <(awk '
+            /^### Installing RAG Dependencies$/ { rag = 1 }
+            rag && /^uv sync/ { print; exit }
+          ' README.md)
+          "${install_command[@]}"
+          "$UV_PROJECT_ENVIRONMENT/bin/python" - <<'PY'
+          import sys
+          import faiss
+          from litkit.cli import search_chunks_constrained
+
+          assert sys.version_info[:2] == (3, 12), sys.version
+          PY
+
       - name: Install
         run: uv sync --dev --locked
 

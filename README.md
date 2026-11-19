@@ -209,14 +209,19 @@ chatty can query a pre-built scientific literature corpus to ground LLM response
 
 ### Installing RAG Dependencies
 
-```bash
-# From your chatty checkout: install RAG dependencies (faiss-cpu, numpy) and litkit
-uv sync --extra rag --extra litkit
+Base chatty supports Python 3.13. The locked versions of LANL's litkit and
+FAISS require Python 3.12 for RAG. Run this command from your chatty checkout.
 
-# Or, for litkit development, use an editable local clone instead:
+```bash
+uv sync --python 3.12 --extra rag --extra litkit
+```
+
+For litkit development, install a local clone in editable mode.
+
+```bash
 git clone https://github.com/lanl/litkit.git ~/Code/litkit
-uv sync --extra rag
-uv pip install -e ~/Code/litkit
+uv sync --python 3.12 --extra rag
+uv pip install --python .venv -e ~/Code/litkit
 ```
 
 ### Configuring RAG
@@ -519,7 +524,7 @@ Or use `chatty.toml` in the project directory.
 | Issue | Solution |
 |-------|----------|
 | Garbled display / missing colors | Use Windows Terminal, not `cmd.exe` |
-| `faiss-cpu` fails to install | Install [Visual C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) |
+| `faiss-cpu` has no compatible wheel on Python 3.13 | Use the [Python 3.12 RAG install command](#installing-rag-dependencies) |
 | Clipboard not working | Chatty will fallback to file-based copy (see `copy_fallback_path` config) |
 | `chatty` command not found | Ensure uv's bin directory is in `$env:PATH` |
 
