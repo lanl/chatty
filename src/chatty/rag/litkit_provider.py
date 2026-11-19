@@ -144,7 +144,8 @@ class LitkitNotInstalledError(LitkitError):
     def __init__(self) -> None:
         super().__init__(
             "litkit package not installed. "
-            "Run `uv sync --extra litkit` or set `rag_provider = 'none'` in config."
+            "Run `uv sync --python 3.12 --extra rag --extra litkit` "
+            "or set `rag_provider = 'none'` in config."
         )
 
 
@@ -196,7 +197,7 @@ class LitkitProvider:
     1. Stage 1: Shortlist papers by abstract/title relevance
     2. Stage 2: Search chunks within shortlisted papers
 
-    litkit must be installed separately: `uv sync --extra litkit`
+    Install the RAG dependencies with `uv sync --python 3.12 --extra rag --extra litkit`.
 
     Note: Retrieval runs in a completely isolated subprocess (via subprocess.run
     with close_fds=True) to avoid fd inheritance issues with Textual's terminal I/O.

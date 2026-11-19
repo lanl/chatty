@@ -1180,7 +1180,7 @@ class TestLitkitErrorClasses:
         err = LitkitNotInstalledError()
         msg = str(err)
         assert "litkit package not installed" in msg
-        assert "uv sync --extra litkit" in msg
+        assert "uv sync --python 3.12 --extra rag --extra litkit" in msg
         assert "rag_provider = 'none'" in msg
 
     def test_workspace_not_found_error_message(self) -> None:

@@ -506,7 +506,7 @@ LitkitError: "FAISS index not found at /path/to/indices. Run `litkit --build-onl
 LitkitError: "SQLite database not found at /path/to/db. Index may be corrupted."
 
 # litkit not installed (when rag_provider="litkit")
-ConfigError: "litkit package not installed. Run `uv sync --extra litkit` or set `rag_provider = none`."
+ConfigError: "litkit package not installed. Run `uv sync --python 3.12 --extra rag --extra litkit` or set `rag_provider = 'none'` in config."
 ```
 
 All errors appear inline as styled message cards—never silent fallback to non-RAG mode.
@@ -990,7 +990,7 @@ chatty + litkit are bundled in a single Charliecloud container for HPC deploymen
 chatty-litkit.sqfs
 ├── /opt/venv/           # uv-managed virtualenv
 │   ├── bin/chatty       # CLI entrypoint
-│   └── lib/python3.11/  # Dependencies
+│   └── lib/python3.12/  # Dependencies
 ├── /opt/litkit/         # litkit package + indices
 │   ├── workspace/       # FAISS indices, SQLite DB
 │   └── hf_home/         # Cached embedding models
