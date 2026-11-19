@@ -13,8 +13,8 @@ Use the copy of this directory linked in the release notes. The SHA-256 in
 wheel URL and digest of every application, and the exact wheel of every runtime
 dependency on each platform. The README links to self-contained installers at a
 specific Git commit. Each installer verifies its uv archive, the suite manifest
-and its platform requirements file before invoking pip. `--no-index` and explicit wheel URLs select
-the intended projects even when the same names exist on PyPI. The suite requests
+and its platform requirements file before invoking pip. `--no-index` and explicit
+wheel URLs select the intended projects even when the same names exist on PyPI. The suite requests
 `chatty[rag]` and supplies the LANL LitKit wheel explicitly. The source-development
 `litkit` extra uses Git and is outside this install path.
 
@@ -40,8 +40,9 @@ today's package index is only part of cutting a **new** set.
    revisions and verify that each wheel's metadata version agrees with its CLI.
    Update the three versions and full SHAs in `sources.json`. Allocate a new
    `laptop-YYYY.MM.N` tag and update the manifest link in the top-level README.
-   If Python changes, update `.python-version` and the README version. Review the starter constraints against the upstream locks,
-   especially the Windows FAISS and CPU Torch requirements.
+   If Python changes, update `.python-version` and the README version. Review the starter
+   constraints against the upstream locks, especially the Windows FAISS and CPU
+   Torch requirements.
 2. Run **Prepare laptop release** on the release branch. It runs on PRs that
    change the build inputs and can also be dispatched after the workflow lands
    on main. Linux builds the wheels once. The two native runners resolve from

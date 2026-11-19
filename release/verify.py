@@ -132,12 +132,35 @@ def exercise_upgrade(
     assert active_runtime() == original, "Reinstall duplicated the runtime"
     assert all(p.read_bytes() == contents for p, contents in data.items())
 
+    # A bad manifest pin must stop the real installer with the working suite still selected.
+    script = "install.ps1" if WINDOWS else "install.sh"
+    source = (HERE / script).read_text(encoding="utf-8")
+    assert source.count(manifest_sha) == 1
+    damaged = cwd / script
+    damaged.write_text(source.replace(manifest_sha, "0" * 64), encoding="utf-8")
+    shell = (
+        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
+        if WINDOWS
+        else ["/bin/sh"]
+    )
+    rejected = subprocess.run(
+        [*shell, str(damaged)], cwd=cwd, env=env, capture_output=True, text=True
+    )
+    mismatch = "SHA-256 mismatch" if WINDOWS else "manifest.json: FAILED"
+    assert rejected.returncode != 0 and mismatch in rejected.stdout + rejected.stderr, rejected
+    assert active_runtime() == original
+
     # The first suite has no published predecessor. Give the disposable installation a
     # different release marker to exercise the same replacement path as the next release.
     (original / "manifest.sha256").write_text("0" * 64)
     install(command, cwd, env)
     active = active_runtime()
     assert active != original and (active / "manifest.sha256").read_text().strip() == manifest_sha
+    path = fresh_shell("$env:Path" if WINDOWS else 'print -r -- "$PATH"', work, env)
+    suite_paths = [
+        Path(p).resolve() for p in path.split(os.pathsep) if Path(p).is_relative_to(root)
+    ]
+    assert suite_paths == [active / "commands"], suite_paths
     assert all(
         p.read_bytes() == contents for p, contents in data.items()
     ), "Upgrade changed user data"
@@ -238,6 +261,7 @@ def verify(target: str, evidence: Path) -> None:
             "cli": versions,
             "cli_help": "passed",
             "reinstall": "reused runtime",
+            "invalid_manifest": "rejected, prior runtime still active",
             "upgrade": "replaced simulated predecessor",
             "preserved": preserved,
             "pip": report["pip_version"],
