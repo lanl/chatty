@@ -6,7 +6,38 @@ Designed for laptop and HPC environments where browser-based UIs aren't practica
 
 ## Installation
 
-### Standard (connected network)
+### Laptop release (Chatty, text-fetch and LANL LitKit)
+
+With [uv](https://docs.astral.sh/uv/getting-started/installation/) on PATH, run the
+commands for your platform in a directory where you want a new `chatty-suite` environment.
+They provision CPython 3.12.12, enable its bundled pip and install the CPU suite from hash-checked wheels.
+Each requirements file names the exact GitHub Release assets for all three applications.
+
+**macOS 14 or later on Apple Silicon**
+
+<!-- install-macos-arm64 -->
+```bash
+uv venv --managed-python --python 3.12.12 chatty-suite
+./chatty-suite/bin/python -m ensurepip
+./chatty-suite/bin/python -m pip install --no-index --only-binary=:all: --require-hashes -r https://github.com/lanl/chatty/releases/download/laptop-2026.11.1/macos-arm64.txt
+```
+
+**Windows x64 (PowerShell)**
+
+<!-- install-windows-x64 -->
+```powershell
+uv venv --managed-python --python 3.12.12 chatty-suite
+.\chatty-suite\Scripts\python.exe -m ensurepip
+.\chatty-suite\Scripts\python.exe -m pip install --no-index --only-binary=:all: --require-hashes -r https://github.com/lanl/chatty/releases/download/laptop-2026.11.1/windows-x64.txt
+```
+
+Run `chatty`, `text-fetch` and `litkit` from `chatty-suite/bin` (macOS)
+or `chatty-suite\Scripts` (Windows). Each accepts `--version` and `--help`.
+The [release manifest](https://github.com/lanl/chatty/releases/download/laptop-2026.11.1/manifest.json)
+records source revisions, versions, download URLs and SHA-256 hashes.
+See the [maintainer release guide](release/README.md) to reproduce the suite.
+
+### Base Chatty from source (Python 3.12 or 3.13)
 
 ```bash
 git clone https://github.com/lanl/chatty.git

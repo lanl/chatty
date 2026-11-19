@@ -1,0 +1,61 @@
+name: Verify published laptop wheels
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'README.md'
+      - 'release/**'
+      - '.github/workflows/laptop-*.yml'
+
+concurrency:
+  group: laptop-verify-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  instructions:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/upload-artifact@v7
+        with:
+          name: install-instructions
+          include-hidden-files: true
+          path: |
+            README.md
+            release/.python-version
+            release/manifest.sha256
+            release/sources.json
+            release/probe.py
+            release/verify.py
+
+  install:
+    needs: instructions
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: macos-15, target: macos-arm64}
+          - {os: windows-2022, target: windows-x64}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: install-instructions
+          path: ${{ runner.temp }}/instructions
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: "0.13.9"
+          enable-cache: false
+      - name: Install from the README and verify provenance
+        working-directory: ${{ runner.temp }}/instructions/release
+        run: uv run --no-project --isolated --managed-python python verify.py ${{ matrix.target }} ../../${{ matrix.target }}.evidence.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: evidence-${{ matrix.target }}
+          path: ${{ runner.temp }}/${{ matrix.target }}.evidence.json
+          if-no-files-found: error
