@@ -26,12 +26,12 @@ def checked_download(url: str, expected: str) -> bytes:
 
 
 def install_environment(tmp: Path) -> dict[str, str]:
-    if WINDOWS:
+    if sys.platform == "win32":
         # The workflow creates this local standard user specifically for the registry/PATH test.
         assert os.getlogin().lower() == "chattytest" and not ctypes.windll.shell32.IsUserAnAdmin()
         assert Path.home().name.lower() == "chattytest", Path.home()
         system = Path(os.environ["SYSTEMROOT"])
-        paths = [system / "System32", system, system / "System32/WindowsPowerShell/v1.0"]
+        paths = [system / "System32", system / "System32/WindowsPowerShell/v1.0"]
         env = {**os.environ, "PATH": os.pathsep.join(map(str, paths))}
     else:
         assert os.getuid() != 0
@@ -52,6 +52,7 @@ def install_environment(tmp: Path) -> dict[str, str]:
             "cat",
             "tar",
             "ln",
+            "locale",
             "mv",
             "grep",
         ]:
@@ -93,6 +94,58 @@ def install(command: str, cwd: Path, env: dict[str, str]) -> None:
         else ["/bin/sh", "-c"]
     )
     subprocess.run([*shell, command], cwd=cwd, env=env, stdin=subprocess.DEVNULL, check=True)
+
+
+def exercise_upgrade(
+    command: str,
+    cwd: Path,
+    work: Path,
+    env: dict[str, str],
+    root: Path,
+    user_home: Path,
+    manifest_sha: str,
+) -> tuple[Path, list[str]]:
+    def active_runtime() -> Path:
+        runtime = command_path("chatty", work, env).parent.resolve().parent
+        assert runtime.parent == root.resolve() / "runtimes", runtime
+        return runtime
+
+    original = active_runtime()
+    python_path = Path("Scripts/python.exe" if WINDOWS else "bin/python")
+    config = user_home / ".config/chatty/config.toml"
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text('session_path = "./sessions"\nrag_workspace = "./workspace"\n')
+    corpus = work / "corpus/paper.xml"
+    corpus.parent.mkdir()
+    corpus.write_text("<article><body><p>Corpus fixture.</p></body></article>")
+    index = work / "workspace/indices/chunks.faiss"
+    subprocess.run(
+        [str(original / python_path), "-I", str(HERE / "probe_data.py"), "create"],
+        cwd=work,
+        env=env,
+        check=True,
+    )
+    (session_file,) = (work / "sessions").glob("*.json")
+    data = {p: p.read_bytes() for p in (corpus, index, config, session_file)}
+
+    install(command, cwd, env)
+    assert active_runtime() == original, "Reinstall duplicated the runtime"
+    assert all(p.read_bytes() == contents for p, contents in data.items())
+
+    # The first suite has no published predecessor. Give the disposable installation a
+    # different release marker to exercise the same replacement path as the next release.
+    (original / "manifest.sha256").write_text("0" * 64)
+    install(command, cwd, env)
+    active = active_runtime()
+    assert active != original and (active / "manifest.sha256").read_text().strip() == manifest_sha
+    assert all(
+        p.read_bytes() == contents for p, contents in data.items()
+    ), "Upgrade changed user data"
+    python = str(active / python_path)
+    subprocess.run(
+        [python, "-I", str(HERE / "probe_data.py"), "read"], cwd=work, env=env, check=True
+    )
+    return active, [p.name for p in data]
 
 
 def verify(target: str, evidence: Path) -> None:
@@ -138,48 +191,8 @@ def verify(target: str, evidence: Path) -> None:
         work = cwd / "research project"
         work.mkdir()
 
-        def active_runtime() -> Path:
-            runtime = command_path("chatty", work, env).parent.resolve().parent
-            assert runtime.parent == root.resolve() / "runtimes", runtime
-            return runtime
-
-        original = active_runtime()
-        python_path = Path("Scripts/python.exe" if WINDOWS else "bin/python")
-        config = user_home / ".config/chatty/config.toml"
-        config.parent.mkdir(parents=True, exist_ok=True)
-        config.write_text('session_path = "./sessions"\nrag_workspace = "./workspace"\n')
-        corpus = work / "corpus/paper.xml"
-        corpus.parent.mkdir()
-        corpus.write_text("<article><body><p>Corpus fixture.</p></body></article>")
-        index = work / "workspace/indices/chunks.faiss"
-        subprocess.run(
-            [str(original / python_path), "-I", str(HERE / "probe_data.py"), "create"],
-            cwd=work,
-            env=env,
-            check=True,
-        )
-        (session_file,) = (work / "sessions").glob("*.json")
-        data = {p: p.read_bytes() for p in (corpus, index, config, session_file)}
-
-        install(command, cwd, env)
-        assert active_runtime() == original, "Reinstall duplicated the runtime"
-        assert all(p.read_bytes() == contents for p, contents in data.items())
-
-        # The first suite has no published predecessor. Give the disposable installation a
-        # different release marker to exercise the same replacement path as the next release.
-        (original / "manifest.sha256").write_text("0" * 64)
-        install(command, cwd, env)
-        active = active_runtime()
-        assert (
-            active != original and (active / "manifest.sha256").read_text().strip() == manifest_sha
-        )
-        assert all(p.read_bytes() == contents for p, contents in data.items()), (
-            "Upgrade changed user data"
-        )
-        python = str(active / python_path)
-        subprocess.run(
-            [python, "-I", str(HERE / "probe_data.py"), "read"], cwd=work, env=env, check=True
-        )
+        active, preserved = exercise_upgrade(command, cwd, work, env, root, user_home, manifest_sha)
+        python = str(active / ("Scripts/python.exe" if WINDOWS else "bin/python"))
         report = json.loads((active / "pip-report.json").read_text(encoding="utf-8"))
         installed = {}
         for row in report["install"]:
@@ -226,7 +239,7 @@ def verify(target: str, evidence: Path) -> None:
             "cli_help": "passed",
             "reinstall": "reused runtime",
             "upgrade": "replaced simulated predecessor",
-            "preserved": [p.name for p in data],
+            "preserved": preserved,
             "pip": report["pip_version"],
             "runtime": runtime,
         }
