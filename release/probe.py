@@ -6,6 +6,21 @@ import sys
 from importlib.metadata import distribution, version
 from pathlib import Path
 
+import torch
+
+# Check a fresh Torch import before LitKit can preload any other wheel's DLLs.
+cpp_runtime = None
+if sys.platform == "win32":
+    import ctypes
+    from _winapi import GetModuleFileName
+
+    get_module = ctypes.windll.kernel32.GetModuleHandleW
+    get_module.restype = ctypes.c_void_p
+    handle = get_module("msvcp140.dll")
+    assert handle, "Torch did not load the Visual C++ runtime"
+    cpp_runtime = GetModuleFileName(handle)
+    assert Path(cpp_runtime).samefile(Path(sys.prefix) / "Library/bin/msvcp140.dll"), cpp_runtime
+
 # Invoke the same callable as the generated chatty console script.
 (entry,) = distribution("chatty").entry_points.select(group="console_scripts", name="chatty")
 entry.load()(args=["--version"], standalone_mode=False)
@@ -21,7 +36,6 @@ assert all(
 )
 assert deps().faiss_available
 import faiss  # noqa: E402
-import torch  # noqa: E402
 
 assert torch.version.cuda is None
 paths = {module.__name__: str(module.__file__) for module in (chatty, litkit, litkit.cli, faiss)}
@@ -39,6 +53,7 @@ print(
             "faiss_module_version": faiss.__version__,
             "faiss_cpu_distribution": version("faiss-cpu"),
             "torch": torch.__version__,
+            "cpp_runtime": cpp_runtime,
         }
     )
 )

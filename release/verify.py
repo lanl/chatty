@@ -53,7 +53,6 @@ def install_environment(tmp: Path) -> dict[str, str]:
             "tar",
             "ln",
             "locale",
-            "mv",
             "grep",
         ]:
             path = shutil.which(name, path="/usr/bin:/bin:/usr/sbin")
@@ -94,6 +93,36 @@ def install(command: str, cwd: Path, env: dict[str, str]) -> None:
         else ["/bin/sh", "-c"]
     )
     subprocess.run([*shell, command], cwd=cwd, env=env, stdin=subprocess.DEVNULL, check=True)
+
+
+def check_mac_destination(root: Path, cwd: Path, env: dict[str, str]) -> None:
+    # A pre-existing file or directory must survive a failed activation.
+    root.mkdir(parents=True)
+    dest = root / "bin"
+    dest.mkdir()
+    for entry in (dest / "next", dest):
+        entry.write_text("user file")
+        run = subprocess.run(
+            ["/bin/sh", str(HERE / "install.sh")], cwd=cwd, env=env, capture_output=True, text=True
+        )
+        assert run.returncode and "already exists" in run.stderr, run
+        assert not entry.is_symlink() and entry.read_text() == "user file"
+        assert not (root / "runtimes").exists()
+        entry.unlink()
+        if dest.is_dir():
+            dest.rmdir()
+
+
+def check_mac_shells(root: Path, work: Path, env: dict[str, str]) -> None:
+    for shell in ("/bin/bash", "/bin/zsh"):
+        for mode in ("-ic", "-lic"):
+            command = 'printf "%s\\n" "$PATH"; command -v chatty text-fetch litkit'
+            result = subprocess.check_output([shell, mode, command], cwd=work, env=env, text=True)
+            path, *commands = result.strip().splitlines()
+            assert path.split(os.pathsep).count(str(root / "bin")) == 1, (shell, mode, path)
+            assert commands == [
+                str(root / "bin" / name) for name in ("chatty", "text-fetch", "litkit")
+            ], result
 
 
 def exercise_upgrade(
@@ -164,11 +193,24 @@ def exercise_upgrade(
     assert all(
         p.read_bytes() == contents for p, contents in data.items()
     ), "Upgrade changed user data"
-    python = str(active / python_path)
+    if not WINDOWS:
+        check_mac_shells(root, work, env)
+
+    # Damage a native dependency without changing package metadata or the release marker.
+    # A reinstall must repair it even though pip check and the CLI versions still pass.
+    site = active / ("Lib" if WINDOWS else "lib/python3.12") / "site-packages/faiss"
+    extensions = list(site.glob("_swigfaiss*.pyd" if WINDOWS else "_swigfaiss*.so"))
+    assert extensions, site
+    for extension in extensions:
+        extension.unlink()
+    install(command, cwd, env)
+    repaired = active_runtime()
+    assert repaired != active and all(p.read_bytes() == contents for p, contents in data.items())
+    python = str(repaired / python_path)
     subprocess.run(
         [python, "-I", str(HERE / "probe_data.py"), "read"], cwd=work, env=env, check=True
     )
-    return active, [p.name for p in data]
+    return repaired, [p.name for p in data]
 
 
 def verify(target: str, evidence: Path) -> None:
@@ -209,6 +251,10 @@ def verify(target: str, evidence: Path) -> None:
             Path(env["LOCALAPPDATA"]) if WINDOWS else user_home / "Library/Application Support"
         ) / "ChattySuite"
         assert not root.exists(), f"Expected a clean test profile: {root}"
+        if not WINDOWS:
+            check_mac_destination(root, cwd, env)
+            # A Bash login profile commonly sources .bashrc itself.
+            (user_home / ".bash_login").write_text('. "$HOME/.bashrc"\n')
         print(command, flush=True)
         install(command, cwd, env)
         work = cwd / "research project"
@@ -263,6 +309,7 @@ def verify(target: str, evidence: Path) -> None:
             "cli": versions,
             "cli_help": "passed",
             "reinstall": "reused runtime",
+            "repair": "replaced runtime with missing FAISS extensions",
             "invalid_manifest": "rejected, prior runtime still active",
             "upgrade": "replaced simulated predecessor",
             "preserved": preserved,

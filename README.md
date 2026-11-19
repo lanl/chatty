@@ -17,14 +17,14 @@ user account and internet access are sufficient.
 
 <!-- install-macos-arm64 -->
 ```bash
-(installer=$(curl -fsSL https://raw.githubusercontent.com/lanl/chatty/22112c4f11a1d865fb96bef8dd8a45344a9065dd/release/install.sh) && /bin/sh -c "$installer")
+(installer=$(curl -fsSL https://raw.githubusercontent.com/lanl/chatty/a42061f407b4e15487553d79778457db25e20f3d/release/install.sh) && /bin/sh -c "$installer")
 ```
 
 **Windows x64** (64-bit Windows PowerShell 5.1 or PowerShell 7)
 
 <!-- install-windows-x64 -->
 ```powershell
-& ([scriptblock]::Create((Invoke-RestMethod -ErrorAction Stop https://raw.githubusercontent.com/lanl/chatty/22112c4f11a1d865fb96bef8dd8a45344a9065dd/release/install.ps1)))
+& ([scriptblock]::Create((Invoke-RestMethod -ErrorAction Stop https://raw.githubusercontent.com/lanl/chatty/a42061f407b4e15487553d79778457db25e20f3d/release/install.ps1)))
 ```
 
 Open a fresh terminal (on Windows, close all Windows Terminal windows first).
@@ -32,8 +32,9 @@ From any directory, run `chatty --version`, `text-fetch --version`, and `litkit 
 
 **Reinstall or upgrade.** Rerun the same command to check the installed suite. To
 upgrade, run the command documented for the newer release. The installer switches
-commands after checking the new runtime. Previous runtimes stay available to
-already-open terminals. The runtime directories live under
+commands after checking the new runtime. Running processes can finish using the
+old runtime. On macOS, the next command uses the new runtime in either Bash or
+zsh. On Windows, reopen the terminal to pick up the new PATH. The runtimes live under
 `~/Library/Application Support/ChattySuite/runtimes` on macOS and
 `%LOCALAPPDATA%\ChattySuite\runtimes` on Windows.
 
