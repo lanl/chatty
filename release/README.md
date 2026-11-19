@@ -11,9 +11,10 @@ notes link the revision of the release tooling and the build and verification ru
 Use the copy of this directory linked in the release notes. The SHA-256 in
 `manifest.sha256` anchors the manifest, which in turn identifies the source commit,
 wheel URL and digest of every application, and the exact wheel of every runtime
-dependency on each platform. The install commands in the top-level README consume
-those requirements files directly. `--no-index` and explicit wheel URLs select
-the intended projects even when the same names exist on PyPI. The suite requests
+dependency on each platform. The README links to self-contained installers at a
+specific Git commit. Each installer verifies its uv archive, the suite manifest
+and its platform requirements file before invoking pip. `--no-index` and explicit
+wheel URLs select the intended projects even when the same names exist on PyPI. The suite requests
 `chatty[rag]` and supplies the LANL LitKit wheel explicitly. The source-development
 `litkit` extra uses Git and is outside this install path.
 
@@ -38,10 +39,10 @@ today's package index is only part of cutting a **new** set.
 1. Read each project's contributor and release instructions. Select the source
    revisions and verify that each wheel's metadata version agrees with its CLI.
    Update the three versions and full SHAs in `sources.json`. Allocate a new
-   `laptop-YYYY.MM.N` tag, and update the two marked command blocks and manifest
-   link in the top-level README. If Python changes, update `.python-version`
-   and the commands. Review the starter constraints against the upstream locks,
-   especially the Windows FAISS and CPU Torch requirements.
+   `laptop-YYYY.MM.N` tag and update the manifest link in the top-level README.
+   If Python changes, update `.python-version` and the README version. Review the starter
+   constraints against the upstream locks, especially the Windows FAISS and CPU
+   Torch requirements.
 2. Run **Prepare laptop release** on the release branch. It runs on PRs that
    change the build inputs and can also be dispatched after the workflow lands
    on main. Linux builds the wheels once. The two native runners resolve from
@@ -62,14 +63,20 @@ today's package index is only part of cutting a **new** set.
      --notes "Candidate for the Python 3.12 laptop suite. Build run $prepare_run."
    ```
 
-4. Commit the digest with `git commit -s` and push the PR. **Verify published
-   laptop wheels** also supports manual dispatch. Each install job downloads
-   just the README and verification inputs, runs the marked commands in a new
-   temporary directory, compares pip's installation report to the manifest,
-   runs `pip check`, invokes all three CLIs and probes the imports used by
-   Chatty's retrieval subprocess. The Linux rebuild also compares the three
-   wheel hashes with the published manifest. All three checks must pass for the
-   candidate bytes.
+4. Set the suite tag and manifest SHA-256 in `install.sh` and `install.ps1`.
+   If changing uv, update its version and archive SHA-256 for each platform.
+   Commit the installers and `manifest.sha256` with `git commit -s` and push.
+   In a second commit, pin both marked README commands to that installer commit's
+   full SHA. This keeps each release installable after the next upgrade.
+   **Verify published laptop wheels** runs the literal commands from outside a
+   checkout as standard users on both targets. Only OS tools are on the install
+   PATH. The verifier checks the published installer bytes, all reported wheels,
+   fresh-shell command discovery, the managed Python and Chatty's LitKit imports.
+   It repeats the install and checks that the corpus, FAISS index, user config
+   and saved Chatty session survive a runtime switch. The first release uses a
+   simulated previous release marker. Keep its installer revision as the
+   baseline for the first upgrade between published suites.
+   The Linux job reproduces all three wheel hashes. All three checks must pass.
    If a wheel or lock needs to change, allocate a new suite tag.
 5. Download the two evidence files, inspect their CLI versions and module paths,
    and attach them to the same release. Put the manifest digest, preparation and
