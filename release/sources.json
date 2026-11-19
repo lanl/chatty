@@ -1,0 +1,8 @@
+{
+  "tag": "laptop-2026.11.1",
+  "projects": {
+    "chatty": {"version": "0.4.5", "revision": "0134f35c32b0ea6ec0a149e0a40db7549f16c3d8"},
+    "text-fetch": {"version": "0.3.3", "revision": "290e2f735bdce1df5802d55cd9a06740cbc9afd0"},
+    "litkit": {"version": "0.3.35", "revision": "98208a811c021441f6abb3dcfedb3066513ad5d7"}
+  }
+}
