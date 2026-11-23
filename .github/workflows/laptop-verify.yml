@@ -2,10 +2,17 @@ name: Verify published laptop wheels
 
 on:
   workflow_dispatch:
+    inputs:
+      promote:
+        description: Promote the published prerelease after all release checks pass
+        type: boolean
+        default: false
   pull_request:
     paths:
       - 'README.md'
       - 'release/**'
+      - 'ci/check_quickstart.py'
+      - 'docs/laptop-quickstart.md'
       - '.github/workflows/laptop-*.yml'
 
 concurrency:
@@ -41,6 +48,8 @@ jobs:
           include-hidden-files: true
           path: |
             README.md
+            docs/laptop-quickstart.md
+            ci/check_quickstart.py
             release/.python-version
             release/manifest.sha256
             release/sources.json
@@ -59,7 +68,7 @@ jobs:
           - {os: macos-15, target: macos-arm64}
           - {os: windows-2022, target: windows-x64}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -83,7 +92,7 @@ jobs:
           sudo sysadminctl -addUser chattytest -password "$(uuidgen)"
           sudo chown -R chattytest "$area"
           sudo -u chattytest -H env TMPDIR="$area" \
-            /usr/bin/python3 -u "$area/release/verify.py" macos-arm64 "$area/evidence.json"
+            /usr/bin/python3 -u "$area/release/verify.py" macos-arm64 "$area/evidence.json" 2>&1 | tee "$RUNNER_TEMP/installer.log"
           sudo cp "$area/evidence.json" "$RUNNER_TEMP/macos-arm64.evidence.json"
 
       - name: Verify as a standard Windows user
@@ -104,6 +113,8 @@ jobs:
           $arguments = "-u `"$area\release\verify.py`" windows-x64 `"$area\evidence.json`""
           $process = Start-Process $python -ArgumentList $arguments -Credential $credential -LoadUserProfile `
             -WorkingDirectory $area -Wait -PassThru -RedirectStandardOutput "$area\out.log" -RedirectStandardError "$area\err.log"
+          Copy-Item "$area\out.log" "$env:RUNNER_TEMP\installer-out.log"
+          Copy-Item "$area\err.log" "$env:RUNNER_TEMP\installer-err.log"
           Get-Content "$area\out.log","$area\err.log"
           if ($process.ExitCode -ne 0) { throw "Installer verification failed (exit $($process.ExitCode))." }
           Copy-Item "$area\evidence.json" "$env:RUNNER_TEMP\windows-x64.evidence.json"
@@ -112,3 +123,28 @@ jobs:
           name: evidence-${{ matrix.target }}
           path: ${{ runner.temp }}/${{ matrix.target }}.evidence.json
           if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: diagnostics-${{ matrix.target }}
+          path: ${{ runner.temp }}/installer*.log
+          if-no-files-found: warn
+
+  promote:
+    if: github.event_name == 'workflow_dispatch' && inputs.promote
+    needs: [rebuild, install]
+    concurrency: laptop-suite-promotion
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: evidence-*
+          path: evidence
+          merge-multiple: true
+      - name: Publish the verified suite and native evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 release/promote.py evidence

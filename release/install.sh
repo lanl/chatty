@@ -9,8 +9,8 @@ install_suite() (
         exit 1
     fi
 
-    tag=laptop-2026.11.1
-    manifest_sha=e01613235ba76672aaf781f46da134ee26abb604dfaf335fa1acc0c2e1d62837
+    tag=laptop-2026.11.2
+    manifest_sha=debbe6aeb95a57063fedf003c48712ecd802ccacac046724749233352096e9b6
     uv_sha=5aeca67f2283f75235de40d0bd9c0a5bbc5fce23b6d48b3bf9fa1b2db08382ca
     root="$HOME/Library/Application Support/ChattySuite"
     check_destination() {
