@@ -40,21 +40,25 @@ class EmbeddingModel:
         # Both loaders accept local safetensors or the original PyTorch weights.
         # Check the model inputs as well: an interrupted Hub download can leave
         # a valid ref and snapshot directory before the weights arrive.
-        required = ("config.json", *self.extra_files)
-        # Transformers prefers safetensors when both copies are present.
         weights = snapshot / "model.safetensors"
         if not weights.exists():
             weights = snapshot / "pytorch_model.bin"
+        tokenizer = snapshot / "tokenizer.json"
+        if not tokenizer.exists():
+            tokenizer = snapshot / "vocab.txt"
+        # LitKit can use snapshots prepared outside Chatty. The fast tokenizer
+        # contains the vocabulary. SentenceTransformer also accepts snapshots
+        # without the optional training metadata used by the published model.
+        required = ["config.json"]
+        optional = ["tokenizer_config.json", "special_tokens_map.json"]
+        if self.extra_files:
+            required.extend(("modules.json", "1_Pooling/config.json"))
+            optional.extend(("sentence_bert_config.json", "config_sentence_transformers.json"))
         return (
-            all(_usable(snapshot / name) for name in required)
-            and _usable(snapshot / "tokenizer_config.json")
-            and _usable(snapshot / "vocab.txt")
-            and all(
-                _usable(path)
-                for path in (snapshot / "tokenizer.json", snapshot / "special_tokens_map.json")
-                if path.exists()
-            )
-            and _usable(weights)
+            _usable(weights)
+            and _usable(tokenizer)
+            and all(_usable(snapshot / name) for name in required)
+            and all(_usable(snapshot / name) for name in optional if (snapshot / name).exists())
         )
 
     def download(self, cache: Path) -> None:

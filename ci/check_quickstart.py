@@ -48,7 +48,8 @@ def check() -> None:
             command = ["/bin/bash", "-ec", "\n".join(lines)]
         result = subprocess.run(command, cwd=cwd, env=env, stdout=subprocess.PIPE, timeout=900)
         output = result.stdout.decode("utf-8")
-        print(output, flush=True)
+        sys.stdout.buffer.write(result.stdout)
+        sys.stdout.flush()
         result.check_returncode()
         assert (workspace / "example/tars/sample.tar.gz").is_file(), workspace
         assert (workspace / "indices/papers.faiss").is_file(), workspace

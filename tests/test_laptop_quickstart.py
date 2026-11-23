@@ -141,3 +141,7 @@ def test_download_repairs_truncated_weight_in_existing_snapshot(
     model.download(tmp_path)
     assert model.ready(tmp_path)
     assert fetched == [(model.repo, model.weights, snapshot.name)]
+    (snapshot / "vocab.txt").unlink()
+    assert model.ready(tmp_path)
+    (snapshot / "tokenizer.json").write_bytes(b"truncated")
+    assert not model.ready(tmp_path)
