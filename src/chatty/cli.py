@@ -7,7 +7,9 @@ import typer
 
 from chatty import __version__
 from chatty.config import format_config_with_sources, load_config
-from chatty.diagnostics import format_doctor_result, run_doctor
+from chatty.diagnostics import check_models, format_doctor_result, run_doctor
+from chatty.rag.litkit_provider import LitkitError, LitkitProvider
+from chatty.rag.models import MODELS, model_cache
 
 
 def version_callback(value: bool) -> None:
@@ -124,6 +126,75 @@ def chat(
 
 
 @app.command()
+def workspace(
+    example: Annotated[
+        bool, typer.Option("--example", help="Copy the bundled JATS article into example/articles.")
+    ] = False,
+) -> None:
+    """Print the absolute workspace path shared with LitKit."""
+    path = load_config().config.get_rag_workspace().resolve()
+    if example:
+        target = path / "example" / "articles" / "rain-gauge.xml"
+        article = (Path(__file__).parent / "examples" / target.name).read_bytes()
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if not target.exists():
+                with target.open("xb") as output:
+                    output.write(article)
+            elif target.read_bytes() != article:
+                raise OSError(f"Existing example has different content: {target}")
+        except OSError as exc:
+            typer.echo(f"Could not prepare the example: {exc}", err=True)
+            raise typer.Exit(1) from exc
+    typer.echo(str(path))
+
+
+@app.command()
+def models(
+    download: Annotated[
+        bool,
+        typer.Option("--download", help="Download missing embedding models from Hugging Face."),
+    ] = False,
+) -> None:
+    """Show local embedding model availability and download sizes."""
+    path = load_config().config.get_rag_workspace()
+    for check in check_models(path):
+        typer.echo(check.message)
+    if download:
+        cache = model_cache(path)
+        for model in MODELS:
+            try:
+                if not model.ready(cache):
+                    model.download(cache)
+                    typer.echo(f"{model.repo}: ready")
+            except Exception as exc:
+                typer.echo(f"Could not prepare {model.repo} in {cache}: {exc}", err=True)
+                raise typer.Exit(1) from exc
+
+
+@app.command()
+def retrieve(
+    query: Annotated[str, typer.Argument(help="Question to look up in the local index.")],
+) -> None:
+    """Print matching passages and their sources without an LLM endpoint."""
+    config = load_config().config
+    try:
+        provider = LitkitProvider(
+            config.get_rag_workspace(), config.rag_top_papers, config.rag_top_chunks
+        )
+        chunks = provider.retrieve(query)
+    except LitkitError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    if not chunks:
+        typer.echo("No passages found.", err=True)
+        raise typer.Exit(1)
+    for chunk in chunks:
+        source = " · ".join(filter(None, [chunk.paper_title, chunk.pmcid, chunk.pmid]))
+        typer.echo(f"{source or 'Untitled source'} [chunk {chunk.chunk_id}]\n{chunk.text}\n")
+
+
+@app.command()
 def doctor(
     verbose: Annotated[
         bool,
@@ -133,10 +204,21 @@ def doctor(
         bool,
         typer.Option("--skip-connectivity", help="Skip network connectivity checks"),
     ] = False,
+    retrieval: Annotated[
+        bool,
+        typer.Option(
+            "--retrieval", help="Check only the local models and index (no endpoint or key needed)."
+        ),
+    ] = False,
 ) -> None:
-    """Run connectivity diagnostics."""
+    """Check local retrieval and LLM endpoint configuration."""
     config_with_sources = load_config()
-    result = run_doctor(config_with_sources, verbose=verbose, skip_connectivity=skip_connectivity)
+    result = run_doctor(
+        config_with_sources,
+        verbose=verbose,
+        skip_connectivity=skip_connectivity,
+        retrieval_only=retrieval,
+    )
     typer.echo(format_doctor_result(result, verbose=verbose))
     raise SystemExit(result.exit_code)
 

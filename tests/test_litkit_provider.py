@@ -22,6 +22,7 @@ class TestLitkitProviderInit:
         # Create minimal workspace with standard litkit layout
         (tmp_path / "indices").mkdir()
         (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "indices" / "chunks.faiss").touch()
         (tmp_path / "sqlite").mkdir()
         (tmp_path / "sqlite" / "litkit.sqlite3").touch()
 
@@ -78,6 +79,7 @@ class TestLitkitProviderInit:
         # Create workspace with indices but no sqlite/
         (tmp_path / "indices").mkdir()
         (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "indices" / "chunks.faiss").touch()
 
         with patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"):
             from chatty.rag.litkit_provider import LitkitProvider
@@ -92,6 +94,7 @@ class TestLitkitProviderInit:
         # Create valid workspace with standard litkit layout
         (tmp_path / "indices").mkdir()
         (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "indices" / "chunks.faiss").touch()
         (tmp_path / "sqlite").mkdir()
         (tmp_path / "sqlite" / "litkit.sqlite3").touch()
 
@@ -108,22 +111,22 @@ class TestLitkitProviderInit:
             assert provider._top_papers == 100
             assert provider._top_chunks == 10
             assert provider._db_path == tmp_path / "sqlite" / "litkit.sqlite3"
-            assert provider._indices_dir == tmp_path / "indices"
 
-    def test_init_accepts_chunks_only(self, tmp_path: Path) -> None:
-        """LitkitProvider accepts workspace with only chunks.faiss."""
-        # Create workspace with only chunks.faiss (no papers.faiss)
-        (tmp_path / "indices").mkdir()
-        (tmp_path / "indices" / "chunks.faiss").touch()
+    @pytest.mark.parametrize("missing", ["chunks.faiss", "papers.faiss"])
+    def test_partial_index_names_missing_file(self, tmp_path: Path, missing: str) -> None:
+        from chatty.rag.litkit_provider import FAISSIndexNotFoundError, LitkitProvider
+
+        indices = tmp_path / "indices"
+        indices.mkdir()
+        for name in {"chunks.faiss", "papers.faiss"} - {missing}:
+            (indices / name).touch()
         (tmp_path / "sqlite").mkdir()
-        (tmp_path / "sqlite" / "litkit.sqlite3").touch()
-
-        with patch("chatty.rag.litkit_provider.LitkitProvider._check_litkit_installed"):
-            from chatty.rag.litkit_provider import LitkitProvider
-
-            provider = LitkitProvider(workspace=tmp_path)
-
-            assert provider._workspace == tmp_path
+        (tmp_path / "sqlite/litkit.sqlite3").touch()
+        with (
+            patch.object(LitkitProvider, "_check_litkit_installed"),
+            pytest.raises(FAISSIndexNotFoundError, match=missing),
+        ):
+            LitkitProvider(workspace=tmp_path)
 
 
 class TestLitkitProviderRetrieve:
@@ -134,6 +137,7 @@ class TestLitkitProviderRetrieve:
         """Create a valid workspace directory with standard litkit layout."""
         (tmp_path / "indices").mkdir()
         (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "indices" / "chunks.faiss").touch()
         (tmp_path / "sqlite").mkdir()
         (tmp_path / "sqlite" / "litkit.sqlite3").touch()
         return tmp_path
@@ -277,6 +281,7 @@ class TestLitkitProviderTokenBudget:
         """Create a LitkitProvider for testing."""
         (tmp_path / "indices").mkdir()
         (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "indices" / "chunks.faiss").touch()
         (tmp_path / "sqlite").mkdir()
         (tmp_path / "sqlite" / "litkit.sqlite3").touch()
 
@@ -383,6 +388,7 @@ class TestLitkitProviderFormatting:
         """Create a LitkitProvider for testing."""
         (tmp_path / "indices").mkdir()
         (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "indices" / "chunks.faiss").touch()
         (tmp_path / "sqlite").mkdir()
         (tmp_path / "sqlite" / "litkit.sqlite3").touch()
 
@@ -488,6 +494,7 @@ class TestLitkitProviderAugment:
         """Create a LitkitProvider for testing."""
         (tmp_path / "indices").mkdir()
         (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "indices" / "chunks.faiss").touch()
         (tmp_path / "sqlite").mkdir()
         (tmp_path / "sqlite" / "litkit.sqlite3").touch()
 
@@ -591,6 +598,7 @@ class TestLitkitProviderRewriter:
         """Create a LitkitProvider for testing."""
         (tmp_path / "indices").mkdir()
         (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "indices" / "chunks.faiss").touch()
         (tmp_path / "sqlite").mkdir()
         (tmp_path / "sqlite" / "litkit.sqlite3").touch()
 
@@ -604,6 +612,7 @@ class TestLitkitProviderRewriter:
         """Create a LitkitProvider with rewriting disabled."""
         (tmp_path / "indices").mkdir()
         (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "indices" / "chunks.faiss").touch()
         (tmp_path / "sqlite").mkdir()
         (tmp_path / "sqlite" / "litkit.sqlite3").touch()
 
@@ -722,6 +731,7 @@ class TestLitkitProviderRewriter:
         """LitkitProvider accepts rewrite_enabled parameter."""
         (tmp_path / "indices").mkdir()
         (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "indices" / "chunks.faiss").touch()
         (tmp_path / "sqlite").mkdir()
         (tmp_path / "sqlite" / "litkit.sqlite3").touch()
 
@@ -743,6 +753,7 @@ class TestLitkitProviderReranking:
         """Create a LitkitProvider for testing."""
         (tmp_path / "indices").mkdir()
         (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "indices" / "chunks.faiss").touch()
         (tmp_path / "sqlite").mkdir()
         (tmp_path / "sqlite" / "litkit.sqlite3").touch()
 
@@ -756,6 +767,7 @@ class TestLitkitProviderReranking:
         """Create a LitkitProvider with reranking disabled."""
         (tmp_path / "indices").mkdir()
         (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "indices" / "chunks.faiss").touch()
         (tmp_path / "sqlite").mkdir()
         (tmp_path / "sqlite" / "litkit.sqlite3").touch()
 
@@ -903,6 +915,7 @@ class TestLitkitProviderReranking:
         """LitkitProvider accepts rerank and rerank_top_n parameters."""
         (tmp_path / "indices").mkdir()
         (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "indices" / "chunks.faiss").touch()
         (tmp_path / "sqlite").mkdir()
         (tmp_path / "sqlite" / "litkit.sqlite3").touch()
 
@@ -991,6 +1004,7 @@ class TestLitkitProviderMultiQuery:
         """Create a LitkitProvider with multi-query enabled."""
         (tmp_path / "indices").mkdir()
         (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "indices" / "chunks.faiss").touch()
         (tmp_path / "sqlite").mkdir()
         (tmp_path / "sqlite" / "litkit.sqlite3").touch()
 
@@ -1004,6 +1018,7 @@ class TestLitkitProviderMultiQuery:
         """Create a LitkitProvider with multi-query disabled."""
         (tmp_path / "indices").mkdir()
         (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "indices" / "chunks.faiss").touch()
         (tmp_path / "sqlite").mkdir()
         (tmp_path / "sqlite" / "litkit.sqlite3").touch()
 
@@ -1016,6 +1031,7 @@ class TestLitkitProviderMultiQuery:
         """LitkitProvider accepts multi_query and multi_query_count."""
         (tmp_path / "indices").mkdir()
         (tmp_path / "indices" / "papers.faiss").touch()
+        (tmp_path / "indices" / "chunks.faiss").touch()
         (tmp_path / "sqlite").mkdir()
         (tmp_path / "sqlite" / "litkit.sqlite3").touch()
 
@@ -1196,7 +1212,7 @@ class TestLitkitErrorClasses:
         """FAISSIndexNotFoundError includes build instructions."""
         from chatty.rag.litkit_provider import FAISSIndexNotFoundError
 
-        err = FAISSIndexNotFoundError(Path("/test/workspace"))
+        err = FAISSIndexNotFoundError(Path("/test/workspace"), ["papers.faiss"])
         msg = str(err)
         assert str(Path("/test/workspace")) in msg
         assert "litkit --build-only" in msg

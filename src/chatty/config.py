@@ -17,6 +17,7 @@ CHECK_KEY_FILE_MODE = os.name != "nt"
 
 # Default system prompt for non-RAG mode
 DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
+DEFAULT_RAG_WORKSPACE = "~/Chatty/workspace"
 
 # Default system prompt when RAG is enabled (litkit-style)
 # Instructs the LLM to cite sources using turn-prefixed format [T.N]
@@ -200,7 +201,7 @@ class Config(BaseSettings):
 
     # RAG Settings (v0.4+)
     rag_workspace: str | None = Field(
-        default=None,
+        default=DEFAULT_RAG_WORKSPACE,
         validation_alias=AliasChoices("CHATTY_RAG_WORKSPACE", "LITKIT_WORKSPACE", "rag_workspace"),
     )
     rag_top_papers: int = 500  # Stage 1: papers to shortlist
@@ -316,15 +317,9 @@ class Config(BaseSettings):
         """Get the resolved export path with ~ expanded."""
         return Path(self.export_path).expanduser()
 
-    def get_rag_workspace(self) -> Path | None:
-        """Get the resolved RAG workspace path with ~ expanded.
-
-        Returns:
-            Path to workspace if configured, None otherwise.
-        """
-        if self.rag_workspace:
-            return Path(self.rag_workspace).expanduser()
-        return None
+    def get_rag_workspace(self) -> Path:
+        """Return the configured LitKit workspace, expanding a home-relative path."""
+        return Path(self.rag_workspace or DEFAULT_RAG_WORKSPACE).expanduser()
 
     def get_effective_system_prompt(self) -> str:
         """Get the effective system prompt based on RAG configuration.
@@ -482,7 +477,7 @@ def load_config(
     # Only apply TOML values if no env var is set for that key
     for key, value in toml_config.items():
         source = sources.get(key, "")
-        if key in _CONFIG_FIELDS and (source.startswith("chatty.toml") or "config" in source):
+        if key in _CONFIG_FIELDS and source == toml_source:
             final_values[key] = value
 
     # Apply CLI overrides (highest precedence)

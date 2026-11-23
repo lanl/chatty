@@ -46,15 +46,10 @@ def test_get_provider_unknown_raises_error() -> None:
     assert "Valid options" in str(exc_info.value)
 
 
-def test_get_provider_litkit_requires_workspace() -> None:
-    """Litkit provider raises error when workspace not configured."""
-    config = Config(rag_provider="litkit")
+def test_default_workspace_is_in_user_home() -> None:
+    from pathlib import Path
 
-    with pytest.raises(ConfigurationError) as exc_info:
-        get_provider(config)
-
-    # Should mention workspace is required
-    assert "workspace" in str(exc_info.value).lower()
+    assert Config().get_rag_workspace() == Path.home() / "Chatty" / "workspace"
 
 
 def test_get_provider_litkit_invalid_workspace() -> None:

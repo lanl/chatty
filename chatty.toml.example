@@ -118,7 +118,8 @@ export_path = "./exports"
 # rag_provider = "none"
 
 # litkit workspace path
-# If omitted, chatty will check the LITKIT_WORKSPACE environment variable.
+# CHATTY_RAG_WORKSPACE and LITKIT_WORKSPACE override this setting, in that order.
+# The default is ~/Chatty/workspace. Run chatty workspace to see the selected path.
 # The workspace must contain pre-built FAISS indices and SQLite database.
 # Build indices with: litkit --build-only --faiss-writer
 # rag_workspace = "~/litkit/workspace"

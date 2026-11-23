@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import subprocess
 import sys
 import textwrap
@@ -162,11 +163,23 @@ class WorkspaceNotFoundError(LitkitError):
 class FAISSIndexNotFoundError(LitkitError):
     """Raised when FAISS index files are missing."""
 
-    def __init__(self, workspace: Path) -> None:
+    def __init__(self, workspace: Path, missing: list[str]) -> None:
         super().__init__(
-            f"FAISS index not found in {workspace}. "
-            f"Run `litkit --build-only --faiss-writer` to build indices."
+            f"FAISS index not found in {workspace / 'indices'}: {', '.join(missing)}. "
+            "Run `litkit --build-only --faiss-writer` to build indices."
         )
+
+
+def missing_indices(workspace: Path) -> list[str]:
+    return [
+        name
+        for name in ("papers.faiss", "chunks.faiss")
+        if not (workspace / "indices" / name).is_file()
+    ]
+
+
+def database_path(workspace: Path) -> Path:
+    return workspace / "sqlite" / os.environ.get("LITKIT_DB_FILE", "litkit.sqlite3")
 
 
 class DatabaseNotFoundError(LitkitError):
@@ -289,31 +302,21 @@ class LitkitProvider:
             FAISSIndexNotFoundError: If FAISS index files are missing.
             DatabaseNotFoundError: If SQLite database is missing.
         """
-        # Check workspace exists
-        if not self._workspace.exists():
+        if not self._workspace.is_dir():
             raise WorkspaceNotFoundError(self._workspace)
 
-        # Check for FAISS indices in standard litkit location: indices/
-        indices_dir = self._workspace / "indices"
-        papers_index = indices_dir / "papers.faiss"
-        chunks_index = indices_dir / "chunks.faiss"
+        missing = missing_indices(self._workspace)
+        if missing:
+            raise FAISSIndexNotFoundError(self._workspace, missing)
 
-        if not indices_dir.exists():
-            raise FAISSIndexNotFoundError(self._workspace)
+        self._db_path = database_path(self._workspace)
+        if not self._db_path.is_file():
+            raise DatabaseNotFoundError(self._db_path)
 
-        if not papers_index.exists() and not chunks_index.exists():
-            raise FAISSIndexNotFoundError(self._workspace)
-
-        # Check for SQLite database in standard litkit location: sqlite/
-        sqlite_dir = self._workspace / "sqlite"
-        db_path = sqlite_dir / "litkit.sqlite3"
-
-        if not db_path.exists():
-            raise DatabaseNotFoundError(db_path)
-
-        # Store validated paths
-        self._db_path = db_path
-        self._indices_dir = indices_dir
+    def retrieve(self, query: str) -> list[RetrievedChunk]:
+        """Run both local retrieval stages without invoking an LLM."""
+        chunks, _ = self._retrieve_chunks(query)
+        return chunks
 
     def reset(self) -> None:
         """Reset provider state for a new session.
@@ -370,7 +373,8 @@ class LitkitProvider:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
                 close_fds=True,  # Close all fds - avoids inheritance issues
                 timeout=120,  # 2 minute timeout
             )
