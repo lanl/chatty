@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -51,7 +52,7 @@ class Session:
             "version": "1.0",
             "metadata": asdict(self.metadata),
             "system_prompt": self.system_prompt,
-            "messages": [{"role": m.role, "content": m.content} for m in self.messages],
+            "messages": [asdict(m) for m in self.messages],
         }
 
     @classmethod
@@ -63,12 +64,31 @@ class Session:
             raise ValueError(f"Unsupported session version: {version}")
 
         metadata = SessionMetadata(**data["metadata"])
-        messages = [Message(role=m["role"], content=m["content"]) for m in data["messages"]]
+        messages = [_load_message(raw) for raw in data["messages"]]
         return cls(
             metadata=metadata,
             system_prompt=data.get("system_prompt", ""),
             messages=messages,
         )
+
+
+def _load_message(raw: dict[str, Any]) -> Message:
+    message = Message(role=raw["role"], content=raw["content"])
+    turn = raw.get("citation_turn")
+    if type(turn) is int and turn > 0:
+        message.citation_turn = turn
+    elif message.role == "assistant" or (
+        message.role == "system" and message.content.startswith("[Conversation summary]\n")
+    ):
+        # Older files only record visible [T.N] references in the answer or summary.
+        for prefix in re.findall(r"\[([0-9]+)\.[0-9]+\]", message.content):
+            try:
+                turn = int(prefix)
+            except ValueError:  # Ignore digit strings longer than Python's integer limit.
+                continue
+            if turn > (message.citation_turn or 0):
+                message.citation_turn = turn
+    return message
 
 
 def generate_session_name(messages: list[Message]) -> str:

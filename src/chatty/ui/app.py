@@ -436,50 +436,21 @@ class ChatApp(App[None]):
     def action_regenerate(self) -> None:
         """Regenerate the last assistant response (Ctrl+R).
 
-        Removes the last assistant message from conversation and chat log,
-        then re-sends the previous user message to get a new response.
-        Useful when the response was unsatisfactory.
+        Re-send the last question and replace its answer on success.
         """
-        from chatty.ui.widgets import CitationsWidget
-
         if not self.conversation or len(self.conversation.messages) < 2:
             return
 
-        # Check if the last message is from assistant
-        if self.conversation.messages[-1].role != "assistant":
+        if self.current_worker is not None and not self.current_worker.is_finished:
             return
 
-        # Get the user message that preceded the assistant response
-        # (it's the second-to-last message)
-        if self.conversation.messages[-2].role != "user":
+        question, reply = self.conversation.messages[-2:]
+        if question.role != "user" or reply.role != "assistant":
             return
 
-        user_text = self.conversation.messages[-2].content
-
-        # Remove the last assistant message AND the user message from conversation
-        # (they will be re-added after successful response)
-        self.conversation.messages.pop()  # Remove assistant
-        self.conversation.messages.pop()  # Remove user
-
-        # Remove citations widget if present (appears after assistant message)
-        chat_log = self.query_one("#chat-log", ChatLog)
-        citations = list(chat_log.query(CitationsWidget))
-        if citations:
-            citations[-1].remove()  # Remove the last citations widget
-
-        # Remove assistant message from chat log display
-        chat_log.remove_last_message()
-
-        # Decrement turn counter since we're regenerating the same turn
-        if hasattr(self.rag_provider, "_turn_number"):
-            self.rag_provider._turn_number = max(0, self.rag_provider._turn_number - 1)
-
-        # Set pending user text for _send_message
-        self._pending_user_text = user_text
-
-        # Re-send
+        self._pending_user_text = question.content
         self.current_worker = self.run_worker(
-            self._send_message,
+            partial(send_message, self, regenerate=True),
             exclusive=True,
             name="regenerate",
         )
@@ -608,7 +579,7 @@ class ChatApp(App[None]):
 
         Clears the chat log and resets the conversation state.
         Token count is reset. Does not change configuration.
-        Also resets RAG provider state (turn counter for citations).
+        Also clears the paper shortlist used for follow-up questions.
         """
         chat_log = self.query_one("#chat-log", ChatLog)
         chat_log.clear_messages()
@@ -620,12 +591,8 @@ class ChatApp(App[None]):
             if system_prompt:
                 self.conversation.add_system_message(system_prompt)
 
-        # Reset RAG provider state (turn counter for citations)
-        if hasattr(self.rag_provider, "reset"):
-            self.rag_provider.reset()
-
         # Reset session tracking
-        self._reset_session_compression()
+        self._reset_session_workers()
         self._current_session = None
         self._session_dirty = False
 
@@ -873,8 +840,19 @@ class ChatApp(App[None]):
             name="compress",
         )
 
-    def _reset_session_compression(self) -> None:
-        """Discard the previous session's undo history and any pending preview."""
+    def _cancel_pending_reply(self) -> None:
+        """Stop a reply before replacing the history it belongs to."""
+        if self.current_worker is not None:
+            self.current_worker.cancel()
+            self.current_worker = None
+        self._pending_user_text = None
+
+    def _reset_session_workers(self) -> None:
+        """Discard in-flight requests, retrieval state and compression for the old session."""
+        self._cancel_pending_reply()
+        self.last_rag_metadata = None
+        if hasattr(self.rag_provider, "reset"):
+            self.rag_provider.reset()
         if self._compression_worker is not None:
             self._compression_worker.cancel()
             self._compression_worker = None
@@ -960,12 +938,16 @@ class ChatApp(App[None]):
         self._compression_available = True
 
         # Replace conversation with summary
+        self._cancel_pending_reply()
+        citation_turn = self.conversation.last_citation_turn
         self.conversation.clear()
         # Re-add system prompt if configured (use effective prompt for RAG)
         system_prompt = self.config.get_effective_system_prompt()
         if system_prompt:
             self.conversation.add_system_message(system_prompt)
-        self.conversation.add_system_message(f"[Conversation summary]\n{summary}")
+        self.conversation.add_system_message(
+            f"[Conversation summary]\n{summary}", citation_turn=citation_turn or None
+        )
 
         # Update chat log display
         chat_log = self.query_one("#chat-log", ChatLog)
@@ -1000,6 +982,7 @@ class ChatApp(App[None]):
             return
 
         # Restore pre-compression state
+        self._cancel_pending_reply()
         self.conversation.messages = list(self._pre_compression_state)
 
         # Clear undo state (single level only)
@@ -1009,9 +992,7 @@ class ChatApp(App[None]):
         # Rebuild chat log display
         chat_log = self.query_one("#chat-log", ChatLog)
         chat_log.clear_messages()
-        for msg in self.conversation.messages:
-            if msg.role != "system":
-                chat_log.add_message(msg.role, msg.content)
+        chat_log.show_history(self.conversation.messages)
 
         # Update status bar
         self.query_one("#status-bar", StatusBar).update_status(
