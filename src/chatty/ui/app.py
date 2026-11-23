@@ -72,6 +72,7 @@ Key Design Decisions
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -221,11 +222,10 @@ class ChatApp(App[None]):
         self._current_model: str = self.config.model  # Runtime model (can be changed)
         self._session_dirty: bool = False  # Track unsaved changes
         # Compression state
+        self._compression_worker: Worker[None] | None = None
         self._pre_compression_state: list[Message] | None = None
         self._compression_available: bool = False
         self._pending_summary: str | None = None
-        # Pending load path for unsaved changes flow
-        self._pending_load_path: Path | None = None
 
     def compose(self) -> ComposeResult:
         """Create the UI layout.
@@ -508,28 +508,24 @@ class ChatApp(App[None]):
             return  # User cancelled
 
         if self._session_dirty:
-            # Store the path and show warning
-            self._pending_load_path = filepath
             self.push_screen(
                 UnsavedChangesModal(),
-                self._handle_unsaved_warning,
+                partial(self._handle_unsaved_warning, filepath),
             )
         else:
             # No unsaved changes, load directly
             handle_session_load(self, filepath)
 
-    def _handle_unsaved_warning(self, choice: str | None) -> None:
+    def _handle_unsaved_warning(self, filepath: Path, choice: str | None) -> None:
         """Handle user choice from unsaved changes modal.
 
         Args:
+            filepath: Session selected in the browser.
             choice: "save_and_load", "load", or None (cancelled).
         """
-        pending_path = getattr(self, "_pending_load_path", None)
-
         if choice == "save_and_load":
             # If no current session, prompt for name first
             if not self._current_session:
-                # Don't clear pending_path here - _save_then_load will use it
                 self.push_screen(
                     SessionRenameModal(
                         generate_session_name(self.conversation.messages)
@@ -537,33 +533,25 @@ class ChatApp(App[None]):
                         else "Untitled",
                         button_label="Save",
                     ),
-                    self._save_then_load,
+                    partial(self._save_then_load, filepath),
                 )
-                return  # Don't clear pending_path yet
-            else:
-                save_current_session(self)
-                if pending_path:
-                    handle_session_load(self, pending_path)
-        elif choice == "load" and pending_path:
-            # Load without saving
-            handle_session_load(self, pending_path)
-        # else: None = cancelled, do nothing
+                return
+            if not save_current_session(self):
+                return
+        elif choice != "load":
+            return
 
-        # Clear pending path (only for immediate actions, not when another modal is pushed)
-        self._pending_load_path = None
+        handle_session_load(self, filepath)
 
-    def _save_then_load(self, name: str | None) -> None:
+    def _save_then_load(self, filepath: Path, name: str | None) -> None:
         """Save with given name, then load the pending session.
 
         Args:
+            filepath: Session selected in the browser.
             name: Session name from rename modal, or None if cancelled.
         """
-        pending_path = getattr(self, "_pending_load_path", None)
-        if name:
-            handle_first_save(self, name)
-        if pending_path:
-            handle_session_load(self, pending_path)
-        self._pending_load_path = None
+        if handle_first_save(self, name):
+            handle_session_load(self, filepath)
 
     def action_load_file(self) -> None:
         """Load a query from a file (Ctrl+O).
@@ -637,6 +625,7 @@ class ChatApp(App[None]):
             self.rag_provider.reset()
 
         # Reset session tracking
+        self._reset_session_compression()
         self._current_session = None
         self._session_dirty = False
 
@@ -878,11 +867,20 @@ class ChatApp(App[None]):
             return
 
         # Start worker to generate summary
-        self.run_worker(
-            self._generate_compression_preview,  # type: ignore[arg-type]
+        self._compression_worker = self.run_worker(
+            self._generate_compression_preview,
             exclusive=True,
             name="compress",
         )
+
+    def _reset_session_compression(self) -> None:
+        """Discard the previous session's undo history and any pending preview."""
+        if self._compression_worker is not None:
+            self._compression_worker.cancel()
+            self._compression_worker = None
+        self._pending_summary = None
+        self._pre_compression_state = None
+        self._compression_available = False
 
     async def _generate_compression_preview(self) -> None:
         """Generate compression preview and show modal."""
@@ -986,7 +984,7 @@ class ChatApp(App[None]):
         self._session_dirty = True
 
     def action_undo_compress(self) -> None:
-        """Undo last compression (Ctrl+U).
+        """Undo last compression (Ctrl+Y).
 
         Restores the conversation to its pre-compression state.
         Only works if compression was applied in this session.

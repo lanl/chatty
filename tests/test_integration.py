@@ -8,13 +8,18 @@ Tests the full ChatApp flow including:
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from pydantic import SecretStr
 
+from chatty.client.openai_client import AssistantMessage, Message
 from chatty.config import Config, ConfigWithSources
+from chatty.core.session import Session, SessionMetadata, load_session, save_session
 from chatty.ui.app import ChatApp
+from chatty.ui.modals import CompressionPreviewModal, SessionRenameModal
 from chatty.ui.widgets import ChatInput, ChatLog, StatusBar
 
 
@@ -31,6 +36,17 @@ def mock_config_with_sources(tmp_path: Path) -> ConfigWithSources:
         transcript_enabled=False,
     )
     return ConfigWithSources(config=config, sources={})
+
+
+@pytest.fixture
+def saved_session_file(mock_config_with_sources: ConfigWithSources) -> Path:
+    config = mock_config_with_sources.config
+    session = Session(
+        metadata=SessionMetadata.create(name="Saved session", model=config.model, message_count=2),
+        system_prompt="",
+        messages=[Message("user", "Saved question"), Message("assistant", "Saved answer")],
+    )
+    return save_session(session, config.get_session_path())
 
 
 # ============================================================================
@@ -508,42 +524,16 @@ class TestSessionLoading:
     """Tests for session_file loading on startup."""
 
     async def test_load_session_on_startup(
-        self, mock_config_with_sources: ConfigWithSources
+        self, mock_config_with_sources: ConfigWithSources, saved_session_file: Path
     ) -> None:
         """ChatApp loads session from session_file parameter."""
-        import json
-
-        # Create a valid session file
-        session_path = Path(mock_config_with_sources.config.session_path)
-        session_path.mkdir(parents=True, exist_ok=True)
-        session_file = session_path / "test-session.json"
-
-        session_data = {
-            "version": "1.0",
-            "metadata": {
-                "name": "test-session",
-                "model": "test-model",
-                "created_at": "2026-01-12T00:00:00",
-                "message_count": 2,
-            },
-            "messages": [
-                {"role": "user", "content": "Saved question"},
-                {"role": "assistant", "content": "Saved answer"},
-            ],
-        }
-        session_file.write_text(json.dumps(session_data))
-
         app = ChatApp(
             config_with_sources=mock_config_with_sources,
-            session_file=session_file,
+            session_file=saved_session_file,
         )
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            await pilot.pause()  # Extra pause for session loading
-
-            # Verify app loaded without crash
-            # Session loading happens asynchronously, so just verify app runs
+        async with app.run_test():
             assert app.conversation is not None
+            assert app.conversation.messages == load_session(saved_session_file).messages
 
 
 # ============================================================================
@@ -630,39 +620,125 @@ class TestHandleModelSelection:
 class TestHandleSessionLoad:
     """Tests for _handle_session_load callback."""
 
-    async def test_handle_session_load(self, mock_config_with_sources: ConfigWithSources) -> None:
-        """_handle_session_load restores session."""
-        import json
-
-        # Create a valid session file
-        session_path = Path(mock_config_with_sources.config.session_path)
-        session_path.mkdir(parents=True, exist_ok=True)
-        session_file = session_path / "restore-session.json"
-
-        session_data = {
-            "version": "1.0",
-            "metadata": {
-                "name": "restore-session",
-                "model": "test-model",
-                "created_at": "2026-01-12T00:00:00",
-                "message_count": 2,
-            },
-            "messages": [
-                {"role": "user", "content": "Restored question"},
-                {"role": "assistant", "content": "Restored answer"},
-            ],
-        }
-        session_file.write_text(json.dumps(session_data))
-
+    async def test_load_then_undo_and_save_preserves_loaded_history(
+        self, mock_config_with_sources: ConfigWithSources, saved_session_file: Path
+    ) -> None:
+        expected = load_session(saved_session_file).messages
         app = ChatApp(config_with_sources=mock_config_with_sources)
         async with app.run_test() as pilot:
-            await pilot.pause()
+            assert app.conversation is not None
+            app.conversation.add_user_message("Question from the previous session")
+            app._pending_summary = "Summary of the previous session"
+            app._handle_compression_choice(True)
 
-            # Call handler directly
-            app._handle_session_load(session_file)
-            await pilot.pause()
+            await pilot.press("ctrl+l", "enter")
+            await pilot.click("#load-btn")
+            assert app.conversation.messages == expected
+            await pilot.press("ctrl+y", "ctrl+s")
+            assert load_session(saved_session_file).messages == expected
+            assert app.conversation.messages == expected
 
-            # Session loading may be async, just verify no crash
+    async def test_new_session_discards_compression_undo(
+        self, mock_config_with_sources: ConfigWithSources
+    ) -> None:
+        app = ChatApp(config_with_sources=mock_config_with_sources)
+        async with app.run_test() as pilot:
+            assert app.conversation is not None
+            fresh_history = list(app.conversation.messages)
+            app.conversation.add_user_message("Question from the previous session")
+            app._pending_summary = "Summary of the previous session"
+            app._handle_compression_choice(True)
+
+            await pilot.press("ctrl+n", "ctrl+y")
+            assert app.conversation.messages == fresh_history
+
+    async def test_new_session_discards_in_flight_compression(
+        self, mock_config_with_sources: ConfigWithSources
+    ) -> None:
+        app = ChatApp(config_with_sources=mock_config_with_sources)
+        async with app.run_test() as pilot:
+            assert app.conversation is not None
+            assert app.client is not None
+            app.conversation.add_user_message("Old question")
+            app.conversation.add_assistant_message("Old answer")
+            app.conversation.add_user_message("Follow-up")
+            started = asyncio.Event()
+            reply = asyncio.Event()
+
+            async def delayed_summary(*_args: object, **_kwargs: object) -> AssistantMessage:
+                started.set()
+                await reply.wait()
+                return AssistantMessage("Summary of the previous session")
+
+            with patch.object(app.client, "chat", delayed_summary):
+                app.action_compress()
+                await asyncio.wait_for(started.wait(), timeout=5)
+                await pilot.press("ctrl+n")
+                reply.set()
+                await app.workers.wait_for_complete()
+                assert not isinstance(app.screen, CompressionPreviewModal)
+
+    @pytest.mark.parametrize("cancel", ["escape", "button"])
+    async def test_cancel_save_and_load_keeps_unsaved_session(
+        self, mock_config_with_sources: ConfigWithSources, saved_session_file: Path, cancel: str
+    ) -> None:
+        app = ChatApp(config_with_sources=mock_config_with_sources)
+        async with app.run_test() as pilot:
+            assert app.conversation is not None
+            app.conversation.add_user_message("Unsaved question")
+            expected = list(app.conversation.messages)
+            app._session_dirty = True
+            app._handle_session_load(saved_session_file)
+            await pilot.pause()
+            await pilot.click("#save-load-btn")
+            assert isinstance(app.screen, SessionRenameModal)
+            if cancel == "escape":
+                await pilot.press("escape")
+            else:
+                await pilot.click("#cancel-btn")
+
+            assert app.conversation.messages == expected
+            assert app._current_session is None
+            assert app._session_dirty
+            assert list(saved_session_file.parent.glob("*.json")) == [saved_session_file]
+
+    @pytest.mark.parametrize("first_save", [True, False], ids=["unnamed", "previously-saved"])
+    async def test_save_and_load_requires_successful_save(
+        self,
+        mock_config_with_sources: ConfigWithSources,
+        saved_session_file: Path,
+        first_save: bool,
+    ) -> None:
+        app = ChatApp(config_with_sources=mock_config_with_sources)
+        async with app.run_test() as pilot:
+            assert app.conversation is not None
+            if not first_save:
+                app._handle_first_save("Existing session")
+            app.conversation.add_user_message("Unsaved question")
+            expected = list(app.conversation.messages)
+            app._session_dirty = True
+
+            with patch("chatty.ui.session_handlers.save_session", side_effect=OSError("disk full")):
+                app._handle_session_load(saved_session_file)
+                await pilot.pause()
+                await pilot.click("#save-load-btn")
+                if first_save:
+                    await pilot.press("enter")
+            assert app.conversation.messages == expected
+            assert app._session_dirty
+            if first_save:
+                assert app._current_session is None
+
+            # Retry after storage becomes available.
+            app._handle_session_load(saved_session_file)
+            await pilot.pause()
+            await pilot.click("#save-load-btn")
+            if first_save:
+                assert isinstance(app.screen, SessionRenameModal)
+                await pilot.press("enter")
+            assert app.conversation.messages == load_session(saved_session_file).messages
+            [saved_source] = set(saved_session_file.parent.glob("*.json")) - {saved_session_file}
+            assert load_session(saved_source).messages == expected
 
     async def test_handle_session_load_none(
         self, mock_config_with_sources: ConfigWithSources
