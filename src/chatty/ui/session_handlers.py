@@ -38,48 +38,7 @@ def load_session_file(app: ChatApp) -> None:
     Args:
         app: The ChatApp instance.
     """
-    from chatty.ui.widgets import ChatLog, StatusBar
-
-    if not app.session_file:
-        return
-
-    chat_log = app.query_one("#chat-log", ChatLog)
-
-    try:
-        session = load_session(app.session_file)
-        app._current_session = session
-
-        # Restore conversation state
-        if app.conversation:
-            app.conversation.clear()
-            for msg in session.messages:
-                if msg.role == "system":
-                    app.conversation.add_system_message(msg.content)
-                elif msg.role == "user":
-                    app.conversation.add_user_message(msg.content)
-                elif msg.role == "assistant":
-                    app.conversation.add_assistant_message(msg.content)
-
-        # Restore chat log display (skip system messages)
-        for msg in session.messages:
-            if msg.role != "system":
-                chat_log.add_message(msg.role, msg.content)
-
-        # Show confirmation
-        chat_log.add_message(
-            "system",
-            f"Loaded session: {session.metadata.name}\nMessages: {session.metadata.message_count}",
-        )
-
-        # Update status bar with token count
-        if app.conversation:
-            app.query_one("#status-bar", StatusBar).update_status(
-                status="Ready",
-                tokens=app.conversation.get_token_display(),
-            )
-
-    except Exception as e:
-        chat_log.add_message("error", f"Failed to load session: {e}")
+    handle_session_load(app, app.session_file, clear_chat_log=False)
 
 
 def load_and_submit_query_file(app: ChatApp) -> None:
@@ -108,12 +67,15 @@ def load_and_submit_query_file(app: ChatApp) -> None:
         chat_log.add_message("error", f"Failed to load query file: {e}")
 
 
-def handle_session_load(app: ChatApp, filepath: Path | None) -> None:
-    """Handle the session file selected from browser.
+def handle_session_load(
+    app: ChatApp, filepath: Path | None, *, clear_chat_log: bool = True
+) -> None:
+    """Restore a session from disk.
 
     Args:
         app: The ChatApp instance.
         filepath: Path to session file, or None if cancelled.
+        clear_chat_log: Clear the previous chat display. Startup keeps its diagnostics visible.
     """
     from chatty.ui.widgets import ChatLog, StatusBar
 
@@ -126,7 +88,9 @@ def handle_session_load(app: ChatApp, filepath: Path | None) -> None:
         session = load_session(filepath)
 
         # Clear current state
-        chat_log.clear_messages()
+        app._reset_session_compression()
+        if clear_chat_log:
+            chat_log.clear_messages()
         if app.conversation:
             app.conversation.clear()
 
@@ -167,15 +131,15 @@ def handle_session_load(app: ChatApp, filepath: Path | None) -> None:
         chat_log.add_message("error", f"Failed to load session: {e}")
 
 
-def handle_first_save(app: ChatApp, name: str | None) -> None:
-    """Handle the name returned from first-save modal.
+def handle_first_save(app: ChatApp, name: str | None) -> bool:
+    """Handle the name returned from first-save modal and report whether the save succeeded.
 
     Args:
         app: The ChatApp instance.
         name: Session name entered by user, or None if cancelled.
     """
     if not name or not app.conversation:
-        return
+        return False
 
     # Create new session with the chosen name
     metadata = SessionMetadata.create(
@@ -188,12 +152,14 @@ def handle_first_save(app: ChatApp, name: str | None) -> None:
         system_prompt=app.config.get_effective_system_prompt(),
         messages=list(app.conversation.messages),
     )
-    # Now save it
-    save_current_session(app)
+    if save_current_session(app):
+        return True
+    app._current_session = None
+    return False
 
 
-def save_current_session(app: ChatApp) -> None:
-    """Save the current session to disk.
+def save_current_session(app: ChatApp) -> bool:
+    """Save the current session to disk and report whether the save succeeded.
 
     Args:
         app: The ChatApp instance.
@@ -201,7 +167,7 @@ def save_current_session(app: ChatApp) -> None:
     from chatty.ui.widgets import ChatLog
 
     if not app._current_session or not app.conversation:
-        return
+        return False
 
     chat_log = app.query_one("#chat-log", ChatLog)
 
@@ -220,6 +186,8 @@ def save_current_session(app: ChatApp) -> None:
         )
     except Exception as e:
         chat_log.add_message("error", f"Failed to save session: {e}")
+        return False
+    return True
 
 
 def handle_file_path(app: ChatApp, path: str | None) -> None:
