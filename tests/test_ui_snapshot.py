@@ -33,6 +33,8 @@ def mock_config(monkeypatch: MonkeyPatch, tmp_path: Path) -> ConfigWithSources:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
+    # The snapshot uses Textual's default color palette.
+    monkeypatch.delenv("NO_COLOR", raising=False)
 
     # Clear CHATTY_ and OPENAI_ env vars
     for key in list(os.environ.keys()):
