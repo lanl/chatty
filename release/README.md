@@ -38,7 +38,9 @@ today's package index is only part of cutting a **new** set.
 
 1. Read each project's contributor and release instructions. Select the source
    revisions and verify that each wheel's metadata version agrees with its CLI.
-   Update the three versions and full SHAs in `sources.json`. Allocate a new
+   Update the application versions and full SHAs in `sources.json`. In `upgrade_from`,
+   record the previous tag, manifest digest, and a README commit containing its published
+   installer commands. Allocate a new
    `laptop-YYYY.MM.N` tag and update the manifest link in the top-level README.
    If Python changes, update `.python-version` and the README version. Review the starter
    constraints against the upstream locks, especially the Windows FAISS and CPU
@@ -72,24 +74,27 @@ today's package index is only part of cutting a **new** set.
    checkout as standard users on both targets. Only OS tools are on the install
    PATH. The verifier checks the published installer bytes, all reported wheels,
    fresh-shell command discovery, the managed Python and Chatty's LitKit imports.
-   It repeats the install and checks that the corpus, FAISS index, user config
-   and saved Chatty session survive a runtime switch. The first release uses a
-   simulated previous release marker. Keep its installer revision as the
-   baseline for the first upgrade between published suites.
-   The Linux job reproduces all three wheel hashes. All three checks must pass.
-   If a wheel or lock needs to change, allocate a new suite tag.
-5. Download the two evidence files, inspect their CLI versions and module paths,
-   and attach them to the same release. Put the manifest digest, preparation and
-   verification run URLs, tooling commit and companion PRs in the release notes.
-   After review, promote the verified release in place. For example, with
-   `verify_run` and `tag` set:
+   On a fresh install it runs the guide with an empty model cache, builds the
+   bundled JATS article and retrieves the expected passage. It then installs
+   the previous published suite, creates a separate index, user settings and a
+   session, and retrieves the same passage before and after upgrade. It checks
+   the file hashes, reopens the session, exercises retrieval with an IVF-PQ
+   index, and checks reinstall and repair. Both platforms retain their logs
+   as Actions artifacts on failure.
+
+5. Add release notes to the prerelease with the installer instructions, quickstart,
+   manifest digest, source revisions and preparation run URL. Review the release PR
+   and its verification results. To promote, dispatch the verification workflow on
+   the reviewed revision with the promotion input enabled. For example, after merge:
 
    ```bash
-   gh run download "$verify_run" -R lanl/chatty -n evidence-macos-arm64 -D evidence
-   gh run download "$verify_run" -R lanl/chatty -n evidence-windows-x64 -D evidence
-   gh release upload "$tag" evidence/*.evidence.json -R lanl/chatty
-   gh release edit "$tag" -R lanl/chatty --prerelease=false --notes-file release-notes.md
+   gh workflow run laptop-verify.yml -R lanl/chatty --ref main -f promote=true
    ```
+
+   The promotion job runs after the Linux rebuild and both native verifiers pass.
+   It checks the public asset digests against the manifest and the two evidence
+   files against this run before attaching them and marking the suite as latest.
+   Monitor the workflow through promotion and confirm the resulting release.
 
 The evidence JSON files remain available as release assets after Actions
 artifact retention expires. The wheel and lock URLs stay the same on promotion.

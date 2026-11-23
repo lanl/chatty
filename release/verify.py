@@ -59,6 +59,12 @@ def install_environment(tmp: Path) -> dict[str, str]:
             assert path, name
             (tools / name).symlink_to(path)
         env = {"HOME": str(home), "SHELL": "/bin/zsh", "PATH": str(tools), "TMPDIR": str(tmp)}
+    env = {
+        k: v
+        for k, v in env.items()
+        if not k.startswith(("OPENAI_", "CHATTY_", "HF_", "LITKIT_"))
+        and k not in {"API_KEY", "BASE_URL", "RAG_WORKSPACE"}
+    }
     for name in ("git", "cc", "cl", "clang", "gcc", "uv", "python", "python3", "py"):
         assert shutil.which(name, path=env["PATH"]) is None, name
     return env
@@ -125,6 +131,75 @@ def check_mac_shells(root: Path, work: Path, env: dict[str, str]) -> None:
             ], result
 
 
+def installer_command(readme: str, target: str) -> str:
+    block = readme.split(f"<!-- install-{target} -->\n", 1)[1].split("\n```", 1)[0]
+    return block.split("\n", 1)[1]
+
+
+def install_baseline(
+    baseline: dict[str, str], target: str, cwd: Path, env: dict[str, str]
+) -> dict[str, str]:
+    """Run the prior release's published instructions and return its application versions."""
+    with urlopen(
+        f"https://raw.githubusercontent.com/lanl/chatty/{baseline['instructions_revision']}/README.md",
+        timeout=60,
+    ) as response:
+        previous_command = installer_command(response.read().decode("utf-8"), target)
+    previous_manifest = json.loads(
+        checked_download(
+            f"https://github.com/lanl/chatty/releases/download/{baseline['tag']}/manifest.json",
+            baseline["manifest_sha256"],
+        )
+    )
+    assert previous_manifest["tag"] == baseline["tag"]
+    install(previous_command, cwd, env)
+    return {name: project["version"] for name, project in previous_manifest["projects"].items()}
+
+
+def fixture_probe(runtime: Path, mode: str, work: Path, env: dict[str, str]) -> str:
+    python = runtime / ("Scripts/python.exe" if WINDOWS else "bin/python")
+    return subprocess.check_output(
+        [str(python), "-I", str(HERE / "probe_data.py"), mode], cwd=work, env=env, encoding="utf-8"
+    ).strip()
+
+
+def build_prior_fixture(
+    user_home: Path, quickstart: Path, work: Path, original: Path, offline: dict[str, str]
+) -> tuple[str, str, dict[Path, str]]:
+    config = user_home / ".config/chatty/config.toml"
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text(
+        'session_path = "./saved sessions"\nrag_workspace = "./workspace"\nrag_provider = "litkit"\n'
+    )
+    corpus = work / "corpus/rain-gauge.xml"
+    corpus.parent.mkdir()
+    shutil.copyfile(quickstart / "example/articles/rain-gauge.xml", corpus)
+    fresh_shell(
+        "text-fetch tarball create --xml-dir corpus --out shards/rain.tar.gz", work, offline
+    )
+    workspace = work / "workspace"
+    fresh_shell(
+        "litkit --build-only --faiss-writer --tar-dir shards --papers-index flat --chunks-index flat",
+        work,
+        {**offline, "LITKIT_WORKSPACE": str(workspace)},
+    )
+
+    title, passage = fixture_probe(original, "create", work, offline).splitlines()
+    (session_file,) = (work / "saved sessions").glob("*.json")
+    paths = (
+        corpus,
+        work / "shards/rain.tar.gz",
+        workspace / "indices/papers.faiss",
+        workspace / "indices/chunks.faiss",
+        workspace / "sqlite/litkit.sqlite3",
+        config,
+        session_file,
+    )
+    digests = {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
+
+    return title, passage, digests
+
+
 def exercise_upgrade(
     command: str,
     cwd: Path,
@@ -133,33 +208,61 @@ def exercise_upgrade(
     root: Path,
     user_home: Path,
     manifest_sha: str,
-) -> tuple[Path, list[str]]:
+    baseline: dict[str, str],
+    target: str,
+) -> tuple[Path, dict[str, object]]:
     def active_runtime() -> Path:
         runtime = command_path("chatty", work, env).parent.resolve().parent
         assert runtime.parent == root.resolve() / "runtimes", runtime
         return runtime
 
-    original = active_runtime()
     python_path = Path("Scripts/python.exe" if WINDOWS else "bin/python")
-    config = user_home / ".config/chatty/config.toml"
-    config.parent.mkdir(parents=True, exist_ok=True)
-    config.write_text('session_path = "./sessions"\nrag_workspace = "./workspace"\n')
-    corpus = work / "corpus/paper.xml"
-    corpus.parent.mkdir()
-    corpus.write_text("<article><body><p>Corpus fixture.</p></body></article>")
-    index = work / "workspace/indices/chunks.faiss"
+    path_command = "$env:Path" if WINDOWS else 'print -r -- "$PATH"'
+    initial = active_runtime()
+    assert (initial / "manifest.sha256").read_text().strip() == manifest_sha
+    for name in ("chatty", "text-fetch", "litkit"):
+        assert command_path(name, work, env).parent.resolve() == initial / "commands"
+
+    # Run the actual guide in the clean install, including its first model downloads.
+    quickstart = cwd / "研究 field notes"
+    fresh_env = {**env, "PATH": fresh_shell(path_command, work, env)}
     subprocess.run(
-        [str(original / python_path), "-I", str(HERE / "probe_data.py"), "create"],
+        [
+            str(initial / python_path),
+            "-I",
+            str(HERE.parent / "ci/check_quickstart.py"),
+            str(quickstart),
+        ],
         cwd=work,
-        env=env,
+        env=fresh_env,
         check=True,
     )
-    (session_file,) = (work / "sessions").glob("*.json")
-    data = {p: p.read_bytes() for p in (corpus, index, config, session_file)}
+    # Old Chatty has no model setup command. Reuse only the real models, and
+    # build an independent corpus/index with the prior release's installed CLIs.
+    previous_versions = install_baseline(baseline, target, cwd, env)
+    original = active_runtime()
+    assert (
+        original != initial
+        and (original / "manifest.sha256").read_text().strip() == baseline["manifest_sha256"]
+    )
+    for name, version in previous_versions.items():
+        assert command_path(name, work, env).parent.resolve() == original / "commands"
+        assert fresh_shell(f"{name} --version", work, env).split()[-1] == version
 
-    install(command, cwd, env)
-    assert active_runtime() == original, "Reinstall duplicated the runtime"
-    assert all(p.read_bytes() == contents for p, contents in data.items())
+    offline = {
+        **env,
+        "LITKIT_FORCE_DEVICE": "cpu",
+        "HF_HOME": str(quickstart / "hf_cache"),
+        "HF_HUB_OFFLINE": "1",
+        "TRANSFORMERS_OFFLINE": "1",
+        "PYTHONUTF8": "1",
+        "PYTHONIOENCODING": "utf-8",
+    }
+    title, passage, digests = build_prior_fixture(user_home, quickstart, work, original, offline)
+
+    def check_preserved() -> None:
+        for p, digest in digests.items():
+            assert hashlib.sha256(p.read_bytes()).hexdigest() == digest, f"Installer changed {p}"
 
     # A bad manifest pin must stop the real installer with the working suite still selected.
     script = "install.ps1" if WINDOWS else "install.sh"
@@ -179,20 +282,26 @@ def exercise_upgrade(
     assert rejected.returncode != 0 and mismatch in rejected.stdout + rejected.stderr, rejected
     assert active_runtime() == original
 
-    # The first suite has no published predecessor. Give the disposable installation a
-    # different release marker to exercise the same replacement path as the next release.
-    (original / "manifest.sha256").write_text("0" * 64)
     install(command, cwd, env)
     active = active_runtime()
     assert active != original and (active / "manifest.sha256").read_text().strip() == manifest_sha
-    path = fresh_shell("$env:Path" if WINDOWS else 'print -r -- "$PATH"', work, env)
+    path = fresh_shell(path_command, work, env)
     suite_paths = [
         Path(p).resolve() for p in path.split(os.pathsep) if Path(p).is_relative_to(root)
     ]
     assert suite_paths == [active / "commands"], suite_paths
-    assert all(
-        p.read_bytes() == contents for p, contents in data.items()
-    ), "Upgrade changed user data"
+    check_preserved()
+    output = fresh_shell(
+        'chatty retrieve "How much rain did the copper gauge collect?"', work, offline
+    )
+    assert re.search(re.escape(title) + r" \[chunk \d+\]\s+" + re.escape(passage), output), output
+    print(output, flush=True)
+    fixture_probe(active, "read", work, offline)
+    print(fixture_probe(active, "ivfpq", work, offline), flush=True)
+
+    install(command, cwd, env)
+    assert active_runtime() == active, "Reinstall duplicated the runtime"
+    check_preserved()
     if not WINDOWS:
         check_mac_shells(root, work, env)
 
@@ -205,12 +314,19 @@ def exercise_upgrade(
         extension.unlink()
     install(command, cwd, env)
     repaired = active_runtime()
-    assert repaired != active and all(p.read_bytes() == contents for p, contents in data.items())
-    python = str(repaired / python_path)
-    subprocess.run(
-        [python, "-I", str(HERE / "probe_data.py"), "read"], cwd=work, env=env, check=True
-    )
-    return repaired, [p.name for p in data]
+    assert repaired != active
+    check_preserved()
+    fixture_probe(repaired, "read", work, offline)
+    return repaired, {
+        "from": baseline["tag"],
+        "from_manifest_sha256": baseline["manifest_sha256"],
+        "from_chatty": previous_versions["chatty"],
+        "title": title,
+        "passage": passage,
+        "retrieved_before_and_after": True,
+        "ivfpq_retrieval": "passed",
+        "preserved_sha256": {p.name: digest for p, digest in digests.items()},
+    }
 
 
 def verify(target: str, evidence: Path) -> None:
@@ -219,8 +335,7 @@ def verify(target: str, evidence: Path) -> None:
     ]
     assert (platform.system(), platform.machine()) == (os_name, arch)
     readme = (HERE.parent / "README.md").read_text(encoding="utf-8")
-    block = readme.split(f"<!-- install-{target} -->\n", 1)[1].split("\n```", 1)[0]
-    command = block.split("\n", 1)[1]
+    command = installer_command(readme, target)
     installer = "install.ps1" if WINDOWS else "install.sh"
     url = re.search(
         r"https://raw\.githubusercontent\.com/lanl/chatty/[0-9a-f]{40}/release/"
@@ -261,7 +376,9 @@ def verify(target: str, evidence: Path) -> None:
         work = cwd / "research project"
         work.mkdir()
 
-        active, preserved = exercise_upgrade(command, cwd, work, env, root, user_home, manifest_sha)
+        active, upgrade = exercise_upgrade(
+            command, cwd, work, env, root, user_home, manifest_sha, sources["upgrade_from"], target
+        )
         python = str(active / ("Scripts/python.exe" if WINDOWS else "bin/python"))
         report = json.loads((active / "pip-report.json").read_text(encoding="utf-8"))
         installed = {}
@@ -312,8 +429,8 @@ def verify(target: str, evidence: Path) -> None:
             "reinstall": "reused runtime",
             "repair": "replaced runtime with missing FAISS extensions",
             "invalid_manifest": "rejected, prior runtime still active",
-            "upgrade": "replaced simulated predecessor",
-            "preserved": preserved,
+            "quickstart": "published install, cold model cache, native JATS, CPU retrieval",
+            "upgrade": upgrade,
             "pip": report["pip_version"],
             "runtime": runtime,
         }
