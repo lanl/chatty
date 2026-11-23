@@ -7,7 +7,7 @@ quick tips, and version information.
 from __future__ import annotations
 
 from textual.app import App, ComposeResult
-from textual.widgets import Label
+from textual.widgets import Label, Static
 
 from chatty.ui.help import (
     POWER_SHORTCUTS,
@@ -37,7 +37,7 @@ class TestHelpModal:
         async with app.run_test() as pilot:
             modal = HelpModal()
             modal.set_config(
-                model="gpt-4",
+                model="model[local]",
                 streaming=True,
                 context_window=128000,
                 transcript_enabled=False,
@@ -51,6 +51,7 @@ class TestHelpModal:
             # Should have title label
             title = modal.query_one("#help-title", Label)
             assert title is not None
+            assert "model[local]" in str(modal.query_one("#help-content", Static).visual)
 
     async def test_escape_closes_modal(self) -> None:
         """Escape key closes the modal."""
@@ -78,7 +79,7 @@ class TestHelpModal:
             context_window=128000,
             transcript_enabled=False,
         )
-        content = modal._build_help_text()
+        content = modal._build_help_text().plain
 
         # Check some visible shortcuts are present
         assert "Submit query" in content
@@ -94,7 +95,7 @@ class TestHelpModal:
             context_window=128000,
             transcript_enabled=False,
         )
-        content = modal._build_help_text()
+        content = modal._build_help_text().plain
 
         # Check power shortcuts are mentioned
         assert "hidden from footer" in content
@@ -109,7 +110,7 @@ class TestHelpModal:
             context_window=128000,
             transcript_enabled=False,
         )
-        content = modal._build_help_text()
+        content = modal._build_help_text().plain
 
         assert "test-model-123" in content
 
@@ -122,7 +123,7 @@ class TestHelpModal:
             context_window=128000,
             transcript_enabled=False,
         )
-        content = modal._build_help_text()
+        content = modal._build_help_text().plain
 
         assert "Streaming" in content
         assert "On" in content
@@ -136,7 +137,7 @@ class TestHelpModal:
             context_window=128000,
             transcript_enabled=False,
         )
-        content = modal._build_help_text()
+        content = modal._build_help_text().plain
 
         assert "Off" in content
 
@@ -149,7 +150,7 @@ class TestHelpModal:
             context_window=128000,
             transcript_enabled=False,
         )
-        content = modal._build_help_text()
+        content = modal._build_help_text().plain
 
         # 128000 tokens should display as "128K tokens"
         assert "128K tokens" in content
@@ -163,7 +164,7 @@ class TestHelpModal:
             context_window=None,
             transcript_enabled=False,
         )
-        content = modal._build_help_text()
+        content = modal._build_help_text().plain
 
         assert "unknown" in content
 
@@ -176,7 +177,7 @@ class TestHelpModal:
             context_window=128000,
             transcript_enabled=True,
         )
-        content = modal._build_help_text()
+        content = modal._build_help_text().plain
 
         assert "Enabled" in content
 
@@ -189,7 +190,7 @@ class TestHelpModal:
             context_window=128000,
             transcript_enabled=False,
         )
-        content = modal._build_help_text()
+        content = modal._build_help_text().plain
 
         # Check at least one tip is present
         assert "Press Esc to cancel generation or close dialogs" in content
@@ -203,7 +204,7 @@ class TestHelpModal:
             context_window=128000,
             transcript_enabled=False,
         )
-        content = modal._build_help_text()
+        content = modal._build_help_text().plain
 
         # Should show version and doctor hint
         assert "chatty v" in content

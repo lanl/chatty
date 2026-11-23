@@ -193,7 +193,7 @@ class SessionBrowserModal(ModalScreen[Path | None]):
         """Create the dialog layout."""
         with Vertical(id="session-dialog"):
             yield Label("Saved Sessions")
-            yield OptionList(id="session-list")
+            yield OptionList(id="session-list", markup=False)
             yield Label(
                 "[dim]r[/dim] rename  [dim]d[/dim] delete  [dim]Enter[/dim] load",
                 id="session-hint",
@@ -545,7 +545,7 @@ class SessionDeleteConfirmModal(ModalScreen[bool | None]):
         """Create the dialog layout."""
         with Vertical(id="delete-dialog"):
             yield Label("Delete Session", id="delete-title")
-            yield Label(f"Delete '{self._session_name}'?")
+            yield Label(f"Delete '{self._session_name}'?", markup=False)
             yield Label("This cannot be undone.", id="delete-warning")
             with Container(id="delete-buttons"):
                 yield Button("Cancel", variant="default", id="cancel-btn")
@@ -640,7 +640,7 @@ class ModelPickerModal(ModalScreen[str | None]):
         """Create the dialog layout."""
         with Vertical(id="model-dialog"):
             yield Label("Select Model")
-            yield OptionList(id="model-list")
+            yield OptionList(id="model-list", markup=False)
             with Container(id="model-buttons"):
                 yield Button("Cancel", variant="default", id="cancel-btn")
                 yield Button("Select", variant="primary", id="select-btn")
@@ -883,7 +883,7 @@ class CompressionPreviewModal(ModalScreen[bool | None]):
 
             yield Label("Summary Preview:", id="summary-label")
             with VerticalScroll(id="summary-container"):
-                yield Static(self._summary, id="summary-text")
+                yield Static(self._summary, id="summary-text", markup=False)
 
             # Calculate savings percentage
             if self._original_tokens > 0:
@@ -993,7 +993,7 @@ class ModelInputModal(ModalScreen[str | None]):
         with Vertical(id="model-input-dialog"):
             yield Label("Enter Model Name")
             if self._error_message:
-                yield Label(self._error_message, id="model-hint")
+                yield Label(self._error_message, id="model-hint", markup=False)
             else:
                 yield Label(
                     "Endpoint doesn't support /models listing",

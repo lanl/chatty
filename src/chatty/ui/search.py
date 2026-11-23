@@ -73,7 +73,7 @@ class SearchBar(Horizontal):
     def compose(self) -> ComposeResult:
         """Create child widgets."""
         yield Input(placeholder="Search... (^F=next, Esc=close)", id="search-input")
-        yield Static("0/0", id="match-counter")
+        yield Static("0/0", id="match-counter", markup=False)
 
     def on_mount(self) -> None:
         """Handle mount event."""

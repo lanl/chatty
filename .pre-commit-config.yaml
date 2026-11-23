@@ -15,6 +15,6 @@ repos:
           - pydantic-settings>=2.0
           - httpx>=0.25
           - typer>=0.9
-          - textual>=0.40
+          - textual>=3.1
           - types-pyperclip
         args: [--ignore-missing-imports]

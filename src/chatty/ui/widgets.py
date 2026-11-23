@@ -9,12 +9,14 @@ This module contains the core UI widgets used by the chat application:
 
 from __future__ import annotations
 
+import re
 import time
 from typing import TYPE_CHECKING
 
 from rich.markdown import Markdown as RichMarkdown
 from textual.binding import Binding
 from textual.containers import VerticalScroll
+from textual.content import Content
 from textual.widgets import Collapsible, Static, TextArea
 
 if TYPE_CHECKING:
@@ -98,92 +100,27 @@ class MessageWidget(Static):
         self._update_display()
 
     def _update_display(self) -> None:
-        """Update the displayed text.
-
-        Rendering strategy:
-        - During streaming: Raw text for performance
-        - After streaming complete (assistant, no search): Markdown with syntax highlighting
-        - During search: Plain text for all messages (enables word-level highlighting)
-        - User/system/error: Always plain text with bold prefix
-
-        Search highlighting:
-        - All messages during search: Word-level highlighting with Rich markup
-        - When search is cleared, assistant messages return to markdown rendering
-        """
+        """Render completed assistant replies as Markdown and highlight literal text during search."""
         prefix = self.ROLE_PREFIXES.get(self.role, self.role)
-        content = self.message_content
-
-        # Use plain text during search to enable word highlighting, or for non-assistant roles
-        use_plain_text = (
-            self.role != "assistant"
-            or self.is_streaming
-            or self.highlight_query  # Search active → use plain text
-        )
-
-        if use_plain_text:
-            # Plain text rendering with word-level search highlighting
-            display_content = content
-            if self.highlight_query and self.contains_query(self.highlight_query):
-                display_content = self._apply_highlight(content, self.highlight_query)
-            self.update(f"**{prefix}:** {display_content}")
+        has_match = False
+        if self.role == "assistant" and not self.is_streaming and not self.highlight_query:
+            self.update(RichMarkdown(f"**{prefix}:**\n\n{self.message_content}"))
         else:
-            # Assistant messages get markdown rendering when not streaming and not searching
-            markdown_content = f"**{prefix}:**\n\n{content}"
-            self.update(RichMarkdown(markdown_content))
+            body = Content(self.message_content)
+            if self.highlight_query:
+                body = body.highlight_regex(
+                    self._search_pattern(self.highlight_query), style="reverse"
+                )
+                has_match = bool(body.spans)
+            self.update(Content.assemble((f"{prefix}:", "bold"), " ", body))
 
-        # Update CSS classes for search highlighting
-        if self.highlight_query and self.contains_query(self.highlight_query):
-            self.add_class("search-match")
-        else:
-            self.remove_class("search-match")
+        self.set_class(has_match, "search-match")
+        self.set_class(self.is_current_match, "current-match")
 
-        if self.is_current_match:
-            self.add_class("current-match")
-        else:
-            self.remove_class("current-match")
-
-    def _apply_highlight(self, text: str, query: str) -> str:
-        """Apply Rich markup highlighting to text containing the query.
-
-        Uses [reverse] markup to highlight matches.
-        Only used for plain text messages (user, system, error).
-
-        Args:
-            text: The text to search in.
-            query: The query to highlight.
-
-        Returns:
-            Text with Rich markup for highlighting.
-        """
-        if not query:
-            return text
-
-        # Escape brackets in text to prevent Rich markup interpretation
-        # (e.g., [1.3] citation references would break Rich markup)
-        text = text.replace("[", r"\[").replace("]", r"\]")
-
-        # Case-insensitive search
-        query_lower = query.lower()
-        text_lower = text.lower()
-
-        # Find all match positions
-        result = []
-        last_end = 0
-        start = text_lower.find(query_lower)
-
-        while start != -1:
-            # Add text before match
-            result.append(text[last_end:start])
-            # Add highlighted match (use original case)
-            match_text = text[start : start + len(query)]
-            result.append(f"[reverse]{match_text}[/reverse]")
-            last_end = start + len(query)
-            start = text_lower.find(query_lower, last_end)
-
-        # Add remaining text
-        result.append(text[last_end:])
-
-        return "".join(result)
+    @staticmethod
+    def _search_pattern(query: str) -> str:
+        """Match literal text case-insensitively at offsets in the original message."""
+        return "(?i)" + re.escape(query)
 
     def contains_query(self, query: str) -> bool:
         """Check if message contains the search query.
@@ -196,7 +133,7 @@ class MessageWidget(Static):
         """
         if not query:
             return False
-        return query.lower() in self.message_content.lower()
+        return re.search(self._search_pattern(query), self.message_content) is not None
 
     def count_occurrences(self, query: str) -> int:
         """Count how many times the query appears in the message.
@@ -209,7 +146,7 @@ class MessageWidget(Static):
         """
         if not query:
             return 0
-        return self.message_content.lower().count(query.lower())
+        return sum(1 for _ in re.finditer(self._search_pattern(query), self.message_content))
 
     def set_highlight(self, query: str, is_current: bool = False) -> None:
         """Set the highlight query for this message.
@@ -487,7 +424,7 @@ class StatusBar(Static):
             streaming: Initial streaming mode.
             rag_provider: RAG provider name ("none", "litkit", etc.).
         """
-        super().__init__("", id=id)
+        super().__init__("", id=id, markup=False)
         self._status = "Ready"
         self._model = model
         self._streaming = streaming
@@ -694,7 +631,7 @@ class CitationsWidget(Static):
             # Build content with clear labels
             content = f"Original: {self._original_query}\nSearched: {self._rewritten_query}"
             yield Collapsible(
-                Static(content, classes="query-rewritten-content"),
+                Static(content, classes="query-rewritten-content", markup=False),
                 title="🔍 Query Rewritten",
                 collapsed=True,
                 classes="query-rewritten",
@@ -746,7 +683,9 @@ class CitationsWidget(Static):
         if source.title:
             title_parts.append(f" | {source.title}")
 
-        title = "".join(title_parts)
+        # Collapsible takes a markup string. Quote every opening bracket, including
+        # partial tags and the bracketed titles used for translated articles.
+        title = "".join(title_parts).replace("[", r"\[")
 
         # Build expanded content (full chunk text)
         full_text = source.full_text if source.full_text else source.snippet
@@ -755,7 +694,7 @@ class CitationsWidget(Static):
 
         # Create collapsible with full text inside
         collapsible = Collapsible(
-            Static(full_text, classes="citation-full-text"),
+            Static(full_text, classes="citation-full-text", markup=False),
             title=title,
             collapsed=True,
             classes="citation",

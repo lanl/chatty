@@ -6,10 +6,10 @@ Uses Textual's testing framework with pilot for widget interactions.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
+import pytest
 from textual.app import App, ComposeResult
-from textual.widgets import Collapsible
+from textual.content import Content
+from textual.widgets import Collapsible, Static
 
 from chatty.rag.provider import RAGMetadata, RAGSource
 from chatty.ui.widgets import ChatInput, ChatLog, CitationsWidget, MessageWidget, StatusBar
@@ -37,10 +37,6 @@ class TestMessageWidgetPrefixes:
     def test_assistant_message_no_icon(self) -> None:
         """Assistant messages have no icon (just text label)."""
         assert MessageWidget.ROLE_PREFIXES["assistant"] == "Assistant"
-
-
-if TYPE_CHECKING:
-    pass
 
 
 # ============================================================================
@@ -104,12 +100,12 @@ class TestStatusBar:
 
     async def test_initial_display(self) -> None:
         """StatusBar shows Ready | Model | Stream: on on startup."""
-        app = StatusBarApp(model="gpt-4.1", streaming=True)
+        app = StatusBarApp(model="model[local]", streaming=True)
         async with app.run_test() as _:
             status = app.query_one("#status-bar", StatusBar)
             # Check internal state
             assert status._status == "Ready"
-            assert status._model == "gpt-4.1"
+            assert "Model: model[local]" in str(status.visual)
             assert status._streaming is True
 
     async def test_update_status(self) -> None:
@@ -193,6 +189,16 @@ class TestStatusBar:
 class TestMessageWidget:
     """Tests for MessageWidget."""
 
+    @pytest.mark.parametrize("role", ["user", "system", "error"])
+    def test_plain_message_renders_brackets(self, role: str) -> None:
+        message = r"Example: list[str] and C:\[draft]"
+        widget = MessageWidget(role, message)
+        prefix = f"{widget.ROLE_PREFIXES[role]}:"
+        rendered = widget.visual
+        assert isinstance(rendered, Content)
+        assert rendered.plain == f"{prefix} {message}"
+        assert list(rendered.spans) == [(0, len(prefix), "bold")]
+
     async def test_user_message_prefix(self) -> None:
         """User message has correct role prefix."""
         app = MessageWidgetApp(role="user", content="Hello")
@@ -247,14 +253,22 @@ class TestMessageWidget:
     async def test_finish_streaming(self) -> None:
         """finish_streaming() triggers markdown rendering."""
         app = MessageWidgetApp(role="assistant", content="")
-        async with app.run_test() as _:
+        async with app.run_test() as pilot:
             widget = app.query_one(MessageWidget)
             widget.is_streaming = True
-            widget.append_content("**bold** text")
+            widget.append_content("**bold** list[str]")
             assert widget.is_streaming is True
+            assert str(widget.visual) == "Assistant: **bold** list[str]"
 
             widget.finish_streaming()
+            await pilot.pause()
             assert widget.is_streaming is False
+            assert widget.render_line(2).text.strip() == "bold list[str]"
+            widget.set_highlight("[str]")
+            assert str(widget.visual) == "Assistant: **bold** list[str]"
+            widget.clear_highlight()
+            await pilot.pause()
+            assert widget.render_line(2).text.strip() == "bold list[str]"
 
 
 # ============================================================================
@@ -476,6 +490,25 @@ class CitationsWidgetApp(App[None]):
 
 class TestCitationsWidget:
     """Tests for CitationsWidget."""
+
+    async def test_citation_and_queries_display_literal_text(self) -> None:
+        source = RAGSource(title=r"[Trial results] for A\[B]", pmid="123", full_text="See [table].")
+        app = ChatLogApp()
+        async with app.run_test() as pilot:
+            widget = CitationsWidget(
+                [source], turn_number=3, original_query="See [table]?", rewritten_query="Use [data]"
+            )
+            await app.query_one(ChatLog).mount(widget)
+            citation = widget.query_one(".citation", Collapsible)
+            title = citation.query_one("CollapsibleTitle", Static)
+            assert str(title.visual).endswith(f"[3.1] PMID:123 | {source.title}")
+            citation.collapsed = False
+            widget.query_one(".query-rewritten", Collapsible).collapsed = False
+            await pilot.pause()
+            assert str(title.visual).endswith(f"[3.1] PMID:123 | {source.title}")
+            assert str(citation.query_one(".citation-full-text", Static).visual) == "See [table]."
+            queries = widget.query_one(".query-rewritten-content", Static)
+            assert str(queries.visual) == "Original: See [table]?\nSearched: Use [data]"
 
     async def test_empty_sources(self) -> None:
         """CitationsWidget handles empty sources list."""
