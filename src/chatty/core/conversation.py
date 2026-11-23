@@ -35,15 +35,24 @@ class Conversation:
         """Add a user message to the conversation."""
         self.messages.append(Message(role="user", content=content))
 
-    def add_assistant_message(self, content: str, usage: dict[str, int] | None = None) -> None:
+    def add_assistant_message(
+        self, content: str, usage: dict[str, int] | None = None, *, citation_turn: int | None = None
+    ) -> None:
         """Add an assistant message to the conversation."""
-        self.messages.append(Message(role="assistant", content=content))
+        self.messages.append(
+            Message(role="assistant", content=content, citation_turn=citation_turn)
+        )
         if usage and "total_tokens" in usage:
             self.server_reported_tokens = usage["total_tokens"]
 
-    def add_system_message(self, content: str) -> None:
+    def add_system_message(self, content: str, *, citation_turn: int | None = None) -> None:
         """Add a system message to the conversation."""
-        self.messages.append(Message(role="system", content=content))
+        self.messages.append(Message(role="system", content=content, citation_turn=citation_turn))
+
+    @property
+    def last_citation_turn(self) -> int:
+        """Highest retrieval turn reserved by a reply or a compressed conversation."""
+        return max((m.citation_turn or 0 for m in self.messages), default=0)
 
     def clear(self) -> None:
         """Clear all messages and reset token count."""

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from typing import TYPE_CHECKING, cast
 
 from chatty.client.openai_client import ChattyClientError
@@ -190,7 +191,7 @@ async def fetch_and_show_models(app: ChatApp) -> None:
         chat_log.add_message("error", f"Failed to fetch models: {e}")
 
 
-async def send_message(app: ChatApp) -> None:  # noqa: C901
+async def send_message(app: ChatApp, *, regenerate: bool = False) -> None:  # noqa: C901
     """Worker function for async LLM call.
 
     Handles the complete workflow:
@@ -204,11 +205,9 @@ async def send_message(app: ChatApp) -> None:  # noqa: C901
     8. Update status bar with token count
     9. Handle errors gracefully
 
-    Note: This method is marked noqa: C901 due to inherent complexity
-    of handling both streaming and non-streaming modes with error handling.
-
     Args:
         app: The ChatApp instance.
+        regenerate: Replace the last completed reply using the history before its question.
     """
     from chatty.rag.provider import NullProvider
     from chatty.ui.widgets import ChatLog, CitationsWidget, StatusBar
@@ -223,6 +222,16 @@ async def send_message(app: ChatApp) -> None:  # noqa: C901
     chat_log = app.query_one("#chat-log", ChatLog)
     status_bar = app.query_one("#status-bar", StatusBar)
 
+    worker = app.current_worker
+    history = app.conversation
+    previous_reply = chat_log.last_reply if regenerate else None
+    if regenerate:
+        if previous_reply is None:
+            return
+        # Keep the saved/displayed turn intact until its replacement succeeds.
+        history = replace(history, messages=history.messages[:-2], server_reported_tokens=None)
+    original_content = previous_reply.message_content if previous_reply is not None else ""
+
     # Show "Searching corpus..." for RAG providers (not NullProvider)
     is_rag_enabled = not isinstance(app.rag_provider, NullProvider)
     if is_rag_enabled:
@@ -235,12 +244,11 @@ async def send_message(app: ChatApp) -> None:  # noqa: C901
         # NullProvider passes through unchanged; LitkitProvider adds context
         try:
             messages, rag_metadata = await app.rag_provider.augment(
-                app.conversation, user_text, client=app.client
+                history, user_text, client=app.client
             )
         except Exception:
             app.transcript.log_message("user", user_text)
             raise
-        app.last_rag_metadata = rag_metadata
 
         # Log user message with RAG metadata (after augment has metadata)
         app.transcript.log_message("user", user_text, rag_metadata=rag_metadata)
@@ -249,77 +257,55 @@ async def send_message(app: ChatApp) -> None:  # noqa: C901
         if is_rag_enabled:
             status_bar.update_status(status="Thinking...")
 
-        if app.streaming:
-            # Streaming mode
+        usage = None
+        streaming = app.streaming
+        if streaming:
             status_bar.update_status(status="Streaming...")
-
-            # Add empty assistant message for streaming (marked as streaming)
-            msg_widget = chat_log.add_message("assistant", "")
-            msg_widget.is_streaming = True
-            response_content = ""
-
+            widget = previous_reply or chat_log.add_message("assistant", "")
+            widget.is_streaming = True
+            widget.set_content("")
             result = await app.client.chat(messages, stream=True)
-            stream = cast(AsyncIterator[str], result)
-
-            async for token in stream:
-                chat_log.append_to_last(token)
-                response_content += token
-
-            # Finish streaming - re-render with markdown
-            msg_widget.finish_streaming()
-
-            # Display citations widget if RAG returned sources
-            # Show ALL sources to preserve numbering that LLM used in its response
-            # Pass original_query to show query rewriting info
-            citations_widget = CitationsWidget.from_metadata(rag_metadata, original_query=user_text)
-            if citations_widget:
-                chat_log.mount(citations_widget)
-                chat_log.scroll_end(animate=False)
-
-            # Update conversation with user message and assistant response
-            # User message is added here (after success) to keep conversation
-            # in sync with what was actually sent to the API
-            app.conversation.add_user_message(user_text)
-            app.conversation.add_assistant_message(response_content)
-
-            # Log to transcript with response time
-            response_time = status_bar.last_response_time
-            app.transcript.log_message(
-                "assistant",
-                response_content,
-                model=app.config.model,
-                response_time_s=response_time,
-                tokens=app.conversation.server_reported_tokens,
-            )
-
+            async for token in cast(AsyncIterator[str], result):
+                widget.append_content(token)
+            content = widget.message_content
+            widget.finish_streaming()
         else:
-            # Non-streaming mode - message renders with markdown immediately
             from chatty.client.openai_client import AssistantMessage
 
-            result = await app.client.chat(messages, stream=False)
-            response = cast(AssistantMessage, result)
+            response = cast(AssistantMessage, await app.client.chat(messages, stream=False))
+            content, usage = response.content, response.usage
+            if previous_reply is None:
+                widget = chat_log.add_message("assistant", content)
+            else:
+                widget = previous_reply
+                widget.set_content(content)
 
-            chat_log.add_message("assistant", response.content)
+        if widget.citations is not None:
+            widget.citations.remove()
+        widget.citations = CitationsWidget.from_metadata(rag_metadata, original_query=user_text)
+        if widget.citations is not None:
+            chat_log.mount(widget.citations, after=widget)
+            chat_log.scroll_end(animate=False)
+        chat_log.last_reply = widget
+        app.last_rag_metadata = rag_metadata
 
-            # Display citations widget if RAG returned sources
-            # Show ALL sources to preserve numbering that LLM used in its response
-            # Pass original_query to show query rewriting info
-            citations_widget = CitationsWidget.from_metadata(rag_metadata, original_query=user_text)
-            if citations_widget:
-                chat_log.mount(citations_widget)
-                chat_log.scroll_end(animate=False)
-
-            # Update conversation with user message and assistant response
+        if regenerate:
+            app.conversation.messages.pop()
+            app.conversation.server_reported_tokens = None
+        else:
             app.conversation.add_user_message(user_text)
-            app.conversation.add_assistant_message(response.content, response.usage)
-
-            # Log to transcript
-            app.transcript.log_message(
-                "assistant",
-                response.content,
-                model=app.config.model,
-                tokens=(response.usage.get("total_tokens") if response.usage else None),
-            )
+        app.conversation.add_assistant_message(
+            content, usage, citation_turn=rag_metadata.turn_number if rag_metadata.sources else None
+        )
+        app.transcript.log_message(
+            "assistant",
+            content,
+            model=app.config.model,
+            response_time_s=status_bar.last_response_time if streaming else None,
+            tokens=app.conversation.server_reported_tokens
+            if streaming
+            else (usage or {}).get("total_tokens"),
+        )
 
         # Mark session as dirty (has unsaved changes)
         app._session_dirty = True
@@ -341,4 +327,8 @@ async def send_message(app: ChatApp) -> None:  # noqa: C901
         app.transcript.log_message("error", f"Unexpected error: {e}")
 
     finally:
-        app.current_worker = None
+        if previous_reply is not None and previous_reply.is_streaming:
+            previous_reply.set_content(original_content)
+            previous_reply.finish_streaming()
+        if app.current_worker is worker:
+            app.current_worker = None

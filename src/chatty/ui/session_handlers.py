@@ -88,7 +88,7 @@ def handle_session_load(
         session = load_session(filepath)
 
         # Clear current state
-        app._reset_session_compression()
+        app._reset_session_workers()
         if clear_chat_log:
             chat_log.clear_messages()
         if app.conversation:
@@ -100,16 +100,18 @@ def handle_session_load(
         if app.conversation:
             for msg in session.messages:
                 if msg.role == "system":
-                    app.conversation.add_system_message(msg.content)
+                    app.conversation.add_system_message(
+                        msg.content, citation_turn=msg.citation_turn
+                    )
                 elif msg.role == "user":
                     app.conversation.add_user_message(msg.content)
                 elif msg.role == "assistant":
-                    app.conversation.add_assistant_message(msg.content)
+                    app.conversation.add_assistant_message(
+                        msg.content, citation_turn=msg.citation_turn
+                    )
 
         # Restore chat log display (skip system messages)
-        for msg in session.messages:
-            if msg.role != "system":
-                chat_log.add_message(msg.role, msg.content)
+        chat_log.show_history(session.messages)
 
         # Show confirmation
         chat_log.add_message(

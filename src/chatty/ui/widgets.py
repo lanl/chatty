@@ -22,6 +22,7 @@ from textual.widgets import Collapsible, Static, TextArea
 if TYPE_CHECKING:
     from textual.app import ComposeResult
 
+    from chatty.client.openai_client import Message
     from chatty.rag.provider import RAGMetadata, RAGSource
 
 
@@ -94,6 +95,7 @@ class MessageWidget(Static):
         super().__init__(classes=f"{role}-message")
         self.role = role
         self.message_content: str = content
+        self.citations: CitationsWidget | None = None
         self.is_streaming: bool = False
         self.highlight_query: str = ""
         self.is_current_match: bool = False
@@ -215,6 +217,7 @@ class ChatLog(VerticalScroll):
             id: Optional DOM identifier for CSS styling.
         """
         super().__init__(id=id)
+        self.last_reply: MessageWidget | None = None
         self._search_matches: list[MessageWidget] = []
         self._current_match_index: int = 0
 
@@ -242,6 +245,15 @@ class ChatLog(VerticalScroll):
         children = list(self.query(MessageWidget))
         return children[-1] if children else None
 
+    def show_history(self, messages: list[Message]) -> None:
+        """Restore saved chat messages and the reply available for regeneration."""
+        self.last_reply = None
+        for msg in messages:
+            if msg.role != "system":
+                widget = self.add_message(msg.role, msg.content)
+                if msg.role == "assistant":
+                    self.last_reply = widget
+
     def append_to_last(self, content: str) -> None:
         """Append content to the last message (for streaming).
 
@@ -255,6 +267,7 @@ class ChatLog(VerticalScroll):
 
     def clear_messages(self) -> None:
         """Remove all messages from the chat log."""
+        self.last_reply = None
         for msg_widget in list(self.query(MessageWidget)):
             msg_widget.remove()
         # Also remove citations widgets (RAG sources)

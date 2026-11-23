@@ -263,7 +263,6 @@ class LitkitProvider:
             enabled=rewrite_enabled,
             expand_synonyms=expand_synonyms,
         )
-        self._turn_number = 0  # Track retrieval turn for citation numbering
         self._last_paper_ids: list[int] | None = None  # For shortlist reuse
         self._rerank = rerank
         self._rerank_top_n = rerank_top_n
@@ -319,13 +318,7 @@ class LitkitProvider:
         return chunks
 
     def reset(self) -> None:
-        """Reset provider state for a new session.
-
-        Resets the turn counter and shortlist cache so citation numbers
-        start fresh and retrieval doesn't reuse stale paper IDs.
-        Called by ChatApp.action_new_session().
-        """
-        self._turn_number = 0
+        """Discard the paper shortlist when switching conversations."""
         self._last_paper_ids = None
 
     def _retrieve_chunks(
@@ -944,9 +937,7 @@ class LitkitProvider:
         # Fit chunks to budget
         fitted_chunks = self._fit_to_budget(chunks, available_tokens)
 
-        # Increment turn number for citation disambiguation
-        self._turn_number += 1
-        turn = self._turn_number
+        turn = conversation.last_citation_turn + 1
 
         # Format context and build augmented message
         context = self._format_context(fitted_chunks, turn)

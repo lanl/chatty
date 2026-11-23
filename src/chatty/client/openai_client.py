@@ -154,6 +154,7 @@ class Message:
 
     role: str  # "system", "user", or "assistant"
     content: str
+    citation_turn: int | None = None  # Local session metadata, omitted from API requests
 
 
 @dataclass

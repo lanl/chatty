@@ -323,7 +323,11 @@ class TestSendMessage:
         await send_message(mock_app)
 
         # Verify streaming was done
-        chat_log.append_to_last.assert_called()
+        assert [call.args[0] for call in mock_msg_widget.append_content.call_args_list] == [
+            "Hello",
+            " there",
+            "!",
+        ]
         mock_msg_widget.finish_streaming.assert_called_once()
 
         # Verify conversation was updated
