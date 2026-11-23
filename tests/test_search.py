@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 from pydantic import SecretStr
+from textual.content import Content
+from textual.widgets import Static
 
 from chatty.config import Config, ConfigWithSources
 from chatty.ui.app import ChatApp
@@ -131,6 +133,25 @@ class TestSearchBarWidget:
 
 class TestMessageWidgetHighlight:
     """Tests for MessageWidget highlight functionality."""
+
+    @pytest.mark.parametrize(
+        ("query", "matches"),
+        [("[1.3]", ["[1.3]", "[1.3]"]), ("]", ["]", "]"]), ("b", ["B"]), ("you", ["YOU"])],
+    )
+    def test_highlights_original_characters(self, query: str, matches: list[str]) -> None:
+        message = r"İ [1.3] a\B [1.3] YOU"
+        widget = MessageWidget("user", message)
+        widget.set_highlight(query)
+        rendered = widget.visual
+        assert isinstance(rendered, Content)
+        assert rendered.plain == f"You: {message}"
+        assert widget.contains_query(query)
+        assert widget.count_occurrences(query) == len(matches)
+        assert [
+            rendered.plain[span.start : span.end]
+            for span in rendered.spans
+            if span.style == "reverse"
+        ] == matches
 
     def test_contains_query_case_insensitive(self) -> None:
         """contains_query is case-insensitive."""
@@ -376,6 +397,7 @@ class TestSearchBarUpdateCount:
 
             assert search_bar.total_matches == 5
             assert search_bar.match_index == 2
+            assert str(search_bar.query_one("#match-counter", Static).visual).endswith("[3/5]")
 
     async def test_set_matches_zero_results(
         self, mock_config_with_sources: ConfigWithSources

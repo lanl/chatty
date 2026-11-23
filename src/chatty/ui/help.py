@@ -9,6 +9,7 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
+from textual.content import Content
 from textual.screen import ModalScreen
 from textual.widgets import Label, Static
 
@@ -147,11 +148,11 @@ class HelpModal(ModalScreen[None]):
         content = self.query_one("#help-content", Static)
         content.update(self._build_help_text())
 
-    def _build_help_text(self) -> str:
+    def _build_help_text(self) -> Content:
         """Build the help text content.
 
         Returns:
-            Formatted help text with Rich markup.
+            Styled shortcuts and configuration values.
         """
         lines: list[str] = []
 
@@ -169,7 +170,7 @@ class HelpModal(ModalScreen[None]):
         lines.append("")
         lines.append("[dim]── Current Configuration ─────────────────────────[/dim]")
         lines.append("")
-        lines.append(f"  [dim]Model:[/dim]      {self._model or 'not set'}")
+        lines.append("  [dim]Model:[/dim]      $model")
         lines.append(f"  [dim]Streaming:[/dim]  {'On' if self._streaming else 'Off'}")
         context_str = self._format_context_window()
         lines.append(f"  [dim]Context:[/dim]    {context_str}")
@@ -189,7 +190,7 @@ class HelpModal(ModalScreen[None]):
         lines.append("[dim]───────────────────────────────────────────────────[/dim]")
         lines.append(f"chatty v{__version__}        [dim]Run 'chatty doctor' for diagnostics[/dim]")
 
-        return "\n".join(lines)
+        return Content.from_markup("\n".join(lines), model=self._model or "not set")
 
     def _format_context_window(self) -> str:
         """Format context window value for display.

@@ -22,7 +22,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "textual>=0.40",
+    "textual>=3.1",
     "httpx>=0.25",
     "httpx-sse>=0.4",
     "pydantic>=2.0",

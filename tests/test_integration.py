@@ -353,9 +353,12 @@ class TestCopyAction:
             raise pyperclip.PyperclipException("No clipboard")
 
         monkeypatch.setattr(pyperclip, "copy", raise_error)
+        config = mock_config_with_sources.config
+        copy_dir = config.get_copy_fallback_path() / "[draft]"
+        config.copy_fallback_path = str(copy_dir)
 
         app = ChatApp(config_with_sources=mock_config_with_sources)
-        async with app.run_test() as pilot:
+        async with app.run_test(notifications=True) as pilot:
             await pilot.pause()  # Wait for mount
             assert app.conversation is not None
 
@@ -367,7 +370,8 @@ class TestCopyAction:
             app.action_copy()
             await pilot.pause()
 
-            # Just verify no crash - fallback may or may not work in test env
+            (saved_file,) = copy_dir.glob("copy-*.txt")
+            assert str(saved_file) in str(app.screen.query_one("Toast").render())
 
 
 class TestSaveAction:

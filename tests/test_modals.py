@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from textual.app import App, ComposeResult
-from textual.widgets import Input, Label, OptionList
+from textual.widgets import Input, Label, OptionList, Static
 
 from chatty.ui.modals import (
     CompressionPreviewModal,
@@ -333,12 +333,11 @@ class TestSessionDeleteConfirmModal:
         """SessionDeleteConfirmModal shows session name."""
         app = SessionDeleteTestApp()
         async with app.run_test() as pilot:
-            modal = SessionDeleteConfirmModal("My Session")
+            modal = SessionDeleteConfirmModal("Notes [draft]")
             app.push_screen(modal)
             await pilot.pause()
 
-            # Session name should be stored
-            assert modal._session_name == "My Session"
+            assert "Delete 'Notes [draft]'?" in [str(label.visual) for label in modal.query(Label)]
 
     async def test_cancel_button_returns_none(self) -> None:
         """Cancel button returns None."""
@@ -424,7 +423,7 @@ class TestCompressionPreviewModal:
         app = CompressionPreviewTestApp()
         async with app.run_test() as pilot:
             modal = CompressionPreviewModal(
-                summary="This is a test summary.",
+                summary="See [appendix].",
                 original_tokens=1000,
                 compressed_tokens=100,
                 has_code_blocks=False,
@@ -432,8 +431,7 @@ class TestCompressionPreviewModal:
             app.push_screen(modal)
             await pilot.pause()
 
-            # Should have the modal visible
-            assert len(app.screen_stack) == 2
+            assert str(modal.query_one("#summary-text", Static).visual) == "See [appendix]."
 
     async def test_cancel_button_returns_none(self) -> None:
         """Cancel button returns None."""
@@ -642,13 +640,16 @@ class TestModelPickerModal:
         """Current model is marked with bullet."""
         app = ModelPickerTestApp()
         async with app.run_test() as pilot:
-            models = ["gpt-4", "gpt-3.5-turbo"]
-            modal = ModelPickerModal(models, "gpt-4")
-            app.push_screen(modal)
+            models = ["model[local]", "gpt-3.5-turbo"]
+            modal = ModelPickerModal(models, models[0])
+            app.push_screen(modal, callback=lambda r: setattr(app, "result", r))
             await pilot.pause()
 
-            # The current model should be stored
-            assert modal._current_model == "gpt-4"
+            options = modal.query_one("#model-list", OptionList)
+            assert "● model[local]" in options.render_line(0).text
+            await pilot.press("home", "enter")
+            await pilot.pause()
+            assert app.result == "model[local]"
 
     async def test_cancel_returns_none(self) -> None:
         """Cancel button returns None."""
@@ -718,12 +719,13 @@ class TestModelInputModal:
         """Error message is displayed when provided."""
         app = ModelInputTestApp()
         async with app.run_test() as pilot:
-            modal = ModelInputModal("gpt-4", "Connection failed")
+            modal = ModelInputModal("gpt-4", "Connection failed [offline]")
             app.push_screen(modal)
             await pilot.pause()
 
-            # Error message should be stored
-            assert modal._error_message == "Connection failed"
+            assert (
+                str(modal.query_one("#model-hint", Label).visual) == "Connection failed [offline]"
+            )
 
     async def test_cancel_returns_none(self) -> None:
         """Cancel returns None."""
@@ -864,7 +866,7 @@ class TestSessionBrowserModal:
 
         # Create a session file
         metadata = SessionMetadata.create(
-            name="Test Session",
+            name="Notes [draft]",
             model="gpt-4",
             message_count=1,
         )
@@ -881,8 +883,8 @@ class TestSessionBrowserModal:
             app.push_screen(modal, callback=lambda r: setattr(app, "result", r))
             await pilot.pause()
 
-            # Should have session loaded
-            assert len(modal._sessions) == 1
+            options = modal.query_one("#session-list", OptionList)
+            assert "Notes [draft]" in options.render_line(0).text
 
             # Click load (first item should be highlighted)
             await pilot.click("#load-btn")

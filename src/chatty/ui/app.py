@@ -736,9 +736,9 @@ class ChatApp(App[None]):
         # Try clipboard first, fall back to file
         result = self._copy_to_clipboard(last_assistant)
         if "Clipboard unavailable" in result:
-            self.notify(result, severity="warning", timeout=5)
+            self.notify(result, severity="warning", timeout=5, markup=False)
         else:
-            self.notify(result, severity="information", timeout=2)
+            self.notify(result, severity="information", timeout=2, markup=False)
 
     def _copy_to_clipboard(self, text: str) -> str:
         """Copy text to clipboard with fallback to file.
@@ -937,7 +937,7 @@ class ChatApp(App[None]):
             )
 
         except Exception as e:
-            self.notify(f"Compression failed: {e}", severity="error")
+            self.notify(f"Compression failed: {e}", severity="error", markup=False)
         finally:
             status_bar.update_status(status="Ready")
 
