@@ -1,6 +1,6 @@
 [project]
 name = "chatty"
-version = "0.4.5"
+version = "0.4.6"
 description = "A terminal UI chatbot for OpenAI-compatible endpoints"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -115,6 +115,8 @@ show_error_codes = true
 module = [
     "tiktoken.*",
     "litkit.*",
+    "huggingface_hub.*",
+    "safetensors.*",
     "pytest.*",
 ]
 ignore_missing_imports = true

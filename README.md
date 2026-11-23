@@ -30,6 +30,10 @@ user account and internet access are sufficient.
 Open a fresh terminal (on Windows, close all Windows Terminal windows first).
 From any directory, run `chatty --version`, `text-fetch --version`, and `litkit --version`.
 
+The [laptop quickstart](docs/laptop-quickstart.md) walks through a native JATS article,
+the two embedding models, and a local retrieval check before configuring an LLM.
+It requires Chatty 0.4.6 or later. The pinned 2026.11.1 installer above supplies 0.4.5.
+
 **Reinstall or upgrade.** Rerun the same command to check the installed suite. To
 upgrade, run the command documented for the newer release. The installer switches
 commands after checking the new runtime. Running processes can finish using the
@@ -249,6 +253,8 @@ chatty can query a pre-built scientific literature corpus to ground LLM response
 
 > **Important:** chatty only **queries** existing indices. Building indices is done via the `litkit` CLI (see [Building a Vector Store](#building-a-vector-store)).
 
+If you installed the laptop suite, use the [laptop quickstart](docs/laptop-quickstart.md).
+
 ### Installing RAG Dependencies
 
 Base chatty supports Python 3.13. The locked versions of LANL's litkit and
@@ -271,11 +277,10 @@ uv pip install --python .venv -e ~/Code/litkit
 Add to your `chatty.toml`:
 
 ```toml
-[rag]
-provider = "litkit"              # Enable RAG (default: "none")
-workspace = "~/litkit/workspace" # Path to pre-built indices (optional, auto-detects)
-top_papers = 500                 # Stage 1: papers to shortlist
-top_chunks = 30                  # Stage 2: chunks for LLM context
+rag_provider = "litkit"
+rag_workspace = "~/litkit/workspace"
+rag_top_papers = 500
+rag_top_chunks = 30
 ```
 
 Or use environment variables:

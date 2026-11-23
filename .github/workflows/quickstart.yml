@@ -1,0 +1,58 @@
+name: Laptop quickstart
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'src/chatty/**'
+      - 'docs/laptop-quickstart.md'
+      - 'pyproject.toml'
+      - 'release/sources.json'
+      - 'ci/check_quickstart.py'
+      - '.github/workflows/quickstart.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quickstart-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quickstart:
+    name: Installed quickstart (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: macos-15, platform: macos-arm64}
+          - {runner: windows-2022, platform: windows-x64}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: "0.13.9"
+          enable-cache: false
+      - name: Install the candidate wheel with the published suite dependencies
+        shell: bash
+        env:
+          TARGET: ${{ matrix.platform }}
+        run: |
+          uv build --wheel --out-dir dist
+          uv venv --seed --managed-python --python "$(cat release/.python-version)" suite
+          if [[ "$RUNNER_OS" == Windows ]]; then bin=Scripts; else bin=bin; fi
+          tag=$(suite/"$bin"/python -c 'import json; print(json.load(open("release/sources.json"))["tag"])')
+          suite/"$bin"/python -m pip install --no-index --only-binary=:all: --require-hashes -r "https://github.com/lanl/chatty/releases/download/$tag/$TARGET.txt"
+          suite/"$bin"/python -m pip install --no-index --no-deps --force-reinstall dist/*.whl
+          suite/"$bin"/python -m pip check
+          suite/"$bin"/python -c 'from pathlib import Path; import os,sys; print(Path(sys.executable).parent, file=open(os.environ["GITHUB_PATH"], "a"))'
+      - name: Download both models, build the example and retrieve its passage
+        run: python ci/check_quickstart.py
+      - uses: actions/upload-artifact@v7
+        if: matrix.platform == 'macos-arm64'
+        with:
+          name: chatty-quickstart-wheel
+          path: dist/*.whl
+          if-no-files-found: error

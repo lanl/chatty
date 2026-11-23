@@ -75,17 +75,9 @@ def _create_litkit_provider(config: Config) -> RAGProvider:
             "or set `rag_provider = 'none'` in config."
         ) from None
 
-    # Resolve workspace path
-    workspace = config.get_rag_workspace()
-    if workspace is None:
-        raise ConfigurationError(
-            "RAG workspace not configured. "
-            "Set 'rag_workspace' in config or LITKIT_WORKSPACE environment variable."
-        )
-
     try:
         return LitkitProvider(
-            workspace=workspace,
+            workspace=config.get_rag_workspace(),
             top_papers=config.rag_top_papers,
             top_chunks=config.rag_top_chunks,
             rewrite_enabled=config.rag_rewrite_enabled,

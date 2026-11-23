@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import ssl
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from importlib.util import find_spec
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -11,6 +12,8 @@ import httpx
 
 from chatty.client.http import build_sync_client
 from chatty.config import CHECK_KEY_FILE_MODE
+from chatty.rag.litkit_provider import database_path, missing_indices
+from chatty.rag.models import MODELS, model_cache
 
 if TYPE_CHECKING:
     from chatty.config import ConfigWithSources
@@ -40,6 +43,8 @@ class DoctorResult:
     exit_code: int
     config_checks: list[DiagnosticResult]
     connectivity_checks: list[DiagnosticResult]
+    retrieval_checks: list[DiagnosticResult] = field(default_factory=list)
+    retrieval_optional: bool = False
 
 
 def check_config(config_with_sources: ConfigWithSources) -> list[DiagnosticResult]:
@@ -392,13 +397,68 @@ def check_connectivity(config_with_sources: ConfigWithSources) -> list[Diagnosti
     return results
 
 
+def check_models(workspace: Path) -> list[DiagnosticResult]:
+    cache = model_cache(workspace)
+    checks = []
+    for model in MODELS:
+        try:
+            ready = model.ready(cache)
+        except ImportError:
+            return [DiagnosticResult(False, "LANL LitKit unavailable", "Install the laptop suite.")]
+        except (ValueError, OSError) as exc:
+            checks.append(DiagnosticResult(False, f"{model.repo}: cache unreadable", str(exc)))
+            continue
+        status = "ready" if ready else "missing or incomplete"
+        checks.append(
+            DiagnosticResult(
+                ready,
+                f"{model.repo}: {status} (~{model.download_mb} MB download, cache: {cache / 'hub'})",
+                None if ready else "Run chatty models --download.",
+            )
+        )
+    return checks
+
+
+def check_retrieval(workspace: Path) -> list[DiagnosticResult]:
+    checks = check_models(workspace)
+    missing = missing_indices(workspace)
+    if missing:
+        state = "missing" if len(missing) == 2 else "partial"
+        indices = DiagnosticResult(
+            False,
+            f"FAISS indices {state} in {workspace / 'indices'}",
+            f"Missing {', '.join(missing)}. Build the corpus with litkit.",
+        )
+    else:
+        indices = DiagnosticResult(
+            True, f"Both FAISS index files present in {workspace / 'indices'}"
+        )
+    db = database_path(workspace)
+    db_present = db.is_file()
+    database = DiagnosticResult(
+        db_present, f"SQLite database {'present' if db_present else 'missing'}: {db}"
+    )
+    return [*checks, indices, database]
+
+
 def run_doctor(
     config_with_sources: ConfigWithSources,
     *,
     verbose: bool = False,  # noqa: ARG001 - reserved for future use
     skip_connectivity: bool = False,
+    retrieval_only: bool = False,
 ) -> DoctorResult:
     """Run all diagnostic checks and return aggregated result."""
+    config = config_with_sources.config
+    retrieval_checks = []
+    retrieval_required = retrieval_only or config.rag_provider.lower() == "litkit"
+    if retrieval_required or find_spec("litkit") is not None:
+        retrieval_checks = check_retrieval(config.get_rag_workspace().absolute())
+    retrieval_ok = all(check.passed for check in retrieval_checks)
+    if retrieval_only:
+        return DoctorResult(
+            EXIT_OK if retrieval_ok else EXIT_MISSING_CONFIG, [], [], retrieval_checks
+        )
     config_checks = check_config(config_with_sources)
 
     # Determine if we should skip connectivity
@@ -431,7 +491,11 @@ def run_doctor(
             exit_code = EXIT_NETWORK_FAILURE
 
     return DoctorResult(
-        exit_code=exit_code,
+        exit_code=exit_code
+        if exit_code or retrieval_ok or not retrieval_required
+        else EXIT_MISSING_CONFIG,
+        retrieval_optional=not retrieval_required,
+        retrieval_checks=retrieval_checks,
         config_checks=config_checks,
         connectivity_checks=connectivity_checks,
     )
@@ -446,19 +510,24 @@ def _should_show_detail(check: DiagnosticResult, verbose: bool) -> bool:
 
 def format_doctor_result(result: DoctorResult, *, verbose: bool = False) -> str:
     """Format doctor result for display."""
-    lines = []
+    lines: list[str] = []
 
-    lines.append("Configuration:")
-    for check in result.config_checks:
-        symbol = "✓" if check.passed else "✗"
-        lines.append(f"  {symbol} {check.message}")
-        if _should_show_detail(check, verbose):
-            lines.append(f"    {check.detail}")
-
-    if result.connectivity_checks:
-        lines.append("")
-        lines.append("Connectivity:")
-        for check in result.connectivity_checks:
+    for heading, checks in (
+        (
+            "Local retrieval (optional for chat)"
+            if result.retrieval_optional
+            else "Local retrieval",
+            result.retrieval_checks,
+        ),
+        ("LLM configuration", result.config_checks),
+        ("Connectivity", result.connectivity_checks),
+    ):
+        if not checks:
+            continue
+        if lines:
+            lines.append("")
+        lines.append(f"{heading}:")
+        for check in checks:
             symbol = "✓" if check.passed else "✗"
             lines.append(f"  {symbol} {check.message}")
             if _should_show_detail(check, verbose):
@@ -466,7 +535,10 @@ def format_doctor_result(result: DoctorResult, *, verbose: bool = False) -> str:
 
     lines.append("")
     if result.exit_code == EXIT_OK:
-        lines.append("All checks passed.")
+        if result.retrieval_optional and any(not check.passed for check in result.retrieval_checks):
+            lines.append("LLM checks passed. Local retrieval needs setup.")
+        else:
+            lines.append("All checks passed.")
     else:
         lines.append(f"Some checks failed (exit code {result.exit_code}).")
 

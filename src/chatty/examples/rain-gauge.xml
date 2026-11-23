@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<article article-type="research-article">
+  <front><article-meta>
+    <article-id pub-id-type="publisher-id">chatty-rain-gauge</article-id>
+    <title-group><article-title>Rainfall at the cedar grove</article-title></title-group>
+    <abstract><p>A sample field notebook records rainfall at a cedar grove.</p></abstract>
+  </article-meta></front>
+  <body><sec><title>Measurements</title>
+    <p>The copper rain gauge collected seventeen millimeters of rain during the overnight storm.</p>
+  </sec></body>
+</article>
