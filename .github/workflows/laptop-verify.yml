@@ -44,6 +44,9 @@ jobs:
             release/.python-version
             release/manifest.sha256
             release/sources.json
+            release/install.sh
+            release/install.ps1
+            release/probe_data.py
             release/probe.py
             release/verify.py
 
@@ -62,13 +65,48 @@ jobs:
         with:
           name: install-instructions
           path: ${{ runner.temp }}/instructions
-      - uses: astral-sh/setup-uv@v10.3.3
-        with:
-          version: "0.13.9"
-          enable-cache: false
-      - name: Install from the README and verify provenance
-        working-directory: ${{ runner.temp }}/instructions/release
-        run: uv run --no-project --isolated --managed-python python verify.py ${{ matrix.target }} ../../${{ matrix.target }}.evidence.json
+      - name: Record the run identity before switching users
+        shell: python
+        run: |
+          import json, os
+          from pathlib import Path
+          keys = ("GITHUB_RUN_ID", "GITHUB_REPOSITORY", "GITHUB_RUN_ATTEMPT", "GITHUB_SHA", "ImageVersion")
+          context = {key: os.environ[key] for key in keys}
+          path = Path(os.environ["RUNNER_TEMP"]) / "instructions/release/runner.json"
+          path.write_text(json.dumps(context), encoding="utf-8")
+      - name: Verify as a standard macOS user
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          area=$(mktemp -d /private/tmp/chatty-verify.XXXXXXXX)
+          cp -R "$RUNNER_TEMP/instructions/." "$area/"
+          sudo sysadminctl -addUser chattytest -password "$(uuidgen)"
+          sudo chown -R chattytest "$area"
+          sudo -u chattytest -H env TMPDIR="$area" \
+            /usr/bin/python3 -u "$area/release/verify.py" macos-arm64 "$area/evidence.json"
+          sudo cp "$area/evidence.json" "$RUNNER_TEMP/macos-arm64.evidence.json"
+
+      - name: Verify as a standard Windows user
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $account = 'ChattyTest'
+          $password = ConvertTo-SecureString ('Aa1!' + [Guid]::NewGuid().ToString('N')) -AsPlainText -Force
+          $user = New-LocalUser -Name $account -Password $password
+          if ($user.SID -notin (Get-LocalGroupMember Users).SID) { Add-LocalGroupMember Users $account }
+          $area = Join-Path $env:PUBLIC 'chatty-verify'
+          Copy-Item "$env:RUNNER_TEMP\instructions" $area -Recurse
+          icacls $area /grant "${account}:(OI)(CI)M"
+          if ($LASTEXITCODE) { throw 'Could not grant the test account access to verification inputs.' }
+          Start-Service seclogon
+          $credential = [pscredential]::new(".\$account", $password)
+          $python = (Get-Command python.exe).Source
+          $arguments = "-u `"$area\release\verify.py`" windows-x64 `"$area\evidence.json`""
+          $process = Start-Process $python -ArgumentList $arguments -Credential $credential -LoadUserProfile `
+            -WorkingDirectory $area -Wait -PassThru -RedirectStandardOutput "$area\out.log" -RedirectStandardError "$area\err.log"
+          Get-Content "$area\out.log","$area\err.log"
+          if ($process.ExitCode -ne 0) { throw "Installer verification failed (exit $($process.ExitCode))." }
+          Copy-Item "$area\evidence.json" "$env:RUNNER_TEMP\windows-x64.evidence.json"
       - uses: actions/upload-artifact@v7
         with:
           name: evidence-${{ matrix.target }}
