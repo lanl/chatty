@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ssl
 from dataclasses import dataclass, field
+from importlib.util import find_spec
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -43,6 +44,7 @@ class DoctorResult:
     config_checks: list[DiagnosticResult]
     connectivity_checks: list[DiagnosticResult]
     retrieval_checks: list[DiagnosticResult] = field(default_factory=list)
+    retrieval_optional: bool = False
 
 
 def check_config(config_with_sources: ConfigWithSources) -> list[DiagnosticResult]:
@@ -449,7 +451,8 @@ def run_doctor(
     """Run all diagnostic checks and return aggregated result."""
     config = config_with_sources.config
     retrieval_checks = []
-    if retrieval_only or config.rag_provider.lower() == "litkit":
+    retrieval_required = retrieval_only or config.rag_provider.lower() == "litkit"
+    if retrieval_required or find_spec("litkit") is not None:
         retrieval_checks = check_retrieval(config.get_rag_workspace().absolute())
     retrieval_ok = all(check.passed for check in retrieval_checks)
     if retrieval_only:
@@ -488,7 +491,10 @@ def run_doctor(
             exit_code = EXIT_NETWORK_FAILURE
 
     return DoctorResult(
-        exit_code=exit_code if exit_code or retrieval_ok else EXIT_MISSING_CONFIG,
+        exit_code=exit_code
+        if exit_code or retrieval_ok or not retrieval_required
+        else EXIT_MISSING_CONFIG,
+        retrieval_optional=not retrieval_required,
         retrieval_checks=retrieval_checks,
         config_checks=config_checks,
         connectivity_checks=connectivity_checks,
@@ -507,7 +513,12 @@ def format_doctor_result(result: DoctorResult, *, verbose: bool = False) -> str:
     lines: list[str] = []
 
     for heading, checks in (
-        ("Local retrieval", result.retrieval_checks),
+        (
+            "Local retrieval (optional for chat)"
+            if result.retrieval_optional
+            else "Local retrieval",
+            result.retrieval_checks,
+        ),
         ("LLM configuration", result.config_checks),
         ("Connectivity", result.connectivity_checks),
     ):
@@ -524,7 +535,10 @@ def format_doctor_result(result: DoctorResult, *, verbose: bool = False) -> str:
 
     lines.append("")
     if result.exit_code == EXIT_OK:
-        lines.append("All checks passed.")
+        if result.retrieval_optional and any(not check.passed for check in result.retrieval_checks):
+            lines.append("LLM checks passed. Local retrieval needs setup.")
+        else:
+            lines.append("All checks passed.")
     else:
         lines.append(f"Some checks failed (exit code {result.exit_code}).")
 

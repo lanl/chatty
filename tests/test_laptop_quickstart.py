@@ -145,3 +145,24 @@ def test_download_repairs_truncated_weight_in_existing_snapshot(
     assert model.ready(tmp_path)
     (snapshot / "tokenizer.json").write_bytes(b"truncated")
     assert not model.ready(tmp_path)
+
+
+def test_first_launch_doctor_reports_optional_corpus(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LITKIT_WORKSPACE", str(tmp_path))
+    monkeypatch.setattr("chatty.diagnostics.find_spec", lambda _: object())
+    monkeypatch.setattr(EmbeddingModel, "ready", lambda *_: False)
+    first_launch = runner.invoke(app, ["doctor"])
+    assert first_launch.exit_code == 1
+    assert "Local retrieval (optional for chat)" in first_launch.stdout
+    assert "missing or incomplete" in first_launch.stdout
+    assert "FAISS indices missing" in first_launch.stdout
+    assert "base_url: (not set)" in first_launch.stdout
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://example.invalid/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    chat_only = runner.invoke(app, ["doctor", "--skip-connectivity"])
+    assert chat_only.exit_code == 0
+    assert "LLM checks passed. Local retrieval needs setup." in chat_only.stdout
