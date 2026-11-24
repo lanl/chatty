@@ -73,7 +73,7 @@ def test_session_from_dict() -> None:
         "system_prompt": "Be helpful.",
         "messages": [
             {"role": "user", "content": "Question"},
-            {"role": "assistant", "content": "Answer"},
+            {"role": "assistant", "content": "Answer with grouped citations [2.1, 2.2]."},
         ],
     }
 
@@ -84,6 +84,7 @@ def test_session_from_dict() -> None:
     assert session.system_prompt == "Be helpful."
     assert len(session.messages) == 2
     assert session.messages[0].role == "user"
+    assert session.messages[1].citation_turn == 2
 
 
 def test_session_from_dict_unsupported_version() -> None:

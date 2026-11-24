@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -11,6 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from chatty.client.openai_client import Message
+from chatty.core.citations import cited_turns
+from chatty.core.conversation import CONVERSATION_SUMMARY_PREFIX
 
 
 @dataclass
@@ -78,14 +79,10 @@ def _load_message(raw: dict[str, Any]) -> Message:
     if type(turn) is int and turn > 0:
         message.citation_turn = turn
     elif message.role == "assistant" or (
-        message.role == "system" and message.content.startswith("[Conversation summary]\n")
+        message.role == "system" and message.content.startswith(CONVERSATION_SUMMARY_PREFIX)
     ):
         # Older files only record visible [T.N] references in the answer or summary.
-        for prefix in re.findall(r"\[([0-9]+)\.[0-9]+\]", message.content):
-            try:
-                turn = int(prefix)
-            except ValueError:  # Ignore digit strings longer than Python's integer limit.
-                continue
+        for turn in cited_turns(message.content):
             if turn > (message.citation_turn or 0):
                 message.citation_turn = turn
     return message

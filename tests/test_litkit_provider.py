@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from textwrap import dedent
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -631,6 +631,123 @@ class TestLitkitProviderRewriter:
         return conv
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("with_client", [True, False])
+    async def test_topic_change_refreshes_shortlist_for_next_followup(
+        self, provider: Any, with_client: bool
+    ) -> None:
+        from chatty.client.openai_client import AssistantMessage, OpenAIClient
+
+        conversation = Conversation()
+        first = "Describe solar eclipses"
+        switch = "How does a microscope work?"
+        followup = "What are its limitations?"
+        rewritten = "What are the limitations of a microscope?"
+        client = MagicMock(spec=OpenAIClient) if with_client else None
+        if client:
+            client.chat = AsyncMock(return_value=AssistantMessage(content=rewritten))
+
+        with patch.object(
+            provider, "_retrieve_chunks", side_effect=[([], [10]), ([], [20]), ([], [20])]
+        ) as retrieve:
+            await provider.augment(conversation, first, client)
+            conversation.add_user_message(first)
+            conversation.add_assistant_message("The Moon blocks the Sun.")
+            _, fresh = await provider.augment(conversation, switch, client)
+            assert fresh.query_mode == "NEW_TOPIC"
+            assert fresh.rewritten_query is None
+            if client:
+                client.chat.assert_not_awaited()
+
+            conversation.add_user_message(switch)
+            conversation.add_assistant_message("A microscope uses lenses.")
+            _, continuation = await provider.augment(conversation, followup, client)
+
+        assert continuation.query_mode == "FOLLOWUP"
+        assert retrieve.call_args_list == [
+            call(first, None),
+            call(switch, None),
+            call(rewritten if with_client else followup, [20]),
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("citation", "expected_ids"),
+        [("[2.1]", [20]), ("[1.1]", None), ("[1.1, 2.1] and [2.2]", None)],
+    )
+    async def test_citation_uses_only_a_matching_shortlist(
+        self, provider: Any, citation: str, expected_ids: list[int] | None
+    ) -> None:
+        from chatty.rag.litkit_provider import RetrievedChunk
+
+        conversation = Conversation()
+        first = RetrievedChunk(1, "The Moon blocks the Sun.", "Eclipses")
+        second = RetrievedChunk(2, "Microscopes use lenses.", "Microscopy")
+        with patch.object(
+            provider, "_retrieve_chunks", side_effect=[([first], [10]), ([second], [20]), ([], [])]
+        ) as retrieve:
+            for question in ["Describe solar eclipses", "How does a microscope work?"]:
+                _, result = await provider.augment(conversation, question)
+                conversation.add_user_message(question)
+                conversation.add_assistant_message(
+                    result.sources[0].snippet, citation_turn=result.turn_number
+                )
+            followup = f"Summarize {citation}"
+            _, result = await provider.augment(conversation, followup)
+
+        assert result.query_mode == "REFERENCE"
+        assert retrieve.call_args == call(followup, expected_ids)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("has_chunks", [False, True], ids=["no-chunks", "no-budget"])
+    async def test_no_sources_preserves_last_cited_shortlist(
+        self, provider: Any, has_chunks: bool
+    ) -> None:
+        from chatty.rag.litkit_provider import RetrievedChunk
+
+        conversation = Conversation()
+        chunks = [RetrievedChunk(1, "A microscope uses lenses.", "Optics")]
+        with patch.object(
+            provider,
+            "_retrieve_chunks",
+            side_effect=[(chunks, [10, 20]), (chunks if has_chunks else [], [20, 10]), ([], [])],
+        ) as retrieve:
+            question = "Describe microscopes"
+            _, result = await provider.augment(conversation, question)
+            conversation.add_user_message(question)
+            conversation.add_assistant_message(
+                "See Optics [1.1].", citation_turn=result.turn_number
+            )
+            conversation.context_window = 1
+            _, empty = await provider.augment(conversation, "What are its limitations?")
+            assert not empty.sources
+            conversation.add_user_message("What are its limitations?")
+            conversation.add_assistant_message("No sources found.")
+            await provider.augment(conversation, "Summarize [1.1]")
+
+        assert retrieve.call_args == call("Summarize [1.1]", [10, 20])
+
+    @pytest.mark.asyncio
+    async def test_paper_reference_skips_a_shortlist_that_produced_no_sources(
+        self, provider: Any
+    ) -> None:
+        from chatty.rag.litkit_provider import RetrievedChunk
+
+        conversation = Conversation()
+        chunks = [RetrievedChunk(1, "A solar eclipse.", "Optics")]
+        with patch.object(
+            provider, "_retrieve_chunks", side_effect=[(chunks, [10]), ([], [20]), ([], [])]
+        ) as retrieve:
+            _, eclipse = await provider.augment(conversation, "Describe solar eclipses")
+            conversation.add_user_message("Describe solar eclipses")
+            conversation.add_assistant_message("Optics [1.1]", citation_turn=eclipse.turn_number)
+            await provider.augment(conversation, "Describe microscopes")
+            conversation.add_user_message("Describe microscopes")
+            conversation.add_assistant_message("No sources found.")
+            await provider.augment(conversation, "What does paper 1 say?")
+
+        assert retrieve.call_args == call("What does paper 1 say?", None)
+
+    @pytest.mark.asyncio
     async def test_augment_rewrites_short_query(
         self, provider: Any, conversation: Conversation
     ) -> None:
@@ -671,10 +788,12 @@ class TestLitkitProviderRewriter:
         self, provider: Any, conversation: Conversation
     ) -> None:
         """augment() skips rewriting for long queries."""
-        client = MagicMock()
+        from chatty.client.openai_client import OpenAIClient
+
+        client = MagicMock(spec=OpenAIClient)
         client.chat = AsyncMock()
 
-        long_query = "x" * 900  # > 800 chars threshold
+        long_query = "What about its limitations? " + "x" * 900
 
         with patch.object(provider, "_retrieve_chunks", return_value=([], [])) as mock_retrieve:
             await provider.augment(conversation, long_query, client=client)
@@ -691,7 +810,9 @@ class TestLitkitProviderRewriter:
         self, provider_rewrite_disabled: Any, conversation: Conversation
     ) -> None:
         """augment() skips rewriting when rewrite_enabled=False."""
-        client = MagicMock()
+        from chatty.client.openai_client import OpenAIClient
+
+        client = MagicMock(spec=OpenAIClient)
         client.chat = AsyncMock()
 
         with patch.object(
@@ -1041,6 +1162,110 @@ class TestLitkitProviderMultiQuery:
             provider = LitkitProvider(workspace=tmp_path, multi_query=True, multi_query_count=5)
             assert provider._multi_query is True
             assert provider._multi_query_count == 5
+
+    @pytest.mark.asyncio
+    async def test_new_topic_generates_variants_without_previous_topic(self, provider: Any) -> None:
+        from chatty.client.openai_client import AssistantMessage, OpenAIClient
+
+        conversation = Conversation()
+        conversation.add_user_message("Describe lunar eclipses")
+        client = MagicMock(spec=OpenAIClient)
+        client.chat = AsyncMock(return_value=AssistantMessage(content='["optical instruments"]'))
+        query = "Tell me about microscopes"
+        with patch.object(provider, "_retrieve_chunks", return_value=([], [])) as retrieve:
+            await provider.augment(conversation, query, client)
+
+        client.chat.assert_awaited_once()
+        prompt = client.chat.await_args_list[0].args[0][0].content
+        assert query in prompt
+        assert "lunar eclipses" not in prompt
+        assert retrieve.call_args_list == [call(query, None), call("optical instruments", None)]
+
+    @pytest.mark.asyncio
+    async def test_followup_uses_compressed_history_for_rewrite_and_variants(
+        self, provider: Any
+    ) -> None:
+        from chatty.client.openai_client import AssistantMessage, OpenAIClient
+
+        conversation = Conversation()
+        conversation.add_system_message("[Conversation summary]\nWe discussed optical microscopes.")
+        client = MagicMock(spec=OpenAIClient)
+        client.chat = AsyncMock(
+            side_effect=[
+                AssistantMessage(content="What limits optical microscopes?"),
+                AssistantMessage(content='["optical resolution limits"]'),
+            ]
+        )
+        with patch.object(provider, "_retrieve_chunks", return_value=([], [])):
+            _, result = await provider.augment(conversation, "What are its limitations?", client)
+
+        assert result.query_mode == "FOLLOWUP"
+        assert client.chat.await_count == 2
+        for request in client.chat.await_args_list:
+            assert "We discussed optical microscopes." in request.args[0][0].content
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("history", ["reply", "summary", "summary-without-markers"])
+    async def test_old_citation_reaches_rewrite_and_variant_prompts(
+        self, provider: Any, history: str
+    ) -> None:
+        from chatty.client.openai_client import AssistantMessage, OpenAIClient
+
+        conversation = Conversation()
+        source = "The first paper was Lunar Optics [1.1]."
+        long_answer = "Background material. " * 40 + source
+        if history == "summary-without-markers":
+            source = "The first paper was Lunar Optics."
+            conversation.add_system_message(f"[Conversation summary]\n{source}", citation_turn=1)
+        elif history == "summary":
+            conversation.add_system_message(
+                f"[Conversation summary]\n{long_answer}", citation_turn=1
+            )
+        else:
+            conversation.add_user_message("Describe lunar eclipses")
+            conversation.add_assistant_message(long_answer, citation_turn=1)
+        for turn in range(2, 6):
+            conversation.add_user_message(f"Question {turn}")
+            conversation.add_assistant_message(f"Answer {turn}", citation_turn=turn)
+        client = MagicMock(spec=OpenAIClient)
+        client.chat = AsyncMock(
+            side_effect=[
+                AssistantMessage(content="Find the paper on lunar optics"),
+                AssistantMessage(content='["optical astronomy"]'),
+            ]
+        )
+        with patch.object(provider, "_retrieve_chunks", return_value=([], [])):
+            await provider.augment(conversation, "Summarize [1.1]", client)
+
+        assert client.chat.await_count == 2
+        for request in client.chat.await_args_list:
+            assert source in request.args[0][0].content
+
+    @pytest.mark.asyncio
+    async def test_grouped_comparison_includes_each_cited_reply(self, provider: Any) -> None:
+        from chatty.client.openai_client import AssistantMessage, OpenAIClient
+
+        conversation = Conversation()
+        sources = []
+        for turn in range(1, 9):
+            source = f"Result from study {turn} [{turn}.1]."
+            sources.append(source)
+            conversation.add_user_message(f"Question {turn}")
+            conversation.add_assistant_message(source, citation_turn=turn)
+        client = MagicMock(spec=OpenAIClient)
+        client.chat = AsyncMock(
+            side_effect=[
+                AssistantMessage(content="Compare the results of four studies"),
+                AssistantMessage(content='["comparison of four studies"]'),
+            ]
+        )
+        with patch.object(provider, "_retrieve_chunks", return_value=([], [])):
+            await provider.augment(conversation, "Compare [1.1, 2.1, 3.1, 4.1]", client)
+
+        assert client.chat.await_count == 2
+        for request in client.chat.await_args_list:
+            for source in sources[:4]:
+                assert source in request.args[0][0].content
 
     @pytest.mark.asyncio
     async def test_multi_query_retrieve_generates_variants(self, provider: Any) -> None:
