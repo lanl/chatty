@@ -55,7 +55,6 @@ def test_generic_variables_do_not_configure_chatty(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source: str
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("LITKIT_WORKSPACE", raising=False)
     unrelated = {
         "API_KEY": "another-tools-key",
         "BASE_URL": "https://other.example/v1",
