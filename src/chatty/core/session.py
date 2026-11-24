@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from chatty.client.openai_client import Message
+from chatty.core.conversation import CONVERSATION_SUMMARY_PREFIX
 
 
 @dataclass
@@ -78,7 +79,7 @@ def _load_message(raw: dict[str, Any]) -> Message:
     if type(turn) is int and turn > 0:
         message.citation_turn = turn
     elif message.role == "assistant" or (
-        message.role == "system" and message.content.startswith("[Conversation summary]\n")
+        message.role == "system" and message.content.startswith(CONVERSATION_SUMMARY_PREFIX)
     ):
         # Older files only record visible [T.N] references in the answer or summary.
         for prefix in re.findall(r"\[([0-9]+)\.[0-9]+\]", message.content):

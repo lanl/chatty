@@ -361,7 +361,7 @@ def get_token_display(self) -> str:
 - Context compression deferred to v0.2 (with guardrails: preview, undo, never auto-compress)
 - API response `usage` field is preferred over tiktoken estimates (models tokenize differently)
 
-### `chatty/core/query_rewriter.py` (v0.4.2+)
+### `chatty/rag/rewriter.py` (v0.4.2+)
 
 LLM-based query rewriting for RAG.
 
@@ -380,48 +380,19 @@ User: What about the side effects?
 
 **Interface:**
 ```python
-class QueryRewriter:
-    def __init__(self, client: OpenAIClient):
-        self.client = client
-
-    async def rewrite(
-        self,
-        conversation: Conversation,
-        user_text: str
-    ) -> str:
-        """
-        Given conversation history and new user input,
-        return a standalone query suitable for RAG retrieval.
-        """
-        ...
-```
-
-**Implementation:**
-```python
-REWRITE_PROMPT = """Given the conversation history below, rewrite the user's latest message as a standalone question that captures all necessary context.
-
-Conversation:
-{history}
-
-Latest message: {user_text}
-
-Rewritten standalone question:"""
+result = await rewriter.rewrite_structured(user_text, conversation, client)
+retrieval_query = result.rewritten_query
 ```
 
 **Conditional Rewriting:**
 
-Long queries (committee-written, 1-2 pages) are already self-contained. Short follow-ups need context.
-
-```python
-LONG_QUERY_THRESHOLD = 800  # ~200 tokens ≈ 800 chars
-
-async def augment(self, conversation, user_text):
-    if len(user_text) > LONG_QUERY_THRESHOLD:
-        query = user_text  # Already standalone, skip rewriting
-    else:
-        query = await self.rewriter.rewrite(conversation, user_text)
-    ...
-```
+Questions that introduce a subject start a fresh paper search. With multi-query
+retrieval enabled, Chatty also generates their search variants from the current
+question alone. Follow-ups such as “What are its limitations?” and references
+such as “What does paper 2 say?” reuse the previous shortlist when available.
+A citation to an older turn triggers a fresh search. With rewriting enabled,
+Chatty expands follow-ups and source references of up to 800 characters using
+conversation history, including a saved conversation summary.
 
 **Key Design Decisions:**
 - Uses the same LLM endpoint as chat (no separate config)

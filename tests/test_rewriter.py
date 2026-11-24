@@ -12,7 +12,6 @@ from chatty.rag.rewriter import (
     MODE_FOLLOWUP,
     MODE_NEW_TOPIC,
     MODE_REFERENCE,
-    SHORT_QUERY_THRESHOLD,
     QueryRewriter,
 )
 
@@ -42,16 +41,6 @@ class TestShouldRewrite:
         conv.messages = [MagicMock(role="system", content="You are a helpful assistant")]
         assert rewriter.should_rewrite("What about side effects?", conv) is False
 
-    def test_short_query_returns_true(self) -> None:
-        """Queries under threshold are rewritten."""
-        rewriter = QueryRewriter(enabled=True)
-        conv = MagicMock()
-        conv.messages = [MagicMock()]
-
-        short_query = "What about it?"  # < 200 chars
-        assert len(short_query) < SHORT_QUERY_THRESHOLD
-        assert rewriter.should_rewrite(short_query, conv) is True
-
     def test_long_query_returns_false(self) -> None:
         """Long queries (>800 chars) are assumed self-contained."""
         rewriter = QueryRewriter(enabled=True)
@@ -72,7 +61,6 @@ class TestShouldRewrite:
             "I would like more information about it and how it affects "
             "patient outcomes in clinical settings. " * 3
         )
-        assert SHORT_QUERY_THRESHOLD < len(query) < LONG_QUERY_THRESHOLD
         assert rewriter.should_rewrite(query, conv) is True
 
     def test_medium_query_without_patterns_returns_false(self) -> None:
@@ -88,31 +76,16 @@ class TestShouldRewrite:
             + " "
             * 80
         )
-        assert SHORT_QUERY_THRESHOLD < len(query) < LONG_QUERY_THRESHOLD
         assert rewriter.should_rewrite(query, conv) is False
 
-    def test_exact_threshold_boundaries(self) -> None:
-        """Test behavior at exact threshold boundaries."""
+    def test_followup_at_rewrite_length_limit(self) -> None:
         rewriter = QueryRewriter(enabled=True)
         conv = MagicMock()
         conv.messages = [MagicMock()]
 
-        # Exactly at SHORT_QUERY_THRESHOLD - should NOT rewrite (>= 200 needs patterns)
-        query_at_short = "x" * SHORT_QUERY_THRESHOLD
-        assert len(query_at_short) == SHORT_QUERY_THRESHOLD
-        # This has no patterns, so should return False
-        assert rewriter.should_rewrite(query_at_short, conv) is False
-
-        # Just under SHORT_QUERY_THRESHOLD - should rewrite
-        query_under_short = "x" * (SHORT_QUERY_THRESHOLD - 1)
-        assert len(query_under_short) < SHORT_QUERY_THRESHOLD
-        assert rewriter.should_rewrite(query_under_short, conv) is True
-
-        # Exactly at LONG_QUERY_THRESHOLD - should check patterns
-        query_at_long = "x" * LONG_QUERY_THRESHOLD
-        assert len(query_at_long) == LONG_QUERY_THRESHOLD
-        # No patterns, so should return False
-        assert rewriter.should_rewrite(query_at_long, conv) is False
+        query = "What about it? ".ljust(LONG_QUERY_THRESHOLD, "x")
+        assert rewriter.should_rewrite(query, conv) is True
+        assert rewriter.should_rewrite(query + "x", conv) is False
 
 
 class TestPatternDetection:
@@ -161,20 +134,6 @@ class TestPatternDetection:
     )
     def test_detects_short_followups(self, query: str) -> None:
         """Detects short follow-up starters."""
-        rewriter = QueryRewriter(enabled=True)
-        assert rewriter._has_followup_patterns(query) is True
-
-    @pytest.mark.parametrize(
-        "query",
-        [
-            "How does lopinavir compare to ritonavir?",
-            "What is the difference between these drugs?",
-            "Lopinavir vs ritonavir efficacy",
-            "Compare the outcomes versus placebo",
-        ],
-    )
-    def test_detects_comparatives(self, query: str) -> None:
-        """Detects comparative patterns."""
         rewriter = QueryRewriter(enabled=True)
         assert rewriter._has_followup_patterns(query) is True
 
@@ -473,6 +432,21 @@ class TestExpandSynonymsPromptSelection:
 class TestRewriteStructured:
     """Tests for rewrite_structured() returning RewriteResult."""
 
+    async def test_new_topic_preserves_original_query(self) -> None:
+        from chatty.core.conversation import Conversation
+
+        conv = Conversation()
+        conv.add_user_message("Tell me about lunar eclipses")
+        client = MagicMock()
+        client.chat = AsyncMock()
+        query = "Tell me about CRISPR"
+        result = await QueryRewriter().rewrite_structured(query, conv, client)
+
+        client.chat.assert_not_awaited()
+        assert result.mode == MODE_NEW_TOPIC
+        assert result.rewritten_query == query
+        assert not result.was_rewritten
+
     @pytest.mark.asyncio
     async def test_returns_rewrite_result(self) -> None:
         """Returns RewriteResult with correct fields."""
@@ -561,6 +535,10 @@ class TestModeClassification:
             "What about the second article?",
             "Reference 5 discusses this topic",
             "In the article by Smith, what method was used?",
+            "Summarize [1.2]",
+            "Compare [1, 2]",
+            "Compare [1.1, 2.1]",
+            "Moving on to paper 2, what method did it use?",
         ],
     )
     def test_detects_reference_mode(self, query: str) -> None:
@@ -580,6 +558,23 @@ class TestModeClassification:
             "What is the mechanism of action?",
             "Explain how mRNA vaccines work",
             "Describe the clinical trial process",
+            "How does CRISPR-Cas9 editing work?",
+            "Which vaccines are approved for shingles in adults over 50?",
+            "Tell me about CRISPR",
+            "Why do eclipses occur?",
+            "What about lunar eclipses?",
+            "And how does a solar eclipse differ from a lunar eclipse?",
+            "Lopinavir vs ritonavir efficacy",
+            "FDC role?",
+            "Explain diabetes and its risk factors.",
+            "Describe the mechanisms that cause solar eclipses.",
+            "New topic: explain the lunar cycle described in [1].",
+            "Let's change topics: explain the lunar-cycle result in [1] below.",
+            "Describe photosynthesis and how it works.",
+            "Tell me about this year's Nobel Prize in Physics.",
+            "What is the risk in taking aspirin daily?",
+            "What about side effects for aspirin?",
+            "Explain min-max normalization to [0, 1].",
         ],
     )
     def test_detects_new_topic_mode(self, query: str) -> None:
@@ -588,6 +583,7 @@ class TestModeClassification:
         conv = MagicMock()
         conv.messages = [MagicMock()]
         assert rewriter.classify_mode(query, conv) == MODE_NEW_TOPIC
+        assert rewriter.should_rewrite(query, conv) is False
 
     @pytest.mark.parametrize(
         "query",
@@ -597,6 +593,18 @@ class TestModeClassification:
             "How does that compare?",
             "And the dosage?",
             "Why?",
+            "Explain these findings",
+            "What are its limitations?",
+            "What is the difference between these drugs?",
+            "Compared to placebo?",
+            "What about long-term side effects?",
+            "What about side effects in children?",
+            "Can you elaborate?",
+            "Any other examples?",
+            "What causes it?",
+            "Can you elaborate on that?",
+            "What about side effects for children?",
+            "What about side effects at higher doses?",
         ],
     )
     def test_detects_followup_mode(self, query: str) -> None:
@@ -605,14 +613,7 @@ class TestModeClassification:
         conv = MagicMock()
         conv.messages = [MagicMock()]
         assert rewriter.classify_mode(query, conv) == MODE_FOLLOWUP
-
-    def test_short_query_defaults_to_followup(self) -> None:
-        """Short queries without patterns default to FOLLOWUP."""
-        rewriter = QueryRewriter(enabled=True)
-        conv = MagicMock()
-        conv.messages = [MagicMock()]
-        # Short query with no patterns
-        assert rewriter.classify_mode("FDC role?", conv) == MODE_FOLLOWUP
+        assert rewriter.should_rewrite(query, conv) is True
 
     def test_long_query_defaults_to_new_topic(self) -> None:
         """Long queries without patterns default to NEW_TOPIC."""
@@ -621,7 +622,6 @@ class TestModeClassification:
         conv.messages = [MagicMock()]
         # Query over 200 chars with no patterns
         long_q = "Mechanism of action for lopinavir " * 10
-        assert len(long_q) > SHORT_QUERY_THRESHOLD
         assert rewriter.classify_mode(long_q, conv) == MODE_NEW_TOPIC
 
     def test_reference_takes_priority_over_followup(self) -> None:

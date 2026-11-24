@@ -84,7 +84,7 @@ from textual.worker import Worker
 
 from chatty.client.openai_client import Message, OpenAIClient
 from chatty.config import ConfigWithSources, find_config_path, load_config
-from chatty.core.conversation import Conversation
+from chatty.core.conversation import CONVERSATION_SUMMARY_PREFIX, Conversation
 from chatty.core.session import (
     Session,
     generate_session_name,
@@ -946,7 +946,7 @@ class ChatApp(App[None]):
         if system_prompt:
             self.conversation.add_system_message(system_prompt)
         self.conversation.add_system_message(
-            f"[Conversation summary]\n{summary}", citation_turn=citation_turn or None
+            f"{CONVERSATION_SUMMARY_PREFIX}{summary}", citation_turn=citation_turn or None
         )
 
         # Update chat log display

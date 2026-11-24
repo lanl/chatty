@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 
 from chatty.client.openai_client import Message
 
+CONVERSATION_SUMMARY_PREFIX = "[Conversation summary]\n"
+
 
 @dataclass
 class Conversation:

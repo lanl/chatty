@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from chatty.client.openai_client import Message
 from chatty.core.conversation import Conversation
 from chatty.rag.provider import RAGMetadata, RAGSource
-from chatty.rag.rewriter import QueryRewriter
+from chatty.rag.rewriter import MODE_NEW_TOPIC, MODE_REFERENCE, QueryRewriter, cited_turns
 
 if TYPE_CHECKING:
     from chatty.client.openai_client import OpenAIClient
@@ -264,6 +264,7 @@ class LitkitProvider:
             expand_synonyms=expand_synonyms,
         )
         self._last_paper_ids: list[int] | None = None  # For shortlist reuse
+        self._shortlist_turn: int | None = None
         self._rerank = rerank
         self._rerank_top_n = rerank_top_n
         self._multi_query = multi_query
@@ -320,6 +321,7 @@ class LitkitProvider:
     def reset(self) -> None:
         """Discard the paper shortlist when switching conversations."""
         self._last_paper_ids = None
+        self._shortlist_turn = None
 
     def _retrieve_chunks(
         self,
@@ -735,9 +737,11 @@ class LitkitProvider:
     async def _multi_query_retrieve(
         self,
         query: str,
-        conversation: Conversation,
+        conversation: Conversation | None,
         client: OpenAIClient,
         reuse_paper_ids: list[int] | None = None,
+        *,
+        original_query: str | None = None,
     ) -> tuple[list[RetrievedChunk], list[int]]:
         """Retrieve using multiple query variants for improved recall.
 
@@ -749,6 +753,7 @@ class LitkitProvider:
             conversation: Conversation history for variant generation.
             client: OpenAI client for generating variants.
             reuse_paper_ids: Optional paper IDs to reuse across all variants.
+            original_query: User input before rewriting, for resolving cited turns.
 
         Returns:
             Tuple of (deduplicated chunks, paper_ids).
@@ -757,7 +762,11 @@ class LitkitProvider:
         try:
             # Generate query variants
             variants = await self._rewriter.generate_query_variants(
-                query, conversation, client, count=self._multi_query_count
+                query,
+                conversation,
+                client,
+                count=self._multi_query_count,
+                original_query=original_query,
             )
 
             ranked_lists: list[list[RetrievedChunk]] = []
@@ -854,12 +863,11 @@ class LitkitProvider:
         # Rewrite query if needed (v0.4.2+)
         retrieval_query = user_text
         rewritten_query: str | None = None
-        query_mode: str | None = None
         # Cast client to expected type (protocol allows object for flexibility)
         from chatty.client.openai_client import OpenAIClient
 
         openai_client = client if isinstance(client, OpenAIClient) else None
-        if openai_client and self._rewriter.should_rewrite(user_text, conversation):
+        if openai_client:
             result = await self._rewriter.rewrite_structured(user_text, conversation, openai_client)
             retrieval_query = result.rewritten_query
             query_mode = result.mode
@@ -870,16 +878,13 @@ class LitkitProvider:
             # Classify mode even when not rewriting
             query_mode = self._rewriter.classify_mode(user_text, conversation)
 
-        # Determine retrieval strategy based on query mode
-        # - NEW_TOPIC: Fresh retrieval (clear cached paper_ids)
-        # - FOLLOWUP/REFERENCE: Reuse cached paper_ids if available (skip stage-1)
-        reuse_paper_ids: list[int] | None = None
-        if query_mode == "NEW_TOPIC":
-            # Clear cache for new topic
-            self._last_paper_ids = None
-        elif self._last_paper_ids and query_mode in ("FOLLOWUP", "REFERENCE"):
-            # Reuse previous paper shortlist for follow-up questions
-            reuse_paper_ids = self._last_paper_ids
+        # Only the most recent shortlist is cached. References spanning other
+        # turns need the full corpus even though their rewrite needs history.
+        if query_mode == MODE_NEW_TOPIC or (
+            query_mode == MODE_REFERENCE and cited_turns(user_text) - {str(self._shortlist_turn)}
+        ):
+            self.reset()
+        reuse_paper_ids = self._last_paper_ids
 
         # Run subprocess retrieval in thread pool to avoid blocking event loop
         # The subprocess itself is completely isolated (close_fds=True)
@@ -890,9 +895,10 @@ class LitkitProvider:
         if self._multi_query and openai_client:
             chunks, paper_ids = await self._multi_query_retrieve(
                 retrieval_query,
-                conversation,
+                conversation if query_mode != MODE_NEW_TOPIC else None,
                 openai_client,
                 reuse_paper_ids,
+                original_query=user_text,
             )
         else:
             chunks, paper_ids = await asyncio.to_thread(
@@ -901,9 +907,9 @@ class LitkitProvider:
 
         retrieval_time_s = time.monotonic() - start_time
 
-        # Cache paper_ids for potential reuse in next turn
-        if paper_ids:
+        if paper_ids and paper_ids != self._last_paper_ids:
             self._last_paper_ids = paper_ids
+            self._shortlist_turn = None
 
         if not chunks:
             # No relevant chunks found, return messages unchanged
@@ -938,6 +944,8 @@ class LitkitProvider:
         fitted_chunks = self._fit_to_budget(chunks, available_tokens)
 
         turn = conversation.last_citation_turn + 1
+        if paper_ids and fitted_chunks:
+            self._shortlist_turn = turn
 
         # Format context and build augmented message
         context = self._format_context(fitted_chunks, turn)

@@ -24,9 +24,10 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from chatty.core.conversation import CONVERSATION_SUMMARY_PREFIX, Conversation
+
 if TYPE_CHECKING:
     from chatty.client.openai_client import OpenAIClient
-    from chatty.core.conversation import Conversation
 
 
 logger = logging.getLogger(__name__)
@@ -55,8 +56,7 @@ class RewriteResult:
     entities: list[str] = field(default_factory=list)
 
 
-# Length thresholds (in characters)
-SHORT_QUERY_THRESHOLD = 200
+# Maximum length for a contextual rewrite (in characters)
 LONG_QUERY_THRESHOLD = 800
 
 # Query modes for classification
@@ -66,14 +66,33 @@ MODE_REFERENCE = "REFERENCE"  # Reference to specific cited source
 
 # Follow-up pattern indicators
 FOLLOWUP_PATTERNS = [
-    r"\b(it|they|them|this|that|these|those)\b",  # Pronouns
-    r"\b(the same|mentioned|above|previous|earlier)\b",  # References
-    r"\b(compared to|vs\.?|versus|difference between)\b",  # Comparatives
-    r"^(why|how|what about|and)\b",  # Short follow-up starters
+    r"\b(these|those|them)\b|\bthis\b(?!\s+(?:year|month|week|century)\b)",
+    # A pronoun standing in for the subject or object. In "planets that orbit"
+    # and "Mars and its moons", the antecedent is already in the question.
+    r"(?:^|\b(?:is|are|was|were|do|does|did|can|could|will|would|has|have|"
+    r"why|how|when|if|about|of|for|with|to|between|compare|explain|describe|summarize)\s+)"
+    r"(?:it|its|they|their|that)\b",
+    r"\b(?:it|that)[?!.]*$",
+    r"\b(the same|you (?:said|mentioned)|(?:as|previously) mentioned|mentioned above)\b",
+    r"\b(?:the|your|our) (?:previous|earlier|above)\b",
+    r"^(?:why(?: not)?|how(?: so)?|tell me more|(?:(?:can|could) you |please )?elaborate|"
+    r"any (?:other|more) examples)[?!.]*$",
+    r"^(?:compared (?:to|with)|versus|vs\.?)\s+",  # Missing first side of comparison
+    # A question about an aspect of the previous subject, without naming a new one.
+    r"^(?:(?:what about|how about|and|what are|what is)\s+)?(?:the\s+)?"
+    r"(?:(?:long[- ]term|short[- ]term|potential|common|other)\s+)?"
+    r"(?:side effects?|risks?|benefits?|limitations?|alternatives?|dosage|efficacy|safety)"
+    r"(?:\s+(?:in|among|during|at)\s+(?!\w+ing\b).+|"
+    r"\s+for\s+(?:(?:younger|older|pregnant)\s+)?(?:children|adults|patients|women|men))?[?!.]*$",
+    r"^(?:what about|how about|and)\s+(?:in|among|during|without)\s+",
 ]
 
 # Reference patterns - questions about specific papers/sources
+_CITATION_INDEX = r"[1-9][0-9]*"
+_CITATION = rf"(?:{_CITATION_INDEX}\.)?{_CITATION_INDEX}"
+_CITATION_GROUP = re.compile(rf"\[({_CITATION}(?:\s*,\s*{_CITATION})*)\]")
 REFERENCE_PATTERNS = [
+    _CITATION_GROUP.pattern,
     # "paper 1", "source 2", "citation #3"
     r"\b(paper|source|article|citation|reference)\s*" r"(\d+|#?\d+|one|two|three|four|five)\b",
     # "first paper", "second source"
@@ -88,10 +107,21 @@ REFERENCE_PATTERNS = [
 
 # New topic indicators
 NEW_TOPIC_PATTERNS = [
-    r"^(now|let'?s|moving on|changing topic|different question)\b",
-    r"^(tell me about|what is|explain|describe)\s+\w+",
+    r"^(?:(?:now[,\s]+)?let['’]?s\s+)?(?:chang(?:e|ing)|switch(?:ing)?)\s+(?:the\s+)?(?:topics?|subjects?)\b",
+    r"^different question\b",
     r"^(unrelated|new topic|separate question)\b",
 ]
+
+
+def cited_turns(query: str) -> set[str]:
+    """Return explicit turn numbers from citations such as [1.2, 3.1]."""
+    return {
+        member.strip().split(".")[0]
+        for group in _CITATION_GROUP.findall(query)
+        for member in group.split(",")
+        if "." in member
+    }
+
 
 # Rewrite prompt template - improved for better domain term handling
 # Used when expand_synonyms is False (legacy behavior)
@@ -239,70 +269,44 @@ class QueryRewriter:
         Returns:
             One of MODE_NEW_TOPIC, MODE_FOLLOWUP, or MODE_REFERENCE.
         """
-        # No user/assistant history means it's always a new topic
-        # (system prompts don't count as conversation context)
-        non_system = [m for m in conversation.messages if m.role != "system"]
-        if not non_system:
+        if not any(
+            m.role != "system" or m.content.startswith(CONVERSATION_SUMMARY_PREFIX)
+            for m in conversation.messages
+        ):
             return MODE_NEW_TOPIC
 
-        # Check for reference patterns first (highest priority)
-        for pattern in self._compiled_reference:
-            if pattern.search(query):
-                return MODE_REFERENCE
-
-        # Check for explicit new topic indicators
+        query = query.strip()
+        # A pasted question can include its own citations after a topic switch.
         for pattern in self._compiled_new_topic:
             if pattern.search(query):
                 return MODE_NEW_TOPIC
 
-        # Check for follow-up patterns
-        if self._has_followup_patterns(query):
-            return MODE_FOLLOWUP
+        for pattern in self._compiled_reference:
+            if pattern.search(query):
+                return MODE_REFERENCE
 
-        # Default: short queries are follow-ups, long are new topics
-        if len(query) < SHORT_QUERY_THRESHOLD:
+        if re.match(r"^moving on\b", query, re.IGNORECASE):
+            return MODE_NEW_TOPIC
+
+        # In "Describe photosynthesis and how it works", the second clause
+        # refers to the subject introduced in the first.
+        query = re.split(
+            r"\s+and\s+(?=(?:how|why|when|where|whether|its|their)\b)",
+            query,
+            maxsplit=1,
+            flags=re.IGNORECASE,
+        )[0]
+        if self._has_followup_patterns(query):
             return MODE_FOLLOWUP
 
         return MODE_NEW_TOPIC
 
     def should_rewrite(self, query: str, conversation: Conversation) -> bool:
-        """Determine if a query should be rewritten.
+        """Whether this query needs a contextual rewrite and fits the length limit."""
+        return self._should_rewrite_mode(query, self.classify_mode(query, conversation))
 
-        Decision logic:
-        1. If disabled, return False
-        2. If no user/assistant history, return False (nothing to reference)
-        3. If query > 800 chars, return False (self-contained)
-        4. If query < 200 chars, return True (likely follow-up)
-        5. Check for follow-up patterns
-
-        Args:
-            query: The user's query text.
-            conversation: Current conversation history.
-
-        Returns:
-            True if query should be rewritten.
-        """
-        if not self.enabled:
-            return False
-
-        # No user/assistant history = nothing to reference
-        # (system prompts don't count as conversation context)
-        non_system = [m for m in conversation.messages if m.role != "system"]
-        if not non_system:
-            return False
-
-        query_len = len(query)
-
-        # Long queries are assumed self-contained
-        if query_len > LONG_QUERY_THRESHOLD:
-            return False
-
-        # Short queries are likely follow-ups
-        if query_len < SHORT_QUERY_THRESHOLD:
-            return True
-
-        # Medium length: check for follow-up patterns
-        return self._has_followup_patterns(query)
+    def _should_rewrite_mode(self, query: str, mode: str) -> bool:
+        return self.enabled and mode != MODE_NEW_TOPIC and len(query) <= LONG_QUERY_THRESHOLD
 
     def _has_followup_patterns(self, query: str) -> bool:
         """Check if query contains follow-up indicators.
@@ -361,10 +365,12 @@ class QueryRewriter:
         # Classify mode and log for debugging
         mode = self.classify_mode(query, conversation)
         logger.debug("Query mode: %s for query: %.50s...", mode, query)
+        if not self._should_rewrite_mode(query, mode):
+            return RewriteResult(query, query, mode, was_rewritten=False)
 
         try:
             # Build conversation summary (last 2-3 exchanges)
-            summary = self._build_conversation_summary(conversation)
+            summary = self._build_conversation_summary(conversation, query=query)
 
             # Select prompt based on expand_synonyms setting
             prompt_template = (
@@ -429,24 +435,48 @@ class QueryRewriter:
 
     def _build_conversation_summary(
         self,
-        conversation: Conversation,
+        conversation: Conversation | None,
         max_exchanges: int = 3,
+        *,
+        query: str = "",
     ) -> str:
         """Build a summary of recent conversation for context.
 
         Args:
-            conversation: Full conversation history.
+            conversation: Relevant conversation history, or None for a new topic.
             max_exchanges: Maximum user/assistant pairs to include.
+            query: User input that may cite a turn outside the recent exchanges.
 
         Returns:
             Formatted conversation summary.
         """
-        messages = conversation.messages
-        if not messages:
+        if conversation is None or not conversation.messages:
             return "(no prior conversation)"
 
-        # Take last N exchanges (user + assistant pairs)
-        recent = messages[-(max_exchanges * 2) :]
+        messages = conversation.messages
+        limit = max_exchanges * 2
+        turns = cited_turns(query)
+        if turns:
+            # Reserve space for the cited exchanges before filling from recent history.
+            cited: set[int] = set()
+            for i, message in enumerate(messages):
+                if message.role == "assistant" and str(message.citation_turn) in turns:
+                    cited.add(i)
+                    if i and messages[i - 1].role == "user":
+                        cited.add(i - 1)
+                elif message.role == "system" and message.content.startswith(
+                    CONVERSATION_SUMMARY_PREFIX
+                ):
+                    if turns & cited_turns(message.content):
+                        cited.add(i)
+            indices = sorted(cited, reverse=True)
+            recent_start = max(0, len(messages) - limit)
+            indices.extend(
+                i for i in reversed(range(recent_start, len(messages))) if i not in cited
+            )
+            recent = [messages[i] for i in sorted(indices[:limit])]
+        else:
+            recent = messages[-limit:]
 
         lines = []
         for msg in recent:
@@ -462,9 +492,11 @@ class QueryRewriter:
     async def generate_query_variants(
         self,
         query: str,
-        conversation: Conversation,
+        conversation: Conversation | None,
         client: OpenAIClient,
         count: int = 3,
+        *,
+        original_query: str | None = None,
     ) -> list[str]:
         """Generate multiple query variants for multi-query retrieval.
 
@@ -474,9 +506,10 @@ class QueryRewriter:
 
         Args:
             query: The original query to generate variants for.
-            conversation: Conversation history for context.
+            conversation: Relevant conversation history, or None for a new topic.
             client: OpenAI client for LLM call.
             count: Number of variants to generate (default: 3).
+            original_query: User input when the search query has already been rewritten.
 
         Returns:
             List of query variants. Falls back to [query] on error.
@@ -486,7 +519,7 @@ class QueryRewriter:
 
         try:
             # Build conversation summary for context
-            summary = self._build_conversation_summary(conversation)
+            summary = self._build_conversation_summary(conversation, query=original_query or query)
 
             prompt = MULTI_QUERY_PROMPT.format(
                 count=count,
