@@ -72,6 +72,7 @@ Key Design Decisions
 
 from __future__ import annotations
 
+import asyncio
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -80,11 +81,15 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container
 from textual.widgets import Header
-from textual.worker import Worker
+from textual.worker import Worker, WorkType
 
 from chatty.client.openai_client import Message, OpenAIClient
 from chatty.config import ConfigWithSources, find_config_path, load_config
-from chatty.core.conversation import CONVERSATION_SUMMARY_PREFIX, Conversation
+from chatty.core.conversation import (
+    CONVERSATION_SUMMARY_PREFIX,
+    FALLBACK_CONTEXT_WINDOW,
+    Conversation,
+)
 from chatty.core.session import (
     Session,
     generate_session_name,
@@ -206,6 +211,7 @@ class ChatApp(App[None]):
         self.streaming = self.config.stream
         self.client: OpenAIClient | None = None
         self.conversation: Conversation | None = None
+        self._context_window_ready = asyncio.Event()
         self.current_worker: Worker[None] | None = None
         self.transcript: TranscriptLogger = TranscriptLogger(self.config)
         self.rag_provider: RAGProvider
@@ -220,6 +226,7 @@ class ChatApp(App[None]):
         self._pending_user_text: str | None = None  # User message awaiting LLM response
         self._current_session: Session | None = None  # For save/load functionality
         self._current_model: str = self.config.model  # Runtime model (can be changed)
+        self._pending_model: str | None = None
         self._session_dirty: bool = False  # Track unsaved changes
         # Compression state
         self._compression_worker: Worker[None] | None = None
@@ -317,22 +324,21 @@ class ChatApp(App[None]):
 
         This method starts an async worker to handle endpoint calls.
         """
+        if self.conversation is None:
+            return
         if isinstance(self.config.context_window, int):
-            # Explicit value configured - use it
-            if self.conversation:
-                self.conversation.set_context_window(self.config.context_window)
-        else:
-            # "auto" - need to fetch from endpoint
-            # Textual's run_worker type hints are overly restrictive
-            self.run_worker(
-                self._fetch_context_window,  # type: ignore[arg-type]
-                exclusive=False,
-                name="fetch_context_window",
-            )
+            self.conversation.set_context_window(self.config.context_window)
+            self._context_window_ready.set()
+            return
 
-    async def _fetch_context_window(self) -> None:
-        """Fetch context window from /models endpoint."""
-        await fetch_context_window(self)
+        self.conversation.set_context_window(FALLBACK_CONTEXT_WINDOW)
+        self._context_window_ready.clear()
+        self.run_worker(
+            partial(fetch_context_window, self),  # type: ignore[arg-type]
+            group="context_window",
+            exclusive=True,
+            name="fetch_context_window",
+        )
 
     def _check_startup_config(self, chat_log: ChatLog) -> None:
         """Check configuration at startup and show warnings for issues.
@@ -414,11 +420,12 @@ class ChatApp(App[None]):
 
         # Start async worker for LLM call
         # Pass method reference (not called) — Textual invokes it
-        self.current_worker = self.run_worker(
-            self._send_message,
-            exclusive=True,
-            name="send_message",
-        )
+        self.current_worker = self._run_chat_worker(self._send_message, name="send_message")
+
+    def _run_chat_worker(self, work: WorkType[None], *, name: str) -> Worker[None]:
+        """Start a new turn or compression with the most recently selected model."""
+        self._apply_pending_model()
+        return self.run_worker(work, group="chat", exclusive=True, name=name)
 
     async def _send_message(self) -> None:
         """Worker function for async LLM call."""
@@ -449,9 +456,8 @@ class ChatApp(App[None]):
             return
 
         self._pending_user_text = question.content
-        self.current_worker = self.run_worker(
+        self.current_worker = self._run_chat_worker(
             partial(send_message, self, regenerate=True),
-            exclusive=True,
             name="regenerate",
         )
 
@@ -738,25 +744,43 @@ class ChatApp(App[None]):
         Args:
             model: Selected model name, or None if cancelled.
         """
-        if not model or model == self._current_model:
+        if not model:
             return
+        self._pending_model = model if model != self._current_model else None
+        if self._pending_model and self._chat_worker_active():
+            self.notify(f"Will switch to {model} for the next request.", markup=False)
+            return
+        self._apply_pending_model()
 
-        # Update runtime model
+    def _chat_worker_active(self) -> bool:
+        return any(
+            w.group == "chat" and not w.is_finished and not w.is_cancelled for w in self.workers
+        )
+
+    def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
+        if self._pending_model and event.worker.group == "chat" and not self._chat_worker_active():
+            self._apply_pending_model()
+
+    def _apply_pending_model(self) -> None:
+        """Keep the model and token budget consistent throughout an in-flight turn."""
+        model = self._pending_model
+        if model is None:
+            return
+        self._pending_model = None
+
         old_model = self._current_model
         self._current_model = model
-
-        # Also update config.model so client uses new model
-        # This is a runtime-only change; config file is not modified
         self.config.model = model
 
-        # Update conversation model for accurate token estimation
+        tokens = ""
         if self.conversation:
             self.conversation.model = model
+            self.conversation.server_reported_tokens = None
+            if isinstance(self.config.context_window, int):
+                tokens = self.conversation.get_token_display()
+        self._resolve_context_window()
 
-        # Update status bar
-        self.query_one("#status-bar", StatusBar).update_status(model=model)
-
-        # Show confirmation
+        self.query_one("#status-bar", StatusBar).update_status(model=model, tokens=tokens)
         chat_log = self.query_one("#chat-log", ChatLog)
         chat_log.add_message("system", f"Switched model: {old_model} → {model}")
 
@@ -834,9 +858,8 @@ class ChatApp(App[None]):
             return
 
         # Start worker to generate summary
-        self._compression_worker = self.run_worker(
+        self._compression_worker = self._run_chat_worker(
             self._generate_compression_preview,
-            exclusive=True,
             name="compress",
         )
 

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from chatty.client.openai_client import Message
 
 CONVERSATION_SUMMARY_PREFIX = "[Conversation summary]\n"
+FALLBACK_CONTEXT_WINDOW = 128_000
 
 
 @dataclass
@@ -20,7 +21,7 @@ class Conversation:
 
     messages: list[Message] = field(default_factory=list)
     server_reported_tokens: int | None = None
-    context_window: int = 128000  # Fallback; ChatApp should set from config/endpoint
+    context_window: int = FALLBACK_CONTEXT_WINDOW
     model: str = "gpt-4"  # Model name for tiktoken encoding
 
     def set_context_window(self, size: int) -> None:
@@ -88,12 +89,13 @@ class Conversation:
                 # This is a reasonable default for most modern models
                 enc = tiktoken.get_encoding("cl100k_base")
 
-            total_tokens = sum(len(enc.encode(m.content)) for m in self.messages)
+            total_tokens = sum(len(enc.encode_ordinary(m.content)) for m in self.messages)
             used = f"{total_tokens:,}"
             total = f"{self.context_window:,}"
             return f"~{used} / {total} tokens (est)"
-        except ImportError:
-            return "usage unknown"
+        except (ImportError, OSError):
+            # An air-gapped installation may not have the tokenizer's vocabulary cached.
+            return f"usage unknown / {self.context_window:,} tokens"
 
     def is_near_context_limit(self, threshold: float = 0.8) -> bool:
         """Check if conversation is approaching context limit."""

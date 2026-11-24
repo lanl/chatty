@@ -210,7 +210,13 @@ def test_check_config_ca_bundle_not_found() -> None:
 def test_check_connectivity_success(valid_config: ConfigWithSources) -> None:
     """Test connectivity check success."""
     respx.get("https://api.test.com/v1/models").respond(
-        200, json={"data": [{"id": "gpt-4", "context_length": 128000}]}
+        200,
+        json={
+            "data": [
+                {"id": "other", "context_length": 128000},
+                {"id": "gpt-4", "max_model_len": 32768},
+            ]
+        },
     )
     respx.post("https://api.test.com/v1/chat/completions").respond(
         200, json={"choices": [{"message": {"content": "ok"}}]}
@@ -222,7 +228,7 @@ def test_check_connectivity_success(valid_config: ConfigWithSources) -> None:
     assert any("Authentication valid" in r.message for r in results)
     assert any("supports /chat/completions" in r.message for r in results)
     # context_window check should pass when auto-detection works
-    assert any("context_window: auto →" in r.message for r in results)
+    assert any(r.message == "context_window: auto → 32,768 tokens" for r in results)
 
 
 @respx.mock

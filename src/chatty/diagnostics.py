@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 import httpx
 
 from chatty.client.http import build_sync_client
+from chatty.client.openai_client import model_context_length
 from chatty.config import CHECK_KEY_FILE_MODE
 from chatty.rag.litkit_provider import database_path, missing_indices
 from chatty.rag.models import MODELS, model_cache
@@ -325,21 +326,8 @@ def check_connectivity(config_with_sources: ConfigWithSources) -> list[Diagnosti
                         headers=headers,
                     )
                     if models_response.status_code == 200:
-                        models_data = models_response.json()
-                        # Find the configured model
-                        context_length = None
-                        for model_info in models_data.get("data", []):
-                            if model_info.get("id") == config.model:
-                                context_length = model_info.get(
-                                    "context_length",
-                                    model_info.get(
-                                        "max_context_length",
-                                        model_info.get("context_window"),
-                                    ),
-                                )
-                                break
-
-                        if context_length:
+                        context_length = model_context_length(models_response.json(), config.model)
+                        if context_length is not None:
                             results.append(
                                 DiagnosticResult(
                                     passed=True,

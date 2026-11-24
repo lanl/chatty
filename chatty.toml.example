@@ -24,10 +24,10 @@ api_key = "your-api-key-here"
 # Model name (depends on your endpoint)
 model = "gpt-4.1"
 
-# Context window size:
-#   "auto" = fetch from /models endpoint
-#   128000 = explicit size in tokens (default)
-context_window = 128000
+# "auto" asks /models for the selected model's token limit (default).
+# If unavailable, Chatty warns and uses 128,000 tokens. To override this,
+# set an integer matching your deployment's context window.
+context_window = "auto"
 
 # Temperature (0.0 = deterministic, 1.0+ = creative)
 # temperature = 0.2

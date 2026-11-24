@@ -96,6 +96,14 @@ stream = true
 system_prompt = "You are a helpful assistant."
 ```
 
+Chatty defaults to `context_window = "auto"`. It asks your endpoint's `/models`
+for the selected model's token limit at startup and when you switch models with
+`Ctrl+G`. A request already in progress finishes with its original model.
+This works for unfamiliar model names when the server reports a limit.
+Run `chatty doctor` to see what your endpoint reports. If the limit is unavailable,
+Chatty warns and uses 128,000 tokens. Set `context_window` to your deployment's
+actual limit if you know it. An explicit value applies to every model you select.
+
 ### HPC / Institutional Networks
 
 On shared systems, **do not use environment variables for API keys** (they appear in shell history, job logs, `/proc`).
@@ -416,8 +424,8 @@ api_key = "your-api-key-here"
 # Model name (depends on your endpoint)
 model = "gpt-4.1"
 
-# Context window size (tokens)
-context_window = 128000
+# Ask the endpoint for the selected model's token limit
+context_window = "auto"
 
 # Temperature (0.0 = deterministic, 1.0+ = creative)
 temperature = 0.2

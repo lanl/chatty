@@ -128,12 +128,13 @@ def test_get_token_display_server_reported_small() -> None:
 def test_get_token_display_tiktoken_fallback() -> None:
     """Test token display falls back to tiktoken estimate."""
     conv = Conversation()
-    conv.add_user_message("Hello world")
+    conv.add_user_message("Explain the token <|endoftext|>.")
 
     # tiktoken is available in test environment
     display = conv.get_token_display()
 
-    assert "~" in display or "est" in display or "unknown" in display
+    assert display.startswith("~")
+    assert "/ 128,000 tokens (est)" in display
 
 
 def test_get_token_display_no_tiktoken() -> None:
@@ -141,14 +142,14 @@ def test_get_token_display_no_tiktoken() -> None:
     conv = Conversation()
     conv.add_user_message("Hello")
 
-    with (
-        patch.dict("sys.modules", {"tiktoken": None}),
-        patch("chatty.core.conversation.Conversation.get_token_display") as mock,
-    ):
-        # Force ImportError
-        mock.return_value = "usage unknown"
-        display = conv.get_token_display()
-        assert display == "usage unknown"
+    with patch.dict("sys.modules", {"tiktoken": None}):
+        assert conv.get_token_display() == "usage unknown / 128,000 tokens"
+
+
+def test_get_token_display_offline_without_vocabulary() -> None:
+    conv = Conversation(model="unfamiliar", context_window=32768)
+    with patch("tiktoken.get_encoding", side_effect=OSError("unreachable")):
+        assert conv.get_token_display() == "usage unknown / 32,768 tokens"
 
 
 def test_is_near_context_limit_under() -> None:

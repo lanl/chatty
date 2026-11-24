@@ -20,6 +20,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, cast
 
 from chatty.client.openai_client import ChattyClientError
+from chatty.core.conversation import FALLBACK_CONTEXT_WINDOW
 
 if TYPE_CHECKING:
     from chatty.ui.app import ChatApp
@@ -116,41 +117,30 @@ async def fetch_context_window(app: ChatApp) -> None:
     if not app.client or not app.conversation:
         return
 
-    chat_log = app.query_one("#chat-log", ChatLog)
-
+    model = app.config.model
+    context_length = None
     try:
-        context_length = await app.client.get_model_context_length(app.config.model)
-        if context_length is not None:
-            app.conversation.set_context_window(context_length)
-            # Update status bar to reflect actual context window
-            app.query_one("#status-bar", StatusBar).update_status(
-                tokens=app.conversation.get_token_display()
-            )
-        else:
-            # Endpoint didn't provide context_length
-            chat_log.add_message(
-                "error",
-                f"⚠ context_window = 'auto' but /models endpoint did not "
-                f"return context_length for model '{app.config.model}'.\n\n"
-                "To fix, set context_window explicitly in chatty.toml:\n"
-                "  context_window = 128000  # or your model's limit\n\n"
-                "Using fallback value: 128,000 tokens",
-            )
+        context_length = await app.client.get_model_context_length(model)
+        reason = f"/models did not report a context window for '{model}'."
     except ChattyClientError as e:
-        # Endpoint not accessible
-        chat_log.add_message(
-            "error",
-            f"⚠ context_window = 'auto' but failed to fetch from endpoint:\n"
-            f"  {e}\n\n"
-            "To fix, set context_window explicitly in chatty.toml:\n"
-            "  context_window = 128000  # or your model's limit\n\n"
-            "Using fallback value: 128,000 tokens",
-        )
+        reason = f"Failed to fetch the context window for '{model}': {e}"
     except Exception as e:
-        chat_log.add_message(
+        reason = f"Failed to determine the context window for '{model}': {e}"
+
+    if model != app.config.model:
+        return
+    if context_length is None:
+        app.query_one("#chat-log", ChatLog).add_message(
             "error",
-            f"⚠ Failed to determine context window: {e}\n\nUsing fallback value: 128,000 tokens",
+            f"{reason}\nUsing a fallback of {FALLBACK_CONTEXT_WINDOW:,} tokens. "
+            "Set context_window in chatty.toml to your deployment's limit to override it.",
         )
+    else:
+        app.conversation.set_context_window(context_length)
+    app._context_window_ready.set()
+    app.query_one("#status-bar", StatusBar).update_status(
+        tokens=app.conversation.get_token_display()
+    )
 
 
 async def fetch_and_show_models(app: ChatApp) -> None:
@@ -225,21 +215,22 @@ async def send_message(app: ChatApp, *, regenerate: bool = False) -> None:  # no
     worker = app.current_worker
     history = app.conversation
     previous_reply = chat_log.last_reply if regenerate else None
-    if regenerate:
-        if previous_reply is None:
-            return
-        # Keep the saved/displayed turn intact until its replacement succeeds.
-        history = replace(history, messages=history.messages[:-2], server_reported_tokens=None)
+    if regenerate and previous_reply is None:
+        return
     original_content = previous_reply.message_content if previous_reply is not None else ""
 
-    # Show "Searching corpus..." for RAG providers (not NullProvider)
     is_rag_enabled = not isinstance(app.rag_provider, NullProvider)
-    if is_rag_enabled:
-        status_bar.update_status(status="Searching corpus...")
-    else:
-        status_bar.update_status(status="Thinking...")
-
     try:
+        if is_rag_enabled:
+            if not app._context_window_ready.is_set():
+                status_bar.update_status(status="Looking up context window...")
+                await app._context_window_ready.wait()
+            status_bar.update_status(status="Searching corpus...")
+        else:
+            status_bar.update_status(status="Thinking...")
+        if regenerate:
+            # Take the history snapshot after resolving the budget for this turn.
+            history = replace(history, messages=history.messages[:-2], server_reported_tokens=None)
         # Use RAG provider to augment messages with context
         # NullProvider passes through unchanged; LitkitProvider adds context
         try:
