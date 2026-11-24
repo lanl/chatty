@@ -405,8 +405,7 @@ def test_get_transcript_path_expands_tilde() -> None:
     config = Config(transcript_path="~/.config/chatty/transcripts")
     path = config.get_transcript_path()
 
-    assert "~" not in str(path)
-    assert str(path).startswith(str(Path.home()))
+    assert path == Path.home() / ".config" / "chatty" / "transcripts"
 
 
 def test_get_transcript_path_relative() -> None:
@@ -492,8 +491,7 @@ def test_get_copy_fallback_path_expands_tilde() -> None:
     config = Config(copy_fallback_path="~/custom/copies")
     path = config.get_copy_fallback_path()
 
-    assert "~" not in str(path)
-    assert str(path).startswith(str(Path.home()))
+    assert path == Path.home() / "custom" / "copies"
 
 
 def test_config_display_includes_copy_fallback_path() -> None:
