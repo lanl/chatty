@@ -178,7 +178,7 @@ timeout_s = 60
 ```
 
 **Key Design Decisions:**
-- Precedence: CLI > env vars > config file > defaults
+- Precedence: CLI > environment variables > TOML > local `.env` > defaults
 - Uses `pydantic-settings` for environment variable binding
 - TOML format chosen for consistency with Python ecosystem (`pyproject.toml`)
 - `api_key` and `api_key_file` contents never appear in `__repr__` or logs
@@ -187,8 +187,8 @@ timeout_s = 60
 
 | TOML Key | Env Var | Notes |
 |----------|---------|-------|
-| `base_url` | `OPENAI_BASE_URL` | OpenAI convention |
-| `api_key` | `OPENAI_API_KEY` | ⚠️ Laptop only, not for HPC |
+| `base_url` | `OPENAI_BASE_URL`, `CHATTY_BASE_URL` | First listed takes precedence |
+| `api_key` | `OPENAI_API_KEY`, `CHATTY_API_KEY` | First listed takes precedence. ⚠️ Laptop only, not for HPC |
 | `api_key_file` | `CHATTY_API_KEY_FILE` | **HPC preferred** |
 | `model` | `CHATTY_MODEL` | |
 | `ca_bundle` | `CHATTY_CA_BUNDLE` | |
@@ -198,7 +198,8 @@ timeout_s = 60
 | `temperature` | `CHATTY_TEMPERATURE` | |
 | `stream` | `CHATTY_STREAM` | |
 | `system_prompt` | `CHATTY_SYSTEM_PROMPT` | |
-| `timeout_s` | `CHATTY_TIMEOUT` | |
+| `timeout_s` | `CHATTY_TIMEOUT`, `CHATTY_TIMEOUT_S` | First listed takes precedence |
+| `rag_workspace` | `CHATTY_RAG_WORKSPACE`, `LITKIT_WORKSPACE` | First listed takes precedence |
 
 **Naming convention:**
 - OpenAI-standard names: `OPENAI_BASE_URL`, `OPENAI_API_KEY`
@@ -1047,7 +1048,7 @@ ch-run -b /secure/path/chatty-api-key:/secrets/api-key:ro \
 - `httpx>=0.25` — Async HTTP client
 - `httpx-sse>=0.4` — SSE parsing for httpx
 - `pydantic>=2.0` — Config validation
-- `pydantic-settings>=2.0` — Environment variable binding
+- `pydantic-settings>=2.12` — Environment variable binding
 - `typer>=0.9` — CLI framework
 - `rich>=13.0` — Terminal formatting (Textual dependency)
 

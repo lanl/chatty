@@ -293,8 +293,7 @@ def test_config_get_session_path_expands_tilde() -> None:
     config = Config(session_path="~/sessions")
     path = config.get_session_path()
 
-    assert "~" not in str(path)
-    assert str(path).startswith(str(Path.home()))
+    assert path == Path.home() / "sessions"
 
 
 # ============================================================================

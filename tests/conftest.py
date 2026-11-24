@@ -17,18 +17,20 @@ from chatty.config import Config
 def isolate_config(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Isolate tests from user config files.
 
-    Sets HOME and XDG_CONFIG_HOME to temp directories so tests don't pick up
-    ~/.config/chatty/config.toml or other user-specific configuration.
+    Redirects the home and config directories on POSIX and Windows so tests
+    don't pick up ~/.config/chatty/config.toml or other user settings.
 
     This fixture runs automatically for all tests.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         monkeypatch.setenv("HOME", tmpdir)
+        monkeypatch.setenv("USERPROFILE", tmpdir)
         monkeypatch.setenv("XDG_CONFIG_HOME", os.path.join(tmpdir, ".config"))
-        # Also clear any chatty-specific env vars that might interfere
-        for var in list(os.environ.keys()):
-            if var.startswith("CHATTY_") or var.startswith("OPENAI_"):
-                monkeypatch.delenv(var, raising=False)
+        # Pydantic matches these environment names case-insensitively.
+        for var in list(os.environ):
+            name = var.upper()
+            if name.startswith(("CHATTY_", "OPENAI_")) or name == "LITKIT_WORKSPACE":
+                monkeypatch.delenv(var)
         yield
 
 

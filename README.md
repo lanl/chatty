@@ -432,7 +432,8 @@ stream = true
 # System prompt (sets assistant behavior)
 system_prompt = "You are a helpful assistant."
 
-# Request timeout in seconds
+# Request timeout in seconds. CHATTY_TIMEOUT overrides TOML and takes
+# precedence over CHATTY_TIMEOUT_S when both environment variables are set.
 timeout_s = 60
 
 # =============================================================================

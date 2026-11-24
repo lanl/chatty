@@ -111,14 +111,22 @@ class TestDoctor:
 class TestPrintConfigDetailed:
     """Additional print-config tests."""
 
-    def test_print_config_with_sources(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_print_config_with_sources(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         """print-config --sources shows source attribution."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "chatty.toml").write_text("timeout_s = 30\n")
         monkeypatch.setenv("OPENAI_BASE_URL", "https://test.example.com/v1")
-        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        monkeypatch.setenv("API_KEY", "other-tools-key")
+        monkeypatch.setenv("CHATTY_TIMEOUT", "120")
 
         result = runner.invoke(app, ["print-config", "--sources"])
         assert result.exit_code == 0
-        assert "from:" in plain(result)
+        output = plain(result)
+        assert "base_url: https://test.example.com/v1 (from: env:OPENAI_BASE_URL)" in output
+        assert "api_key: (not set) (from: default)" in output
+        assert "timeout_s: 120 (from: env:CHATTY_TIMEOUT)" in output
 
 
 class TestChatCommand:

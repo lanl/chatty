@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, EnvSettingsSource, SettingsConfigDict
 
 # Windows has no POSIX group/other bits: stat() reports 0o666 for any writable file
 # whatever chmod set, so the mode check would reject every API key file there.
@@ -105,15 +105,17 @@ class Config(BaseSettings):
     """Chatty configuration with environment variable and TOML file support.
 
     Precedence (highest to lowest):
-    1. CLI flags (applied after Config instantiation)
+    1. CLI flags
     2. Environment variables
-    3. TOML config file (~/.config/chatty/config.toml)
-    4. Defaults
+    3. TOML config file
+    4. Local .env file
+    5. Defaults
     """
 
     model_config = SettingsConfigDict(
         env_prefix="CHATTY_",
         env_file=".env",
+        populate_by_name=True,
         extra="ignore",
     )
 
@@ -121,7 +123,7 @@ class Config(BaseSettings):
     # Accepts: OPENAI_BASE_URL, CHATTY_BASE_URL, or base_url in TOML
     base_url: str = Field(
         default="",
-        validation_alias=AliasChoices("OPENAI_BASE_URL", "CHATTY_BASE_URL", "base_url"),
+        validation_alias=AliasChoices("OPENAI_BASE_URL", "CHATTY_BASE_URL"),
     )
     model: str = "gpt-4.1"
 
@@ -129,7 +131,7 @@ class Config(BaseSettings):
     # Accepts: OPENAI_API_KEY, CHATTY_API_KEY, or api_key in TOML
     api_key: SecretStr | None = Field(
         default=None,
-        validation_alias=AliasChoices("OPENAI_API_KEY", "CHATTY_API_KEY", "api_key"),
+        validation_alias=AliasChoices("OPENAI_API_KEY", "CHATTY_API_KEY"),
     )
     api_key_file: Path | None = None
 
@@ -152,7 +154,9 @@ class Config(BaseSettings):
     temperature: float = 0.2
     stream: bool = True
     system_prompt: str = "You are a helpful assistant."
-    timeout_s: int = 60
+    timeout_s: int = Field(
+        default=60, validation_alias=AliasChoices("CHATTY_TIMEOUT", "CHATTY_TIMEOUT_S")
+    )
 
     @field_validator("context_window")
     @classmethod
@@ -202,7 +206,7 @@ class Config(BaseSettings):
     # RAG Settings (v0.4+)
     rag_workspace: str | None = Field(
         default=DEFAULT_RAG_WORKSPACE,
-        validation_alias=AliasChoices("CHATTY_RAG_WORKSPACE", "LITKIT_WORKSPACE", "rag_workspace"),
+        validation_alias=AliasChoices("CHATTY_RAG_WORKSPACE", "LITKIT_WORKSPACE"),
     )
     rag_top_papers: int = 500  # Stage 1: papers to shortlist
     rag_top_chunks: int = 30  # Stage 2: chunks for LLM context
@@ -355,71 +359,6 @@ class ConfigWithSources:
     sources: dict[str, str] = field(default_factory=dict)
 
 
-# Config field names for iteration (derived from Config class fields)
-_CONFIG_FIELDS = [
-    "base_url",
-    "model",
-    "api_key",
-    "api_key_file",
-    "ca_bundle",
-    "verify_tls",
-    "http_proxy",
-    "context_window",
-    "temperature",
-    "stream",
-    "system_prompt",
-    "timeout_s",
-    "show_timestamps",
-    "transcript_enabled",
-    "transcript_path",
-    "rag_provider",
-    "rag_workspace",
-    "rag_top_papers",
-    "rag_top_chunks",
-    "rag_rewrite_enabled",
-    "rag_expand_synonyms",
-    "rag_rerank",
-    "rag_rerank_top_n",
-    "rag_multi_query",
-    "rag_multi_query_count",
-    "session_path",
-    "copy_fallback_path",
-    "export_path",
-]
-
-# Map env var names to config keys for source attribution
-_ENV_MAPPINGS = {
-    "base_url": ["OPENAI_BASE_URL", "CHATTY_BASE_URL"],
-    "api_key": ["OPENAI_API_KEY", "CHATTY_API_KEY"],
-    "api_key_file": ["CHATTY_API_KEY_FILE"],
-    "model": ["CHATTY_MODEL"],
-    "ca_bundle": ["CHATTY_CA_BUNDLE"],
-    "verify_tls": ["CHATTY_VERIFY_TLS"],
-    "http_proxy": ["CHATTY_HTTP_PROXY"],
-    "context_window": ["CHATTY_CONTEXT_WINDOW"],
-    "temperature": ["CHATTY_TEMPERATURE"],
-    "stream": ["CHATTY_STREAM"],
-    "system_prompt": ["CHATTY_SYSTEM_PROMPT"],
-    "timeout_s": ["CHATTY_TIMEOUT", "CHATTY_TIMEOUT_S"],
-    "show_timestamps": ["CHATTY_SHOW_TIMESTAMPS"],
-    "transcript_enabled": ["CHATTY_TRANSCRIPT_ENABLED"],
-    "transcript_path": ["CHATTY_TRANSCRIPT_PATH"],
-    "rag_provider": ["CHATTY_RAG_PROVIDER"],
-    "rag_workspace": ["CHATTY_RAG_WORKSPACE", "LITKIT_WORKSPACE"],
-    "rag_top_papers": ["CHATTY_RAG_TOP_PAPERS"],
-    "rag_top_chunks": ["CHATTY_RAG_TOP_CHUNKS"],
-    "rag_rewrite_enabled": ["CHATTY_RAG_REWRITE_ENABLED"],
-    "rag_expand_synonyms": ["CHATTY_RAG_EXPAND_SYNONYMS"],
-    "rag_rerank": ["CHATTY_RAG_RERANK"],
-    "rag_rerank_top_n": ["CHATTY_RAG_RERANK_TOP_N"],
-    "rag_multi_query": ["CHATTY_RAG_MULTI_QUERY"],
-    "rag_multi_query_count": ["CHATTY_RAG_MULTI_QUERY_COUNT"],
-    "session_path": ["CHATTY_SESSION_PATH"],
-    "copy_fallback_path": ["CHATTY_COPY_FALLBACK_PATH"],
-    "export_path": ["CHATTY_EXPORT_PATH"],
-}
-
-
 def load_config(
     *,
     cli_overrides: dict[str, Any] | None = None,
@@ -435,60 +374,37 @@ def load_config(
     1. cli_overrides (passed from CLI flags)
     2. Environment variables
     3. TOML config file
-    4. Defaults (defined in Config class)
+    4. Local .env file
+    5. Defaults (defined in Config class)
 
     Returns:
         ConfigWithSources with the resolved config and source attribution.
     """
-    sources: dict[str, str] = {}
     toml_config, toml_source = load_toml_config()
     cli_overrides = cli_overrides or {}
+    env = EnvSettingsSource(Config)
+    values: dict[str, Any] = {}
+    sources: dict[str, str] = {}
 
-    # Determine source for each config value
-    for key in _CONFIG_FIELDS:
-        # Check CLI first
-        if key in cli_overrides:
-            sources[key] = "cli"
+    for name, field_info in Config.model_fields.items():
+        if cli_overrides.get(name) is not None:
+            values[name] = cli_overrides[name]
+            sources[name] = "cli"
             continue
 
-        # Check environment variables
-        env_found = False
-        for env_var in _ENV_MAPPINGS.get(key, []):
-            if os.environ.get(env_var):
-                sources[key] = f"env:{env_var}"
-                env_found = True
-                break
-
-        if env_found:
-            continue
-
-        # Check TOML config
-        if key in toml_config:
-            sources[key] = toml_source or "config.toml"
-            continue
-
-        # Use default (from Config class)
-        sources[key] = "default"
-
-    # Build final config values, respecting precedence:
-    # CLI > env vars > TOML > defaults
-    final_values: dict[str, Any] = {}
-
-    # Only apply TOML values if no env var is set for that key
-    for key, value in toml_config.items():
-        source = sources.get(key, "")
-        if key in _CONFIG_FIELDS and source == toml_source:
-            final_values[key] = value
-
-    # Apply CLI overrides (highest precedence)
-    for key, value in cli_overrides.items():
+        # Ask the settings source which alias matched, including empty values.
+        value, key, _ = env.get_field_value(field_info, name)
         if value is not None:
-            final_values[key] = value
+            env_name = key if key != name else f"{env.env_prefix}{name}".upper()
+            sources[name] = f"env:{env_name}"
+        elif name in toml_config:
+            values[name] = toml_config[name]
+            sources[name] = toml_source
 
-    # Create config - pydantic-settings will read env vars automatically
-    # We only pass values that aren't from env vars
-    config = Config(**final_values)
-
+    config = Config(**values)
+    for name in Config.model_fields:
+        if name not in sources:
+            sources[name] = ".env" if name in config.model_fields_set else "default"
     return ConfigWithSources(config=config, sources=sources)
 
 
