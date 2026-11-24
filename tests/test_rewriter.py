@@ -575,6 +575,13 @@ class TestModeClassification:
             "What is the risk in taking aspirin daily?",
             "What about side effects for aspirin?",
             "Explain min-max normalization to [0, 1].",
+            "Explain min-max normalization to [1, 2].",
+            "Explain label encoding with class IDs [1, 2, 3].",
+            "Describe photosynthesis. How does it work?",
+            "Explain insulin: when is it prescribed?",
+            "Tell me about Mars and the moons that orbit it.",
+            "Moving on to a new topic: explain the lunar-cycle result in [1] below.",
+            "Now switching topics: explain the lunar-cycle result in [1] below.",
         ],
     )
     def test_detects_new_topic_mode(self, query: str) -> None:
@@ -605,6 +612,11 @@ class TestModeClassification:
             "Can you elaborate on that?",
             "What about side effects for children?",
             "What about side effects at higher doses?",
+            "What causes it in adults?",
+            "What limits its accuracy?",
+            "What about side effects for children under 12?",
+            "What about side effects in nursing mothers?",
+            "What are the symptoms and how is it diagnosed?",
         ],
     )
     def test_detects_followup_mode(self, query: str) -> None:

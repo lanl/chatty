@@ -24,6 +24,7 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from chatty.core.citations import CITATION_GROUP, cited_members, cited_turns
 from chatty.core.conversation import CONVERSATION_SUMMARY_PREFIX, Conversation
 
 if TYPE_CHECKING:
@@ -73,26 +74,28 @@ FOLLOWUP_PATTERNS = [
     r"why|how|when|if|about|of|for|with|to|between|compare|explain|describe|summarize)\s+)"
     r"(?:it|its|they|their|that)\b",
     r"\b(?:it|that)[?!.]*$",
+    r"^(?:what|who)\s+\w+\s+(?:it|its|them|their|that)\b",
     r"\b(the same|you (?:said|mentioned)|(?:as|previously) mentioned|mentioned above)\b",
     r"\b(?:the|your|our) (?:previous|earlier|above)\b",
     r"^(?:why(?: not)?|how(?: so)?|tell me more|(?:(?:can|could) you |please )?elaborate|"
     r"any (?:other|more) examples)[?!.]*$",
     r"^(?:compared (?:to|with)|versus|vs\.?)\s+",  # Missing first side of comparison
     # A question about an aspect of the previous subject, without naming a new one.
-    r"^(?:(?:what about|how about|and|what are|what is)\s+)?(?:the\s+)?"
+    r"^(?:(?:what about|how about|and|what are|what is|are there any|is there any)\s+)?(?:the\s+)?"
     r"(?:(?:long[- ]term|short[- ]term|potential|common|other)\s+)?"
-    r"(?:side effects?|risks?|benefits?|limitations?|alternatives?|dosage|efficacy|safety)"
-    r"(?:\s+(?:in|among|during|at)\s+(?!\w+ing\b).+|"
-    r"\s+for\s+(?:(?:younger|older|pregnant)\s+)?(?:children|adults|patients|women|men))?[?!.]*$",
+    r"(?:side effects?|risks?|benefits?|limitations?|alternatives?|symptoms?|dosage|efficacy|safety)"
+    r"(?:\s+(?:in|for|among)\s+(?:(?:younger|older|pregnant|nursing)\s+)?"
+    r"(?:children|adults|patients|mothers|women|men)\b.*|\s+(?:at|during)\s+.+)?[?!.]*$",
     r"^(?:what about|how about|and)\s+(?:in|among|during|without)\s+",
 ]
 
 # Reference patterns - questions about specific papers/sources
-_CITATION_INDEX = r"[1-9][0-9]*"
-_CITATION = rf"(?:{_CITATION_INDEX}\.)?{_CITATION_INDEX}"
-_CITATION_GROUP = re.compile(rf"\[({_CITATION}(?:\s*,\s*{_CITATION})*)\]")
 REFERENCE_PATTERNS = [
-    _CITATION_GROUP.pattern,
+    # Bracketed numbers also denote intervals and data. Look for a source
+    # reference or a direct request about the bracketed item.
+    r"(?:^(?:in\s+)?|\b(?:summarize|explain|compare|see|cite|sources?|papers?|references?|"
+    r"according to|what about|elaborate on|(?:what|how) (?:do|does|did)|"
+    r"(?:findings?|methods?|results?) (?:in|of|from))\s+)" + CITATION_GROUP.pattern,
     # "paper 1", "source 2", "citation #3"
     r"\b(paper|source|article|citation|reference)\s*" r"(\d+|#?\d+|one|two|three|four|five)\b",
     # "first paper", "second source"
@@ -107,20 +110,11 @@ REFERENCE_PATTERNS = [
 
 # New topic indicators
 NEW_TOPIC_PATTERNS = [
-    r"^(?:(?:now[,\s]+)?let['’]?s\s+)?(?:chang(?:e|ing)|switch(?:ing)?)\s+(?:the\s+)?(?:topics?|subjects?)\b",
+    r"^(?:now[,\s]+)?(?:let['’]?s\s+)?(?:chang(?:e|ing)|switch(?:ing)?)\s+(?:the\s+)?(?:topics?|subjects?)\b",
+    r"^moving on to (?:a |the )?(?:new|different|next) (?:topic|subject)\b",
     r"^different question\b",
     r"^(unrelated|new topic|separate question)\b",
 ]
-
-
-def cited_turns(query: str) -> set[str]:
-    """Return explicit turn numbers from citations such as [1.2, 3.1]."""
-    return {
-        member.strip().split(".")[0]
-        for group in _CITATION_GROUP.findall(query)
-        for member in group.split(",")
-        if "." in member
-    }
 
 
 # Rewrite prompt template - improved for better domain term handling
@@ -288,14 +282,12 @@ class QueryRewriter:
         if re.match(r"^moving on\b", query, re.IGNORECASE):
             return MODE_NEW_TOPIC
 
-        # In "Describe photosynthesis and how it works", the second clause
-        # refers to the subject introduced in the first.
-        query = re.split(
-            r"\s+and\s+(?=(?:how|why|when|where|whether|its|their)\b)",
-            query,
-            maxsplit=1,
-            flags=re.IGNORECASE,
-        )[0]
+        # In a request introducing a subject, resolve the first clause before
+        # considering pronouns that refer back to it within the same question.
+        if re.match(
+            r"^(?:describe|explain|tell me about|what (?:is|are)|how (?:do|does))\s", query, re.I
+        ):
+            query = re.split(r"[.!?:;]\s+|\s+and\s+", query, maxsplit=1, flags=re.I)[0]
         if self._has_followup_patterns(query):
             return MODE_FOLLOWUP
 
@@ -450,44 +442,61 @@ class QueryRewriter:
         Returns:
             Formatted conversation summary.
         """
-        if conversation is None or not conversation.messages:
+        if conversation is None or not conversation.messages or max_exchanges <= 0:
             return "(no prior conversation)"
 
         messages = conversation.messages
         limit = max_exchanges * 2
         turns = cited_turns(query)
         if turns:
-            # Reserve space for the cited exchanges before filling from recent history.
-            cited: set[int] = set()
+            # Include cited replies first, then their questions, then recent history.
+            replies = []
+            questions = []
             for i, message in enumerate(messages):
-                if message.role == "assistant" and str(message.citation_turn) in turns:
-                    cited.add(i)
+                if message.role == "assistant" and message.citation_turn in turns:
+                    replies.append(i)
                     if i and messages[i - 1].role == "user":
-                        cited.add(i - 1)
+                        questions.append(i - 1)
                 elif message.role == "system" and message.content.startswith(
                     CONVERSATION_SUMMARY_PREFIX
                 ):
-                    if turns & cited_turns(message.content):
-                        cited.add(i)
-            indices = sorted(cited, reverse=True)
+                    if min(turns) <= (message.citation_turn or 0) or turns & cited_turns(
+                        message.content
+                    ):
+                        replies.append(i)
             recent_start = max(0, len(messages) - limit)
-            indices.extend(
-                i for i in reversed(range(recent_start, len(messages))) if i not in cited
+            priority = dict.fromkeys(
+                [*replies, *reversed(questions), *reversed(range(recent_start, len(messages)))]
             )
-            recent = [messages[i] for i in sorted(indices[:limit])]
+            slots = max(limit, len(replies))
+            recent = [messages[i] for i in sorted(list(priority)[:slots])]
         else:
             recent = messages[-limit:]
 
         lines = []
+        requested = cited_members(query) if turns else set()
+        excerpt_length = min(500, limit * 500 // len(recent))
         for msg in recent:
             role = msg.role.capitalize()
-            # Truncate long messages
-            content = msg.content
-            if len(content) > 500:
-                content = content[:500] + "..."
+            content = self._history_excerpt(msg.content, requested, excerpt_length)
             lines.append(f"{role}: {content}")
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _history_excerpt(content: str, requested: set[str], length: int) -> str:
+        """Keep the cited passage when clipping a long reply or summary."""
+        if len(content) <= length:
+            return content
+        start = 0
+        if requested:
+            for match in CITATION_GROUP.finditer(content):
+                if requested.intersection(m.strip() for m in match[1].split(",")):
+                    if match.end() > length:
+                        start = max(0, min(match.start() - length // 2, len(content) - length))
+                    break
+        end = start + length
+        return ("..." if start else "") + content[start:end] + ("..." if end < len(content) else "")
 
     async def generate_query_variants(
         self,

@@ -14,9 +14,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from chatty.client.openai_client import Message
+from chatty.core.citations import cited_turns
 from chatty.core.conversation import Conversation
 from chatty.rag.provider import RAGMetadata, RAGSource
-from chatty.rag.rewriter import MODE_NEW_TOPIC, MODE_REFERENCE, QueryRewriter, cited_turns
+from chatty.rag.rewriter import MODE_NEW_TOPIC, MODE_REFERENCE, QueryRewriter
 
 if TYPE_CHECKING:
     from chatty.client.openai_client import OpenAIClient
@@ -881,7 +882,8 @@ class LitkitProvider:
         # Only the most recent shortlist is cached. References spanning other
         # turns need the full corpus even though their rewrite needs history.
         if query_mode == MODE_NEW_TOPIC or (
-            query_mode == MODE_REFERENCE and cited_turns(user_text) - {str(self._shortlist_turn)}
+            query_mode == MODE_REFERENCE
+            and (self._shortlist_turn is None or cited_turns(user_text) - {self._shortlist_turn})
         ):
             self.reset()
         reuse_paper_ids = self._last_paper_ids
@@ -907,7 +909,7 @@ class LitkitProvider:
 
         retrieval_time_s = time.monotonic() - start_time
 
-        if paper_ids and paper_ids != self._last_paper_ids:
+        if paper_ids and set(paper_ids) != set(self._last_paper_ids or ()):
             self._last_paper_ids = paper_ids
             self._shortlist_turn = None
 
