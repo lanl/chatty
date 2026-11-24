@@ -5,8 +5,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from pydantic import SecretStr, ValidationError
 
 from chatty.config import (
+    DEFAULT_RAG_WORKSPACE,
     Config,
     ConfigWithSources,
     find_config_path,
@@ -46,6 +48,128 @@ def test_openai_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
     assert config.base_url == "https://api.openai.com/v1"
     assert config.api_key is not None
     assert config.api_key.get_secret_value() == "sk-test-key"
+
+
+@pytest.mark.parametrize("source", ["environment", ".env"])
+def test_generic_variables_do_not_configure_chatty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source: str
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("LITKIT_WORKSPACE", raising=False)
+    unrelated = {
+        "API_KEY": "another-tools-key",
+        "BASE_URL": "https://other.example/v1",
+        "RAG_WORKSPACE": "other-workspace",
+    }
+    if source == "environment":
+        for name, value in unrelated.items():
+            monkeypatch.setenv(name, value)
+    else:
+        (tmp_path / ".env").write_text("\n".join(f"{k}={v}" for k, v in unrelated.items()))
+
+    result = load_config()
+    for config in (result.config, Config()):
+        assert config.api_key is None
+        assert config.base_url == ""
+        assert config.rag_workspace == DEFAULT_RAG_WORKSPACE
+    assert all(result.sources[key.lower()] == "default" for key in unrelated)
+
+
+@pytest.mark.parametrize(
+    ("variable", "field", "expected"),
+    [
+        ("OPENAI_BASE_URL", "base_url", "https://example.test/v1"),
+        ("CHATTY_BASE_URL", "base_url", "https://example.test/v1"),
+        ("OPENAI_API_KEY", "api_key", SecretStr("test-key")),
+        ("CHATTY_API_KEY", "api_key", SecretStr("test-key")),
+        ("CHATTY_API_KEY_FILE", "api_key_file", Path("keyfile")),
+        ("CHATTY_MODEL", "model", "custom-model"),
+        ("CHATTY_CA_BUNDLE", "ca_bundle", "custom.pem"),
+        ("CHATTY_VERIFY_TLS", "verify_tls", False),
+        ("CHATTY_HTTP_PROXY", "http_proxy", "http://proxy.test"),
+        ("CHATTY_CONTEXT_WINDOW", "context_window", 8192),
+        ("CHATTY_TEMPERATURE", "temperature", 0.75),
+        ("CHATTY_STREAM", "stream", False),
+        ("CHATTY_SYSTEM_PROMPT", "system_prompt", "custom prompt"),
+        ("CHATTY_TIMEOUT", "timeout_s", 120),
+        ("CHATTY_TIMEOUT_S", "timeout_s", 90),
+        ("CHATTY_SHOW_TIMESTAMPS", "show_timestamps", True),
+        ("CHATTY_TRANSCRIPT_ENABLED", "transcript_enabled", True),
+        ("CHATTY_TRANSCRIPT_PATH", "transcript_path", "logs"),
+        ("CHATTY_RAG_PROVIDER", "rag_provider", "litkit"),
+        ("CHATTY_RAG_WORKSPACE", "rag_workspace", "workspace"),
+        ("LITKIT_WORKSPACE", "rag_workspace", "workspace"),
+        ("CHATTY_RAG_TOP_PAPERS", "rag_top_papers", 50),
+        ("CHATTY_RAG_TOP_CHUNKS", "rag_top_chunks", 12),
+        ("CHATTY_RAG_REWRITE_ENABLED", "rag_rewrite_enabled", False),
+        ("CHATTY_RAG_EXPAND_SYNONYMS", "rag_expand_synonyms", False),
+        ("CHATTY_RAG_RERANK", "rag_rerank", True),
+        ("CHATTY_RAG_RERANK_TOP_N", "rag_rerank_top_n", 6),
+        ("CHATTY_RAG_MULTI_QUERY", "rag_multi_query", True),
+        ("CHATTY_RAG_MULTI_QUERY_COUNT", "rag_multi_query_count", 7),
+        ("CHATTY_SESSION_PATH", "session_path", "history"),
+        ("CHATTY_COPY_FALLBACK_PATH", "copy_fallback_path", "clipboard"),
+        ("CHATTY_EXPORT_PATH", "export_path", "markdown"),
+    ],
+)
+def test_env_setting_value_and_source(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, variable: str, field: str, expected: object
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    raw = expected.get_secret_value() if isinstance(expected, SecretStr) else str(expected)
+    monkeypatch.setenv(variable, raw)
+    result = load_config()
+    assert getattr(result.config, field) == expected
+    assert result.sources[field] == f"env:{variable}"
+
+
+def test_timeout_alias_precedence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "chatty.toml").write_text("timeout_s = 30\n")
+    monkeypatch.setenv("CHATTY_TIMEOUT_S", "90")
+    monkeypatch.setenv("CHATTY_TIMEOUT", "120")
+
+    result = load_config()
+    assert result.config.timeout_s == 120
+    assert result.sources["timeout_s"] == "env:CHATTY_TIMEOUT"
+    assert Config().timeout_s == 120
+    result = load_config(cli_overrides={"timeout_s": 45})
+    assert result.config.timeout_s == 45
+    assert result.sources["timeout_s"] == "cli"
+
+    monkeypatch.setenv("CHATTY_TIMEOUT", "0")
+    with pytest.raises(ValidationError, match="timeout_s must be positive"):
+        load_config()
+
+
+def test_aliased_setting_across_sources(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("OPENAI_BASE_URL=https://dotenv.example/v1\n")
+    result = load_config()
+    assert (result.config.base_url, result.sources["base_url"]) == (
+        "https://dotenv.example/v1",
+        ".env",
+    )
+
+    (tmp_path / "chatty.toml").write_text('base_url = "https://toml.example/v1"\n')
+    result = load_config()
+    assert (result.config.base_url, result.sources["base_url"]) == (
+        "https://toml.example/v1",
+        "chatty.toml",
+    )
+
+    monkeypatch.setenv("chatty_base_url", "https://env.example/v1")
+    result = load_config()
+    assert (result.config.base_url, result.sources["base_url"]) == (
+        "https://env.example/v1",
+        "env:CHATTY_BASE_URL",
+    )
+    monkeypatch.setenv("OPENAI_BASE_URL", "")
+    result = load_config()
+    assert (result.config.base_url, result.sources["base_url"]) == ("", "env:OPENAI_BASE_URL")
+
+    result = load_config(cli_overrides={"base_url": "https://cli.example/v1"})
+    assert (result.config.base_url, result.sources["base_url"]) == ("https://cli.example/v1", "cli")
 
 
 def test_load_config_returns_config_with_sources() -> None:
