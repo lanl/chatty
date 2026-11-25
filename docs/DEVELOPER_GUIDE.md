@@ -391,70 +391,33 @@ chatty/
 
 ## Offline Install (Air-Gapped HPC)
 
-For air-gapped systems where `uv sync` cannot reach PyPI:
-
-### Prerequisites for Building
-
-The build script requires both **uv** and **pip**:
-
-- **uv** — For generating `requirements.lock` from `uv.lock`
-- **pip** — For downloading wheels (uv does not yet have a `download` command)
+Build the base Chatty bundle on a connected machine with the same OS and
+architecture as the target. Both machines need uv and the same Python minor
+version. The builder defaults to Python 3.12. Set `UV_PYTHON=3.13` when
+building for Python 3.13.
 
 ```bash
-# Verify prerequisites
-uv --version    # Must be installed
-pip --version   # Must be installed (system pip or pipx)
-```
-
-> **Note:** The install script (run on the air-gapped machine) uses only uv — pip is not required there.
-
-### On Connected Machine (Build Wheelhouse)
-
-```bash
-# Build wheelhouse with all dependencies
-# (automatically generates requirements.lock if not present)
 ./scripts/build-wheelhouse.sh
 ```
 
-This creates `wheelhouse/` containing all wheel files.
+Each build exports the runtime dependencies from `uv.lock`, downloads binary
+wheels, and builds the Chatty wheel from the checkout. Each generation contains a
+`requirements.lock` that pins every wheel by version and hash. The builder
+updates `wheelhouse/current` when the new generation is ready. You can remove
+older bundle directories once their installs finish.
+The optional LitKit and RAG extras are outside this bundle.
 
-### Transfer to Air-Gapped Machine
-
-Transfer the following to the target machine:
-- `wheelhouse/` directory (all .whl files)
-- `requirements.lock` file
-- `scripts/` directory
-- `src/` directory
-- `pyproject.toml`
-
-You can use any transfer method: USB drive, `scp`, shared filesystem, etc.
-
-### On Air-Gapped Machine (Install)
+Transfer the entire `wheelhouse/` directory and `scripts/install-offline.sh`, keeping those paths
+under the same parent directory. On the target run:
 
 ```bash
-# Install from local wheelhouse (no network required)
 ./scripts/install-offline.sh
+.venv/bin/chatty --help
+.venv/bin/chatty doctor
 ```
 
-This will:
-1. Create a virtual environment if needed
-2. Install all packages from the local wheelhouse
-3. Install chatty itself
-
-### Verify Installation
-
-```bash
-source .venv/bin/activate
-chatty --help
-chatty doctor  # Check configuration
-```
-
-### Notes
-
-- The wheelhouse is platform-specific (macOS wheels won't work on Linux)
-- If targeting a different platform, build the wheelhouse on that platform type
-- `requirements.lock` is generated from `uv.lock` and includes exact hashes
-- Some packages may download as source tarballs if no wheel exists for your platform
+The installer creates or reuses `.venv` under that parent directory. It reads
+packages exclusively from the transferred bundle.
 
 ---
 

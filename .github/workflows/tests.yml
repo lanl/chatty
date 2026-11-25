@@ -59,6 +59,10 @@ jobs:
           assert sys.version_info[:2] == (3, 12), sys.version
           PY
 
+      - name: Install the transferred offline bundle
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        run: bash ci/check_offline_install.sh
+
       - name: Install
         run: uv sync --dev --locked
 
