@@ -163,6 +163,12 @@ def fixture_probe(runtime: Path, mode: str, work: Path, env: dict[str, str]) -> 
     ).strip()
 
 
+def check_passage(work: Path, env: dict[str, str], title: str, passage: str) -> None:
+    output = fresh_shell('chatty retrieve "How much rain did the copper gauge collect?"', work, env)
+    assert re.search(re.escape(title) + r" \[chunk \d+\]\s+" + re.escape(passage), output), output
+    print(output, flush=True)
+
+
 def build_prior_fixture(
     user_home: Path, quickstart: Path, work: Path, original: Path, offline: dict[str, str]
 ) -> tuple[str, str, dict[Path, str]]:
@@ -185,6 +191,7 @@ def build_prior_fixture(
     )
 
     title, passage = fixture_probe(original, "create", work, offline).splitlines()
+    check_passage(work, offline, title, passage)
     (session_file,) = (work / "saved sessions").glob("*.json")
     paths = (
         corpus,
@@ -237,8 +244,7 @@ def exercise_upgrade(
         env=fresh_env,
         check=True,
     )
-    # Old Chatty has no model setup command. Reuse only the real models, and
-    # build an independent corpus/index with the prior release's installed CLIs.
+    # Reuse the downloaded models and build an independent index with the prior suite.
     previous_versions = install_baseline(baseline, target, cwd, env)
     original = active_runtime()
     assert (
@@ -291,11 +297,7 @@ def exercise_upgrade(
     ]
     assert suite_paths == [active / "commands"], suite_paths
     check_preserved()
-    output = fresh_shell(
-        'chatty retrieve "How much rain did the copper gauge collect?"', work, offline
-    )
-    assert re.search(re.escape(title) + r" \[chunk \d+\]\s+" + re.escape(passage), output), output
-    print(output, flush=True)
+    check_passage(work, offline, title, passage)
     fixture_probe(active, "read", work, offline)
     print(fixture_probe(active, "ivfpq", work, offline), flush=True)
 

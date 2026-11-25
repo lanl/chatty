@@ -55,9 +55,6 @@ def probe(mode: str) -> None:
             [Message(role="user", content=QUERY)],
         )
         save_session(session, sessions)
-        # The 0.4.5 wheel has the real provider, but no standalone retrieve command.
-        chunks, _ = LitkitProvider(workspace)._retrieve_chunks(QUERY)
-        assert any(c.paper_title == TITLE and PASSAGE in c.text for c in chunks), chunks
         print(TITLE, PASSAGE, sep="\n")
     elif mode == "read":
         (file,) = sessions.glob("*.json")
