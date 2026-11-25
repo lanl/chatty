@@ -29,10 +29,13 @@ user account and internet access are sufficient.
 
 Open a fresh terminal (on Windows, close all Windows Terminal windows first).
 From any directory, run `chatty --version`, `text-fetch --version`, and `litkit --version`.
-
-The [laptop quickstart](docs/laptop-quickstart.md) walks through a native JATS article,
-the two embedding models, and a local retrieval check before configuring an LLM.
 The 2026.11.2 installer above supplies Chatty 0.4.6, text-fetch 0.3.3 and LitKit 0.3.35.
+
+Your first paper search needs no API key. Download the two public embedding models
+once, then use LitKit to index the bundled sample article on your laptop.
+`chatty retrieve` searches that index locally and prints matching passages from
+the article. To generate an answer with `chatty chat`, configure an LLM endpoint
+and API key. Follow the [laptop quickstart](docs/laptop-quickstart.md) for the commands.
 
 **Reinstall or upgrade.** Rerun the same command to check the installed suite. To
 upgrade, run the command documented for the newer release. The installer switches
