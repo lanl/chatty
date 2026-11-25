@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.7] - 2026-11-25
+
+### Changed
+
+- Multi-query paper searches reuse the LitKit models and indexes across query variants.
+- Server-requested retry delays longer than 60 seconds now return an error immediately.
+
+### Fixed
+
+- Paper searches use the selected model's reported context window, including on the first query and after a model switch. A question that changes the subject starts a fresh paper search.
+- Switching or reopening sessions preserves conversation history and citation numbering. Regenerating an answer keeps citations consistent.
+- The chat UI preserves literal text in messages, search results, citations, and dialogs.
+- Chatty honors the documented configuration aliases and reports where settings came from.
+- The air-gapped wheelhouse includes base Chatty and its hash-locked dependencies.
+
 ## [0.4.5] - 2026-01-24
 
 ### Added

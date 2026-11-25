@@ -17,19 +17,19 @@ user account and internet access are sufficient.
 
 <!-- install-macos-arm64 -->
 ```bash
-(installer=$(curl -fsSL https://raw.githubusercontent.com/lanl/chatty/8a8075d1431da0581e4f9e6e11dfc8a70da17f44/release/install.sh) && /bin/sh -c "$installer")
+(installer=$(curl -fsSL https://raw.githubusercontent.com/lanl/chatty/76ede2768754afce4f81d59a2b1e23ec09fdddf5/release/install.sh) && /bin/sh -c "$installer")
 ```
 
 **Windows x64** (64-bit Windows PowerShell 5.1 or PowerShell 7)
 
 <!-- install-windows-x64 -->
 ```powershell
-& ([scriptblock]::Create((Invoke-RestMethod -ErrorAction Stop https://raw.githubusercontent.com/lanl/chatty/8a8075d1431da0581e4f9e6e11dfc8a70da17f44/release/install.ps1)))
+& ([scriptblock]::Create((Invoke-RestMethod -ErrorAction Stop https://raw.githubusercontent.com/lanl/chatty/76ede2768754afce4f81d59a2b1e23ec09fdddf5/release/install.ps1)))
 ```
 
 Open a fresh terminal (on Windows, close all Windows Terminal windows first).
 From any directory, run `chatty --version`, `text-fetch --version`, and `litkit --version`.
-The 2026.11.2 installer above supplies Chatty 0.4.6, text-fetch 0.3.3 and LitKit 0.3.35.
+The 2026.11.3 installer above supplies Chatty 0.4.7, text-fetch 0.3.3 and LitKit 0.3.35.
 
 Your first paper search needs no API key. Download the two public embedding models
 once, then use LitKit to index the bundled sample article on your laptop.
@@ -51,7 +51,7 @@ sessions in `./sessions` by default. To share sessions across working directorie
 set `session_path = "~/.config/chatty/sessions"` in that config. These locations
 are independent of the installed runtime.
 
-The [laptop-2026.11.2 manifest](https://github.com/lanl/chatty/releases/download/laptop-2026.11.2/manifest.json)
+The [laptop-2026.11.3 manifest](https://github.com/lanl/chatty/releases/download/laptop-2026.11.3/manifest.json)
 records the source revisions and wheel hashes. See the [maintainer release guide](release/README.md)
 to reproduce the suite.
 
