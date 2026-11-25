@@ -176,12 +176,18 @@ class TestLitkitProviderRetrieve:
         (package / "db.py").write_text("def connect_db(path): return None\n")
         (package / "cli.py").write_text(
             dedent(f"""
-                def deps(): pass
+                from types import SimpleNamespace
 
-                def shortlist_papers(query, k):
+                def get_runtime(): pass
+
+                def deps():
+                    return SimpleNamespace(make_paper_embedder=lambda: (object(), {{}}),
+                                           make_chunk_embedder=lambda: (object(), {{}}))
+
+                def shortlist_papers(query, k, *, embedder):
                     return [100, 200]
 
-                def search_chunks_constrained(query, paper_ids, k):
+                def search_chunks_constrained(query, paper_ids, k, *, embedder):
                     return [20, 10], {settings!r}
 
                 def get_chunks(conn, ids):
@@ -267,10 +273,10 @@ class TestLitkitProviderRetrieve:
             provider = LitkitProvider(workspace=valid_workspace)
             provider._retrieve_chunks("test query", reuse_paper_ids=[1, 2, 3])
 
-            # Check that paper_ids were passed as JSON in subprocess args
-            call_args = mock_run.call_args[0][0]
-            # Last argument should be JSON-encoded paper_ids
-            assert json.loads(call_args[-1]) == [1, 2, 3]
+            assert json.loads(mock_run.call_args.kwargs["input"]) == {
+                "queries": ["test query"],
+                "paper_ids": [1, 2, 3],
+            }
 
 
 class TestLitkitProviderTokenBudget:
@@ -1179,7 +1185,7 @@ class TestLitkitProviderMultiQuery:
         prompt = client.chat.await_args_list[0].args[0][0].content
         assert query in prompt
         assert "lunar eclipses" not in prompt
-        assert retrieve.call_args_list == [call(query, None), call("optical instruments", None)]
+        retrieve.assert_called_once_with(query, None, variants=["optical instruments"])
 
     @pytest.mark.asyncio
     async def test_followup_uses_compressed_history_for_rewrite_and_variants(
@@ -1267,59 +1273,77 @@ class TestLitkitProviderMultiQuery:
             for source in sources[:4]:
                 assert source in request.args[0][0].content
 
-    @pytest.mark.asyncio
-    async def test_multi_query_retrieve_generates_variants(self, provider: Any) -> None:
-        """_multi_query_retrieve generates variants and retrieves for each."""
+    @pytest.mark.parametrize("reuse", [None, [300]])
+    async def test_multi_query_reuses_resources_and_merges_by_rank(
+        self,
+        provider: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        reuse: list[int] | None,
+    ) -> None:
+        """Cross the worker boundary and count real per-process setup calls."""
         from chatty.client.openai_client import AssistantMessage, OpenAIClient
-        from chatty.rag.litkit_provider import RetrievedChunk
 
-        conversation = Conversation(model="gpt-4")
-        conversation.add_system_message("System")
+        package = tmp_path / "litkit"
+        package.mkdir()
+        (package / "__init__.py").touch()
+        (package / "db.py").write_text("def connect_db(path): return None\n")
+        (package / "cli.py").write_text(
+            dedent("""
+            import os
+            from pathlib import Path
+            from types import SimpleNamespace
 
-        # Mock variant generation
-        client = MagicMock(spec=OpenAIClient)
-        client.chat = AsyncMock(return_value=AssistantMessage(content='["variant 1", "variant 2"]'))
+            def record(event):
+                with (Path(__file__).parent / "events").open("a") as stream:
+                    print(event, file=stream)
 
-        chunks = [RetrievedChunk(chunk_id=i, text=f"C{i}", paper_title="P") for i in range(3)]
+            def get_runtime():
+                cache = Path(os.environ["LITKIT_WORKSPACE"]) / "hf_cache"
+                os.environ.setdefault("HF_HOME", str(cache))
 
-        retrieve_calls: list[str] = []
+            def model(name):
+                assert Path(os.environ["HF_HOME"]) == Path(os.environ["LITKIT_WORKSPACE"]) / "hf_cache"
 
-        def mock_retrieve(query: str, _reuse_ids: Any = None) -> tuple[Any, list[int]]:
-            retrieve_calls.append(query)
-            return chunks, [100]
+                record(name)
+                return name, {}
 
-        with patch.object(provider, "_retrieve_chunks", side_effect=mock_retrieve):
-            result_chunks, result_ids = await provider._multi_query_retrieve(
-                "original query", conversation, client
-            )
+            def deps():
+                record("init")
+                return SimpleNamespace(make_paper_embedder=lambda: model("paper"),
+                                       make_chunk_embedder=lambda: model("chunk"))
 
-            # Should have called retrieve for original + variants
-            assert len(retrieve_calls) >= 2
-            assert "original query" in retrieve_calls
+            def shortlist_papers(query, k, *, embedder=None):
+                assert embedder == "paper" or embedder is None
+                record("shortlist")
+                return [100] if query == "original query" else [200]
 
-    @pytest.mark.asyncio
-    async def test_multi_query_retrieve_merges_by_best_rank(self, provider: Any) -> None:
-        """A variant's top hit can outrank its lower position in the original query."""
-        from chatty.client.openai_client import AssistantMessage, OpenAIClient
-        from chatty.rag.litkit_provider import RetrievedChunk
+            def search_chunks_constrained(query, paper_ids, k, *, embedder=None):
+                assert embedder == "chunk" or embedder is None
+                record(f"search {query} {paper_ids}")
+                return ([99, 8, 5, 3, 7] if query == "original query" else [3, 6, 8]), {}
 
+            def get_chunks(conn, ids):
+                return [dict(id=i, text=str(i), title="Paper") for i in ids if i != 99]
+        """)
+        )
+        monkeypatch.setenv("PYTHONPATH", str(tmp_path))
+        monkeypatch.delenv("HF_HOME", raising=False)
         client = MagicMock(spec=OpenAIClient)
         client.chat = AsyncMock(return_value=AssistantMessage(content='["variant query"]'))
+        chunks, papers = await provider._multi_query_retrieve(
+            "original query", Conversation(), client, reuse
+        )
 
-        def retrieve(query: str, _reuse_ids: Any = None) -> tuple[list[RetrievedChunk], list[int]]:
-            if query == "original query":
-                ids, papers = [8, 5, 3, 7], [100]
-            else:
-                ids, papers = [3, 6, 8], [200]
-            return [RetrievedChunk(i, f"Excerpt {i}", "Paper") for i in ids], papers
-
-        with patch.object(provider, "_retrieve_chunks", side_effect=retrieve):
-            chunks, papers = await provider._multi_query_retrieve(
-                "original query", Conversation(), client
-            )
-
-        assert [chunk.chunk_id for chunk in chunks] == [8, 3, 5, 6, 7]
-        assert set(papers) == {100, 200}
+        assert [c.chunk_id for c in chunks] == [8, 3, 5, 6, 7]
+        assert set(papers) == ({300} if reuse else {100, 200})
+        events = (package / "events").read_text().splitlines()
+        assert events.count("init") == 1
+        assert events.count("paper") == (0 if reuse else 1)
+        assert events.count("shortlist") == (0 if reuse else 2)
+        assert events.count("chunk") == 1
+        assert f"search original query {reuse or [100]}" in events
+        assert f"search variant query {reuse or [200]}" in events
 
     @pytest.mark.asyncio
     async def test_multi_query_retrieve_fallback_on_error(self, provider: Any) -> None:
@@ -1340,6 +1364,27 @@ class TestLitkitProviderMultiQuery:
 
             # Should fall back to single-query result
             assert len(result_chunks) == 1
+
+    @pytest.mark.parametrize("variants", [[], ["variant"]])
+    async def test_failed_worker_retries_original_with_its_shortlist(
+        self, provider: Any, variants: list[str]
+    ) -> None:
+        import json
+
+        from chatty.client.openai_client import AssistantMessage, OpenAIClient
+        from chatty.rag.litkit_provider import LitkitError, RetrievedChunk
+
+        client = MagicMock(spec=OpenAIClient)
+        client.chat = AsyncMock(return_value=AssistantMessage(content=json.dumps(variants)))
+        original = ([RetrievedChunk(1, "Original", "Paper")], [100])
+        with patch.object(
+            provider, "_retrieve_chunks", side_effect=[LitkitError("variant failed"), original]
+        ) as retrieve:
+            assert await provider._multi_query_retrieve("query", None, client, [100]) == original
+        assert retrieve.call_args_list == [
+            call("query", [100], variants=variants),
+            call("query", [100]),
+        ]
 
     @pytest.mark.asyncio
     async def test_augment_uses_multi_query_when_enabled(self, provider: Any) -> None:

@@ -9,7 +9,6 @@ import subprocess
 import sys
 import textwrap
 from dataclasses import dataclass, replace
-from itertools import zip_longest
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -49,58 +48,21 @@ No explanation, just the array:"""
 #   2: db_path
 #   3: top_papers (for stage-1)
 #   4: top_chunks (for stage-2)
-#   5: query
-#   6: (optional) JSON list of paper_ids to reuse (skips stage-1 if provided)
-#
+# stdin: JSON with queries in priority order and optional paper_ids to reuse
 # Output: JSON with chunks and paper_ids used for potential reuse
 _RETRIEVAL_SCRIPT = textwrap.dedent("""
 import json
 import os
 import sys
+from itertools import zip_longest
 
 # Set environment before any imports
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["LITKIT_WORKSPACE"] = sys.argv[1]
 
-try:
-    from litkit.cli import deps, get_chunks, search_chunks_constrained, shortlist_papers
-    from litkit.db import connect_db
-
-    # Initialize litkit deps
-    deps()
-
-    db_path = sys.argv[2]
-    top_papers = int(sys.argv[3])
-    top_chunks = int(sys.argv[4])
-    query = sys.argv[5]
-
-    # Check for optional paper_ids to reuse (skips stage-1)
-    reuse_paper_ids = None
-    if len(sys.argv) > 6 and sys.argv[6]:
-        reuse_paper_ids = json.loads(sys.argv[6])
-
-    conn = connect_db(db_path)
-
-    # Stage 1: Shortlist papers (skip if reusing paper_ids)
-    if reuse_paper_ids:
-        paper_ids = reuse_paper_ids
-    else:
-        paper_ids = shortlist_papers(query, top_papers)
-
-    if not paper_ids:
-        print(json.dumps({"chunks": [], "paper_ids": []}))
-        sys.exit(0)
-
-    # litkit returns ranked chunk IDs and index settings (nprobe, nlist, etc.).
-    chunk_ids, _settings = search_chunks_constrained(query, paper_ids, top_chunks)
-
-    if not chunk_ids:
-        print(json.dumps({"chunks": [], "paper_ids": paper_ids}))
-        sys.exit(0)
-
-    # get_chunks preserves the requested ID order.
+def read_chunks(conn, chunk_ids):
+    # get_chunks returns the available rows in the order requested.
     chunks_data = get_chunks(conn, chunk_ids)
-
     chunks = []
     for i, chunk_data in enumerate(chunks_data):
         if isinstance(chunk_data, dict):
@@ -124,8 +86,51 @@ try:
             "pmcid": str(pmcid) if pmcid else None,
         })
 
-    # Return chunks AND paper_ids for potential reuse in next turn
-    print(json.dumps({"chunks": chunks, "paper_ids": paper_ids}))
+    return chunks
+
+
+try:
+    from litkit.cli import deps, get_chunks, get_runtime, search_chunks_constrained, shortlist_papers
+    from litkit.db import connect_db
+
+    get_runtime()  # Set up the workspace model cache before constructing embedders.
+    resources = deps()
+    top_papers = int(sys.argv[3])
+    top_chunks = int(sys.argv[4])
+    request = json.load(sys.stdin)
+    queries = request["queries"]
+
+    # Complete each stage for every query before releasing its model.
+    if request["paper_ids"]:
+        shortlists = [request["paper_ids"]] * len(queries)
+    else:
+        paper_model, _ = resources.make_paper_embedder()
+        shortlists = [shortlist_papers(q, top_papers, embedder=paper_model) for q in queries]
+        del paper_model
+
+    paper_ids = list(dict.fromkeys(p for shortlist in shortlists for p in shortlist))
+    if not paper_ids:
+        print(json.dumps({"chunks": [], "paper_ids": []}))
+        sys.exit(0)
+
+    chunk_model, _ = resources.make_chunk_embedder()
+    conn = connect_db(sys.argv[2])
+    ranked_chunks = []
+    for query, shortlist in zip(queries, shortlists, strict=True):
+        if shortlist:
+            chunk_ids, _settings = search_chunks_constrained(
+                query, shortlist, top_chunks, embedder=chunk_model
+            )
+            ranked_chunks.append(read_chunks(conn, chunk_ids))
+
+    # A missing SQLite row is omitted before computing rank, as in a single search.
+    unique = {}
+    for hits in zip_longest(*ranked_chunks):
+        for chunk in hits:
+            if chunk is not None:
+                unique.setdefault(chunk["chunk_id"], chunk)
+
+    print(json.dumps({"chunks": list(unique.values()), "paper_ids": paper_ids}))
 
 except Exception as e:
     # Output error as JSON for parsing
@@ -328,6 +333,8 @@ class LitkitProvider:
         self,
         query: str,
         reuse_paper_ids: list[int] | None = None,
+        *,
+        variants: list[str] | None = None,
     ) -> tuple[list[RetrievedChunk], list[int]]:
         """Retrieve relevant chunks using litkit in a subprocess.
 
@@ -336,7 +343,8 @@ class LitkitProvider:
         when spawning processes from within Textual's terminal I/O context.
 
         Args:
-            query: The search query.
+            query: The primary search query.
+            variants: Additional queries sharing this worker and its retrieval models.
             reuse_paper_ids: Optional list of paper IDs to reuse (skips stage-1).
 
         Returns:
@@ -346,6 +354,8 @@ class LitkitProvider:
         Raises:
             LitkitError: If retrieval fails.
         """
+        queries = [query, *(variants or [])]
+        timeout = 120 * len(queries)
         try:
             # Build command args
             cmd = [
@@ -356,23 +366,17 @@ class LitkitProvider:
                 str(self._db_path),
                 str(self._top_papers),
                 str(self._top_chunks),
-                query,
             ]
-
-            # Add optional paper_ids for shortlist reuse
-            if reuse_paper_ids:
-                cmd.append(json.dumps(reuse_paper_ids))
-            else:
-                cmd.append("")  # Empty string = run stage-1
 
             # Run retrieval script in isolated subprocess
             result = subprocess.run(
                 cmd,
+                input=json.dumps({"queries": queries, "paper_ids": reuse_paper_ids}),
                 capture_output=True,
                 encoding="utf-8",
                 env={**os.environ, "PYTHONIOENCODING": "utf-8"},
                 close_fds=True,  # Close all fds - avoids inheritance issues
-                timeout=120,  # 2 minute timeout
+                timeout=timeout,  # Preserve the two-minute allowance per query.
             )
 
             if result.returncode != 0:
@@ -412,7 +416,7 @@ class LitkitProvider:
             return chunks, paper_ids
 
         except subprocess.TimeoutExpired:
-            raise LitkitError("Retrieval timed out after 120 seconds") from None
+            raise LitkitError(f"Retrieval timed out after {timeout} seconds") from None
         except json.JSONDecodeError as e:
             raise LitkitError(f"Failed to parse retrieval results: {e}") from e
         except Exception as e:
@@ -770,31 +774,12 @@ class LitkitProvider:
                 original_query=original_query,
             )
 
-            ranked_lists: list[list[RetrievedChunk]] = []
-            all_paper_ids: set[int] = set()
-
-            # Run retrieval for each variant (including original query)
-            queries = [query] + [v for v in variants if v != query]
-
-            for q in queries:
-                chunks, paper_ids = await asyncio.to_thread(
-                    self._retrieve_chunks, q, reuse_paper_ids
-                )
-                ranked_lists.append(chunks)
-                all_paper_ids.update(paper_ids)
-
-            # Visit each query's first hit, then each second hit, and so on.
-            # The first occurrence of an ID is its best rank in any query.
-            unique_chunks: dict[int, RetrievedChunk] = {}
-            for hits_at_rank in zip_longest(*ranked_lists):
-                for chunk in hits_at_rank:
-                    if chunk is not None:
-                        unique_chunks.setdefault(chunk.chunk_id, chunk)
-
-            return list(unique_chunks.values()), list(all_paper_ids)
-
+            variants = list(dict.fromkeys(v for v in variants if v != query))
+            return await asyncio.to_thread(
+                self._retrieve_chunks, query, reuse_paper_ids, variants=variants
+            )
         except Exception:
-            # Fall back to single-query retrieval
+            # Recover with the original query, including a transient worker failure.
             return await asyncio.to_thread(self._retrieve_chunks, query, reuse_paper_ids)
 
     def _build_metadata(
