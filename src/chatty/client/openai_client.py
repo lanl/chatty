@@ -18,6 +18,8 @@ Requests are retried with exponential backoff for transient failures:
     Attempt 2: wait 1s (or Retry-After header)
     Attempt 3: wait 2s (or Retry-After header)
 
+A server-requested delay above 60 seconds is reported to the caller immediately.
+
 Retryable conditions:
     - HTTP 429 (Too Many Requests)
     - HTTP 500, 502, 503, 504 (Server Errors)
@@ -105,8 +107,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
+from email.utils import parsedate_to_datetime
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -122,6 +128,7 @@ if TYPE_CHECKING:
 MAX_RETRIES = 2
 RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
 BASE_BACKOFF_SECONDS = 1.0
+MAX_RETRY_AFTER_SECONDS = 60
 
 
 class ChattyClientError(Exception):
@@ -146,6 +153,23 @@ class APIError(ChattyClientError):
     """Other API errors."""
 
     pass
+
+
+def _retry_after_seconds(header: str | None, fallback: float) -> float:
+    """Return the server's delay, or the usual backoff for an invalid header."""
+    if not header:
+        return fallback
+    try:
+        seconds = Decimal(header)
+    except InvalidOperation:
+        try:
+            when = parsedate_to_datetime(header)
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=UTC)  # Obsolete HTTP asctime format
+            return max(0.0, (when - datetime.now(UTC)).total_seconds())
+        except (ValueError, TypeError, OverflowError):
+            return fallback
+    return float(seconds) if seconds.is_finite() and seconds >= 0 else fallback
 
 
 @dataclass
@@ -273,17 +297,18 @@ class OpenAIClient:
 
                 # Retryable errors
                 if response.status_code in RETRY_STATUS_CODES:
-                    # Check Retry-After header (can be seconds or HTTP-date)
-                    retry_after = response.headers.get("Retry-After")
-                    if retry_after:
-                        try:
-                            wait_time = float(retry_after)
-                        except ValueError:
-                            # HTTP-date format (e.g., "Fri, 31 Dec 1999 23:59:59 GMT")
-                            # Fall back to exponential backoff
-                            wait_time = BASE_BACKOFF_SECONDS * (2**attempt)
-                    else:
-                        wait_time = BASE_BACKOFF_SECONDS * (2**attempt)
+                    wait_time = _retry_after_seconds(
+                        response.headers.get("Retry-After"), BASE_BACKOFF_SECONDS * (2**attempt)
+                    )
+                    if wait_time > MAX_RETRY_AFTER_SECONDS:
+                        message = (
+                            f"Try again in {math.ceil(wait_time):g} seconds."
+                            if math.isfinite(wait_time)
+                            else "The requested retry delay is too long. Try again later."
+                        )
+                        if response.status_code == 429:
+                            raise RateLimitError(f"Rate limited. {message}")
+                        raise APIError(f"Server error {response.status_code}. {message}")
 
                     if attempt < MAX_RETRIES:
                         await asyncio.sleep(wait_time)

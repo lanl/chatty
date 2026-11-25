@@ -2,6 +2,8 @@
 
 import json
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
+from email.utils import format_datetime
 from typing import cast
 from unittest.mock import AsyncMock, patch
 
@@ -306,46 +308,64 @@ class TestOpenAIClientRetry:
         await client.close()
 
     @respx.mock
-    @pytest.mark.asyncio
-    async def test_retry_with_http_date_retry_after(
-        self, client: OpenAIClient, sample_messages: list[Message]
-    ) -> None:
-        """Test retry handles HTTP-date format Retry-After header.
-
-        Some servers return Retry-After as an HTTP-date instead of seconds.
-        The client should fall back to exponential backoff when it can't
-        parse the value as a float.
-        """
-        call_count = 0
-
-        def http_date_then_succeed(_request: httpx.Request) -> httpx.Response:
-            nonlocal call_count
-            call_count += 1
-            if call_count < 2:
-                # HTTP-date format (RFC 7231)
-                return httpx.Response(
-                    429,
-                    headers={"Retry-After": "Sat, 25 Jan 2026 12:00:00 GMT"},
-                )
-            return httpx.Response(
-                200,
-                json={"choices": [{"message": {"content": "OK"}}]},
-            )
-
-        respx.post("https://api.test.com/v1/chat/completions").mock(
-            side_effect=http_date_then_succeed
+    @pytest.mark.parametrize(
+        "header, expected",
+        [
+            ("0", 0),
+            ("0.25", 0.25),
+            ("60", 60),
+            ("nan", 1),
+            ("inf", 1),
+            ("-inf", 1),
+            ("-3", 1),
+            ("invalid date", 1),
+            ("Sat, 25 Jan 2020 12:00:00 GMT", 0),
+        ],
+    )
+    async def test_retry_delay(self, client: OpenAIClient, header: str, expected: float) -> None:
+        route = respx.get("https://api.test.com/v1/models").mock(
+            side_effect=[
+                httpx.Response(429, headers={"Retry-After": header}),
+                httpx.Response(200, json={"data": []}),
+            ]
         )
+        with patch("chatty.client.openai_client.asyncio.sleep", new_callable=AsyncMock) as sleep:
+            assert await client.models() == []
+        sleep.assert_awaited_once_with(expected)
+        assert route.call_count == 2
+        await client.close()
 
-        # Patch sleep to speed up test and verify it was called
-        with patch("chatty.client.openai_client.asyncio.sleep", new=AsyncMock()) as mock_sleep:
-            result = await client.chat(sample_messages, stream=False)
+    @respx.mock
+    @pytest.mark.parametrize("status, error", [(429, RateLimitError), (503, APIError)])
+    @pytest.mark.parametrize("as_date", [False, True])
+    async def test_long_retry_after_fails_without_sleeping(
+        self, client: OpenAIClient, status: int, error: type[Exception], as_date: bool
+    ) -> None:
+        header = format_datetime(datetime.now(UTC) + timedelta(hours=1)) if as_date else "3600"
+        route = respx.get("https://api.test.com/v1/models").respond(
+            status, headers={"Retry-After": header}
+        )
+        with (
+            patch("chatty.client.openai_client.asyncio.sleep", new_callable=AsyncMock) as sleep,
+            pytest.raises(error, match=r"Try again in 3[56]\d{2} seconds"),
+        ):
+            await client.models()
+        sleep.assert_not_awaited()
+        assert route.call_count == 1
+        await client.close()
 
-        assert isinstance(result, AssistantMessage)
-        assert result.content == "OK"
-        assert call_count == 2
-        # Should have slept (exponential backoff fallback)
-        mock_sleep.assert_called()
-
+    @respx.mock
+    async def test_valid_integer_delay_beyond_float_range(self, client: OpenAIClient) -> None:
+        route = respx.get("https://api.test.com/v1/models").respond(
+            429, headers={"Retry-After": "9" * 309}
+        )
+        with (
+            patch("chatty.client.openai_client.asyncio.sleep", new_callable=AsyncMock) as sleep,
+            pytest.raises(RateLimitError, match="retry delay is too long"),
+        ):
+            await client.models()
+        sleep.assert_not_awaited()
+        assert route.call_count == 1
         await client.close()
 
 
