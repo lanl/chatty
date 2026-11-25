@@ -9,17 +9,23 @@ Tests the full ChatApp flow including:
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
+import respx
 from pydantic import SecretStr
 
-from chatty.client.openai_client import AssistantMessage, Message
+from chatty.client.openai_client import AssistantMessage, Message, OpenAIClient
 from chatty.config import Config, ConfigWithSources
+from chatty.core.conversation import Conversation
 from chatty.core.session import Session, SessionMetadata, load_session, save_session
+from chatty.rag.litkit_provider import LitkitProvider, RetrievedChunk
+from chatty.rag.provider import RAGMetadata
 from chatty.ui.app import ChatApp
-from chatty.ui.modals import CompressionPreviewModal, SessionRenameModal
+from chatty.ui.modals import CompressionPreviewModal, ModelPickerModal, SessionRenameModal
 from chatty.ui.widgets import ChatInput, ChatLog, StatusBar
 
 
@@ -36,6 +42,24 @@ def mock_config_with_sources(tmp_path: Path) -> ConfigWithSources:
         transcript_enabled=False,
     )
     return ConfigWithSources(config=config, sources={})
+
+
+@pytest.fixture
+def rag_config(
+    mock_config_with_sources: ConfigWithSources, monkeypatch: pytest.MonkeyPatch
+) -> ConfigWithSources:
+    config = mock_config_with_sources.config
+    config.rag_provider = "litkit"
+    config.rag_rewrite_enabled = False
+    config.stream = False
+    monkeypatch.setattr(LitkitProvider, "_check_litkit_installed", lambda _self: None)
+    monkeypatch.setattr(LitkitProvider, "_validate_workspace", lambda _self: None)
+    monkeypatch.setattr(
+        LitkitProvider,
+        "_retrieve_chunks",
+        lambda *_args: ([RetrievedChunk(1, "Passage", "Paper")], [42]),
+    )
+    return mock_config_with_sources
 
 
 @pytest.fixture
@@ -582,6 +606,136 @@ class TestHandleFilePath:
 class TestHandleModelSelection:
     """Tests for _handle_model_selection callback."""
 
+    @pytest.mark.parametrize("action", ["submit", "regenerate", "compress"])
+    async def test_model_picker_finishes_during_chat_action(
+        self,
+        action: str,
+        mock_config_with_sources: ConfigWithSources,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        mock_config_with_sources.config.context_window = 16000
+        mock_config_with_sources.config.stream = False
+        release = asyncio.Event()
+
+        async def models(_client: OpenAIClient) -> list[str]:
+            await release.wait()
+            return ["test-model", "other-model"]
+
+        monkeypatch.setattr(OpenAIClient, "models", models)
+        reply = AsyncMock(return_value=AssistantMessage("Answer"))
+        monkeypatch.setattr(OpenAIClient, "chat", reply)
+        app = ChatApp(config_with_sources=mock_config_with_sources)
+        async with app.run_test() as pilot:
+            app.query_one(ChatInput).text = "First question"
+            app.action_submit()
+            await app.workers.wait_for_complete()
+            await pilot.press("ctrl+g")
+            app.query_one(ChatInput).text = "Second question"
+            getattr(app, f"action_{action}")()
+            worker = app._compression_worker if action == "compress" else app.current_worker
+            assert worker is not None
+            await worker.wait()
+            await pilot.pause()
+            assert reply.await_count == 2
+            release.set()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert isinstance(app.screen, ModelPickerModal)
+
+    @respx.mock
+    @pytest.mark.parametrize("override", [None, 16000])
+    async def test_context_window_follows_model_selection(
+        self,
+        override: int | None,
+        mock_config_with_sources: ConfigWithSources,
+    ) -> None:
+        mock_config_with_sources.config.context_window = override or "auto"
+        models = respx.get("http://test.local/v1/models").respond(
+            json={
+                "data": [
+                    {"id": "test-model", "context_length": 64000},
+                    {"id": "other-model", "context_length": 8192},
+                    {"id": "unknown-model"},
+                ]
+            }
+        )
+        app = ChatApp(config_with_sources=mock_config_with_sources)
+        async with app.run_test():
+            await app.workers.wait_for_complete()
+            assert app.conversation is not None
+            assert app.conversation.context_window == (override or 64000)
+            app.conversation.server_reported_tokens = 10000
+            app._handle_model_selection("other-model")
+            await app.workers.wait_for_complete()
+            assert app.conversation.context_window == (override or 8192)
+            assert app.conversation.server_reported_tokens is None
+            app._handle_model_selection("unknown-model")
+            await app.workers.wait_for_complete()
+            assert app.conversation.context_window == (override or 128000)
+            if override:
+                assert not models.called
+            else:
+                warning = app.query_one(ChatLog).get_last_message()
+                assert warning is not None
+                assert "unknown-model" in warning.message_content
+                assert "128,000" in warning.message_content
+
+    @respx.mock
+    @pytest.mark.parametrize("replace_turn", [False, True], ids=["finish", "supersede"])
+    async def test_switch_during_retrieval_uses_each_models_budget(
+        self,
+        rag_config: ConfigWithSources,
+        monkeypatch: pytest.MonkeyPatch,
+        replace_turn: bool,
+    ) -> None:
+        respx.get("http://test.local/v1/models").respond(
+            json={
+                "data": [
+                    {"id": "test-model", "context_length": 64000},
+                    {"id": "small", "context_length": 2000},
+                ]
+            }
+        )
+        replies = respx.post("http://test.local/v1/chat/completions").respond(
+            json={"choices": [{"message": {"content": "Answer"}}], "usage": {"total_tokens": 500}}
+        )
+        app = ChatApp(config_with_sources=rag_config)
+        searching = asyncio.Event()
+        release = asyncio.Event()
+        augment = app.rag_provider.augment
+
+        async def delayed(
+            conversation: Conversation, question: str, client: object
+        ) -> tuple[list[Message], RAGMetadata]:
+            searching.set()
+            await release.wait()
+            return await augment(conversation, question, client)
+
+        monkeypatch.setattr(app.rag_provider, "augment", delayed)
+        async with app.run_test() as pilot:
+            app.query_one(ChatInput).text = "First question"
+            app.action_submit()
+            await asyncio.wait_for(searching.wait(), timeout=5)
+            app._handle_model_selection("small")
+            if not replace_turn:
+                release.set()
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                first = json.loads(replies.calls.last.request.content)
+                assert first["model"] == "test-model"
+                assert "Passage" in first["messages"][-1]["content"]
+                assert app.conversation is not None
+                assert app.conversation.server_reported_tokens is None
+            app.query_one(ChatInput).text = "Next question"
+            app.action_submit()
+            release.set()
+            assert app.current_worker is not None
+            await app.current_worker.wait()
+            assert replies.call_count == (1 if replace_turn else 2)
+            last = json.loads(replies.calls.last.request.content)
+            assert last["model"] == "small"
+            assert last["messages"][-1]["content"] == "Next question"
+
     async def test_handle_model_selection_updates_model(
         self, mock_config_with_sources: ConfigWithSources
     ) -> None:
@@ -758,25 +912,45 @@ class TestHandleSessionLoad:
 class TestQueryFileLoading:
     """Tests for query_file loading on startup."""
 
-    async def test_load_query_file_on_startup(
-        self, mock_config_with_sources: ConfigWithSources, tmp_path: Path
+    @respx.mock
+    @pytest.mark.parametrize("limit", [2000, None], ids=["advertised", "unavailable"])
+    async def test_first_rag_query_uses_discovered_window(
+        self,
+        rag_config: ConfigWithSources,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        limit: int | None,
     ) -> None:
-        """ChatApp loads query from query_file parameter without crash."""
-        # Create a query file
+        release = asyncio.Event()
+
+        async def models(_request: httpx.Request) -> httpx.Response:
+            await release.wait()
+            return httpx.Response(
+                200, json={"data": [{"id": "test-model", "context_length": limit}]}
+            )
+
+        respx.get("http://test.local/v1/models").mock(side_effect=models)
+        chat = AsyncMock(return_value=AssistantMessage("Answer"))
+        monkeypatch.setattr(OpenAIClient, "chat", chat)
         query_file = tmp_path / "query.txt"
         query_file.write_text("Initial query from file")
 
         app = ChatApp(
-            config_with_sources=mock_config_with_sources,
+            config_with_sources=rag_config,
             query_file=str(query_file),
         )
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            await pilot.pause()
-
-            # Just verify app loaded without crash
-            # Query loading is async and may not be complete
+        async with app.run_test():
+            release.set()
+            await app.workers.wait_for_complete()
+            chat.assert_awaited_once()
+            question = chat.await_args_list[0].args[0][-1].content
+            assert "Initial query from file" in question
+            # Only the fallback window has room for the passage after reserving 2,000 tokens.
+            assert ("Passage" in question) == (limit is None)
             assert app.conversation is not None
+            expected = limit or 128000
+            assert app.conversation.context_window == expected
+            assert f"{expected:,} tokens" in app.query_one(StatusBar)._tokens
 
 
 class TestStatusBarUpdates:

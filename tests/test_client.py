@@ -427,6 +427,45 @@ class TestOpenAIClientModels:
     """Tests for models endpoint."""
 
     @respx.mock
+    @pytest.mark.parametrize(
+        ("fields", "expected"),
+        [
+            ({"max_model_len": 32768}, 32768),
+            ({"context_length": None, "context_window": "8192"}, 8192),
+            ({"max_context_length": 4096}, 4096),
+            ({"context_length": 32768.0}, 32768),
+            ({"context_window": -1}, None),
+            ({"context_length": True}, None),
+            ({"context_length": 1.5}, None),
+            ({"max_tokens": 2048}, None),
+        ],
+    )
+    async def test_model_context_length(
+        self,
+        client: OpenAIClient,
+        fields: dict[str, object],
+        expected: int | None,
+    ) -> None:
+        respx.get("https://api.test.com/v1/models").respond(
+            json={
+                "data": [
+                    {"id": "other", "context_length": 99999},
+                    {"id": "unfamiliar", **fields},
+                ]
+            }
+        )
+        assert await client.get_model_context_length("unfamiliar") == expected
+        await client.close()
+
+    @respx.mock
+    async def test_context_lookup_bounds_retry_after(self, client: OpenAIClient) -> None:
+        client.config.timeout_s = 1
+        respx.get("https://api.test.com/v1/models").respond(429, headers={"Retry-After": "60"})
+        with pytest.raises(APIError, match="lookup timed out"):
+            await client.get_model_context_length("unfamiliar")
+        await client.close()
+
+    @respx.mock
     @pytest.mark.asyncio
     async def test_list_models(self, client: OpenAIClient) -> None:
         """Test listing available models."""

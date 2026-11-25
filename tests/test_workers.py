@@ -8,6 +8,7 @@ Tests the async worker functions extracted from ChatApp:
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -39,6 +40,8 @@ def mock_app() -> MagicMock:
     app.transcript = MagicMock()
     app._pending_user_text = "test message"
     app._current_model = "gpt-4"
+    app._context_window_ready = asyncio.Event()
+    app._context_window_ready.set()
     app.streaming = True
     app.current_worker = MagicMock()
     app.last_rag_metadata = None

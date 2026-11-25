@@ -165,6 +165,26 @@ class AssistantMessage:
     usage: dict[str, int] | None = None
 
 
+def model_context_length(metadata: dict[str, Any], model: str) -> int | None:
+    """Read the selected model's token limit from an OpenAI-compatible /models response."""
+    for entry in metadata.get("data", []):
+        if not isinstance(entry, dict) or entry.get("id") != model:
+            continue
+        for field in ("max_model_len", "context_length", "context_window", "max_context_length"):
+            value = entry.get(field)
+            if isinstance(value, float) and value.is_integer():
+                value = int(value)
+            elif isinstance(value, str):
+                try:
+                    value = int(value)
+                except ValueError:
+                    continue
+            if type(value) is int and value > 0:
+                return value
+        break
+    return None
+
+
 class OpenAIClient:
     """Async client for OpenAI-compatible chat completions API.
 
@@ -406,8 +426,7 @@ class OpenAIClient:
     async def get_model_context_length(self, model: str) -> int | None:
         """Get context length for a specific model.
 
-        Fetches model metadata from /models endpoint and extracts
-        the context_length field if available.
+        Fetches the token limit advertised for this deployment from /models.
 
         Args:
             model: Model ID to look up.
@@ -421,24 +440,15 @@ class OpenAIClient:
         url = f"{self.config.base_url}/models"
         headers = self._get_headers()
 
-        response = await self._request_with_retry("GET", url, headers=headers)
-        data = response.json()
-
-        for model_data in data.get("data", []):
-            if model_data.get("id") == model:
-                # Try common field names for context length
-                # OpenAI/LM Studio use "context_length"
-                # Some endpoints use "max_context_length" or "context_window"
-                context_length = model_data.get(
-                    "context_length",
-                    model_data.get("max_context_length", model_data.get("context_window")),
-                )
-                if context_length is not None:
-                    return int(context_length)
-                return None
-
-        # Model not found in list
-        return None
+        # Retrieval may be waiting for this budget. Bound the whole lookup, including retries.
+        try:
+            async with asyncio.timeout(self.config.timeout_s):
+                response = await self._request_with_retry("GET", url, headers=headers)
+        except TimeoutError as e:
+            raise APIError(
+                f"Context window lookup timed out after {self.config.timeout_s}s."
+            ) from e
+        return model_context_length(response.json(), model)
 
     async def close(self) -> None:
         """Close the HTTP client."""
