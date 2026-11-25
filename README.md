@@ -63,14 +63,17 @@ uv sync
 ### Offline (air-gapped HPC)
 
 ```bash
-# On connected machine: build wheelhouse
+# On a matching OS and architecture with uv and Python 3.12 installed
 scripts/build-wheelhouse.sh
 
-# Transfer wheelhouse/ to air-gapped system
+# Transfer wheelhouse/ and scripts/install-offline.sh, keeping this layout
 
 # On air-gapped machine: install from wheelhouse
 scripts/install-offline.sh
+.venv/bin/chatty --help
 ```
+
+This bundle installs base Chatty. The optional LitKit retrieval stack requires a separate installation.
 
 ## Configuration
 
@@ -562,9 +565,10 @@ Or use `chatty.toml` in the project directory.
 ### Known Caveats
 
 1. **Not tested** — There may be edge cases with terminal I/O, keyboard shortcuts, or clipboard handling
-2. **Offline install scripts are bash-only** — For air-gapped Windows systems, use WSL or manually install from the wheelhouse:
+2. **Offline install scripts are bash-only** — For air-gapped Windows systems, use WSL or use a wheelhouse built for native Windows and the same Python minor version:
    ```powershell
-   pip install --no-index --find-links=wheelhouse chatty
+   $bundle = Join-Path wheelhouse (Get-Content wheelhouse/current)
+   python -m pip install --no-index --find-links="$bundle" --require-hashes --force-reinstall -r "$bundle/requirements.lock"
    ```
 3. **Keyboard shortcuts** — Some shortcuts may conflict with PowerShell defaults (e.g., `Ctrl+C` for copy vs interrupt)
 4. **Path separators** — Config file paths in `chatty.toml` should use forward slashes (`/`) or escaped backslashes (`\\`)

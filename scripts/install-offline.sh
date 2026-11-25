@@ -1,72 +1,29 @@
 #!/bin/bash
-# Install chatty from local wheelhouse (no network required)
-#
-# Usage:
-#   ./scripts/install-offline.sh [wheelhouse_dir]
-#
-# This script installs chatty and all dependencies from a pre-built
-# wheelhouse directory. Run on air-gapped machines.
-#
-# Prerequisites:
-#   - uv installed on target machine
-#   - wheelhouse/ directory transferred from connected machine
-#   - scripts/requirements.lock exists (part of repo)
-#
-# See: docs/DEVELOPER_GUIDE.md for full offline install instructions
-
+# Install base Chatty from a transferred wheelhouse using an installed Python.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-WHEELHOUSE="${1:-${PROJECT_ROOT}/wheelhouse}"
-REQUIREMENTS="${SCRIPT_DIR}/requirements.lock"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+project_root="$(dirname "$script_dir")"
+wheelhouse="${1:-$project_root/wheelhouse}"
+venv="$project_root/.venv"
 
-# Check for wheelhouse directory
-if [[ ! -d "$WHEELHOUSE" ]]; then
-    echo "Error: Wheelhouse directory not found: $WHEELHOUSE"
-    echo ""
-    echo "Transfer the wheelhouse/ directory from a connected machine."
-    echo "On connected machine, run: ./scripts/build-wheelhouse.sh"
+if [[ ! -s "$wheelhouse/current" ]]; then
+    echo "Incomplete wheelhouse at $wheelhouse. Rebuild with scripts/build-wheelhouse.sh." >&2
     exit 1
 fi
+bundle="$wheelhouse/$(cat "$wheelhouse/current")"
+required_python="$(cat "$bundle/.python-version")"
 
-# Check for requirements.lock
-if [[ ! -f "$REQUIREMENTS" ]]; then
-    echo "Error: requirements.lock not found"
-    echo ""
-    echo "Transfer requirements.lock from the connected machine."
-    exit 1
+if [[ -d "$venv" ]]; then
+    installed_python="$("$venv/bin/python" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+    if [[ "$installed_python" != "$required_python" ]]; then
+        echo "$venv uses Python $installed_python. Move it aside to install the Python $required_python bundle." >&2
+        exit 1
+    fi
+else
+    uv venv --offline --python "$required_python" "$venv"
 fi
+uv pip install --offline --python "$venv/bin/python" --no-index --reinstall-package chatty \
+    --find-links "$bundle" --require-hashes -r "$bundle/requirements.lock"
 
-# Count wheels
-WHEEL_COUNT=$(find "$WHEELHOUSE" -name "*.whl" | wc -l | tr -d ' ')
-if [[ "$WHEEL_COUNT" -eq 0 ]]; then
-    echo "Error: No wheel files found in $WHEELHOUSE/"
-    exit 1
-fi
-
-echo "Installing chatty from local wheelhouse..."
-echo "  Wheelhouse: $WHEELHOUSE/ ($WHEEL_COUNT wheels)"
-echo "  Requirements: $REQUIREMENTS"
-
-# Create virtual environment if it doesn't exist
-if [[ ! -d "${PROJECT_ROOT}/.venv" ]]; then
-    echo ""
-    echo "Creating virtual environment..."
-    uv venv "${PROJECT_ROOT}/.venv"
-fi
-
-# Install from wheelhouse (no network)
-echo ""
-echo "Installing packages (offline)..."
-uv pip install --no-index --find-links="$WHEELHOUSE/" -r "$REQUIREMENTS"
-
-echo ""
-echo "Installation complete!"
-echo ""
-echo "To use chatty:"
-echo "  source .venv/bin/activate"
-echo "  chatty --help"
-echo ""
-echo "Or run directly:"
-echo "  uv run chatty --help"
+echo "Installation complete. Run $venv/bin/chatty --help"

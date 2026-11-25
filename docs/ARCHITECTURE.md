@@ -89,32 +89,11 @@ uv run chatty chat
 
 ### Offline Install (Air-Gapped HPC)
 
-For air-gapped systems where `uv sync` cannot reach PyPI:
-
-**On connected machine (build wheelhouse):**
-```bash
-# Build wheelhouse (requires pip — uv doesn't have a download command yet)
-./scripts/build-wheelhouse.sh
-```
-
-This generates `requirements.lock` and downloads all wheels to `wheelhouse/`.
-
-**Transfer to air-gapped machine:**
-- `wheelhouse/` directory
-- `requirements.lock`
-- `scripts/`, `src/`, `pyproject.toml`
-
-**On air-gapped machine:**
-```bash
-# Install from local wheelhouse (no network required, uses only uv)
-./scripts/install-offline.sh
-```
-
-**Scripts provided:**
-- `scripts/build-wheelhouse.sh` — Downloads wheels (requires: uv, pip)
-- `scripts/install-offline.sh` — Installs from wheelhouse (requires: uv only)
-
-**Note:** The build script requires pip because uv does not yet have a `download` command. The install script uses only uv and does not require pip on the air-gapped machine.
+On a connected machine, `scripts/build-wheelhouse.sh` uses uv and pip to
+build base Chatty and download the locked dependency wheels for the target
+platform. Transfer the entire `wheelhouse/` directory and
+`scripts/install-offline.sh` to the air-gapped machine. The installer uses uv
+and an installed Python to install the hashed wheels into `.venv`.
 
 See `docs/DEVELOPER_GUIDE.md` for detailed instructions.
 
