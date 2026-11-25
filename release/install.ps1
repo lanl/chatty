@@ -9,8 +9,8 @@
         throw 'The laptop suite requires a 64-bit PowerShell on Windows x64.'
     }
 
-    $tag = 'laptop-2026.11.2'
-    $manifestSha = 'debbe6aeb95a57063fedf003c48712ecd802ccacac046724749233352096e9b6'
+    $tag = 'laptop-2026.11.3'
+    $manifestSha = 'd632342c7114c523239d188f7c990c30569affb27a3b749b599f1559c590d8f9'
     $uvSha = 'edd61f7f5728a56cc62455386661860bdfc7bab65872f39b0c25bdcc1d8e1beb'
     $root = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'ChattySuite'
     $runtimes = Join-Path $root 'runtimes'
